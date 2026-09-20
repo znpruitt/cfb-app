@@ -30,7 +30,15 @@ All foundational phases are complete (architecture, production hardening, league
 
 Active campaign status is **not** duplicated here — it drifts. See `docs/next-tasks.md` (the active execution queue and current phase focus) and `docs/roadmap.md` (campaign definitions and development philosophy) for the current campaigns and their status.
 
-**WORK ITEMS ARE FILED AS GITHUB ISSUES, NOT AS QUEUE ENTRIES — owner decision 2026-09-10.** A new finding gets an issue with a **state** label (`actionable`, `needs-decision`, `parked`, `needs-triage`) and at least one **domain** label (`draft`, `preseason`, `season`, `offseason`, `insights`, `admin`, `provider`, `scheduler`, `platform`, `ui`). **`docs/next-tasks.md` stays canonical for DISPATCH ORDER — what is next, and why — and for cross-item rulings.** It is no longer where an item's ask, state or evidence lives. Items filed before the switch migrate on triage; until then both places are real and an un-migrated item is still a queue entry. **A PR that closes an issue says `Closes #N` in its body** — the state transition is the one bookkeeping step that has failed by hand more than once, and this is why it moves.
+**WORK ITEMS ARE FILED AS GITHUB ISSUES, NOT AS QUEUE ENTRIES — owner decision 2026-09-10.** A new
+finding gets an issue with a **state** label (`actionable`, `needs-decision`, `parked`,
+`needs-triage`) and at least one **domain** label (`draft`, `preseason`, `season`, `offseason`,
+`insights`, `admin`, `provider`, `scheduler`, `platform`, `ui`). **`docs/next-tasks.md` stays
+canonical for DISPATCH ORDER — what is next, and why — and for cross-item rulings.** It is no longer
+where an item's ask, state or evidence lives. Items filed before the switch migrate on triage; until
+then both places are real and an un-migrated item is still a queue entry. **A PR that closes an
+issue says `Closes #N` in its body** — the state transition is the one bookkeeping step that has
+failed by hand more than once, and this is why it moves.
 
 **Unresolved decisions and deferrals** are tracked in one place: `docs/next-tasks.md` → "Unresolved decisions & known deferrals" (a top-level section since DOCS-012; it originated under the app-wide PLATFORM-068 audit sequence); per-item history is in `docs/prompt-registry.md`. That section is the single source — do not restate individual item statuses here or in `CLAUDE.md`, so they can't go stale as items ship.
 
@@ -142,11 +150,234 @@ Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there
 1. **API-first schedule + scores**
    - CFBD-backed routes define schedule and score truth.
    - Do not silently reintroduce CSV-first schedule architecture.
-   - **One cache-only season score reader (PLATFORM-084B).** Every season-level score consumer — public `/api/scores`, canonical standings, and the season-rollover archive build — reads cached scores through the shared `loadReconciledSeasonScores` (`src/lib/server/scoreCacheReader.ts`), which reconciles the season-wide (`${year}-all-*`) and per-week (`${year}-<week>-*`) cache entries by canonical game identity (newest wins). Do not add a canonical consumer that reads only the `-all-*` keys — that reintroduces the mismatch where a week-specific refresh is visible on `/api/scores` but not in standings/archives. The reader is cache-only (no provider call; provider fetch stays on the authorized `refresh=1` path per PLATFORM-075) and propagates store-read failures per PLATFORM-084A.
-   - **Durable-first provider cache writes (PLATFORM-085A).** A provider refresh path that keeps a process-local cache alongside durable app-state must `await setAppState(...)` (durable) BEFORE updating the process cache and BEFORE invalidating standings — never memory-first. So a failed durable write surfaces as an error and never leaves one instance serving "fresh" provider data other instances can't reproduce. Order: `fetch/normalize → durable write → process-cache update → invalidation → response`. Hydrating the process cache FROM a durable read (cache-warming on a hit) is exempt — that data is already durable.
-   - **Complete-before-commit for schedule refreshes (PLATFORM-085B / 085C).** Any schedule refresh that fetches provider partitions — the season-transition cron (regular + postseason → `${year}-all-all`) AND the authorized `/api/schedule` route — must validate that ALL requested partitions resolved before publishing durable schedule/probe state. A partition that **throws**, returns a **non-array**, or normalizes a **nonempty** payload to **zero** rows (schema drift) is **uncertainty** — retain prior-good durable state and surface the failure (cron: `partialFailure` on the result); do not commit partial/drifted rows as a complete schedule. A partition that fetches successfully with a **zero-length** array is **valid absence** (e.g. postseason before bowls, a future week). **AMENDED 2026-09-20 (PLATFORM-663, owner-approved).** The `/api/schedule` half of this rule named a gate that no longer exists: `fetchSeasonType` and `hasRequiredSeasonTypeFailure` have **zero production call sites** since the targeted partition path was removed. **The RULE is unchanged and still binds** — uncertainty retains prior-good durable state and surfaces the failure; a zero-length array remains valid absence; partial or drifted rows are never committed as a complete schedule. What changed is that the full-season refresh is now the ONLY committing schedule path, so completeness is validated once, there, rather than per requested partition. **Do not restore the per-partition gate to satisfy this bullet** — the second target is what PLATFORM-663 removed, and the helpers are dead code pending their own removal. Reuse this shared classification rather than re-deriving completeness.
-   - **Truthful provider-refresh status (PLATFORM-086A).** Every provider refresh entry point records status via `src/lib/server/providerRefreshStatus.ts` (scope `provider-refresh-status`), keyed by a **canonical target scope**, not merely by dataset (PLATFORM-086A-SCOPED). The scope is a typed `ProviderRefreshScope` built only through `src/lib/providerRefreshScope.ts` — `global` (conferences), `year` (the aggregate scores/rankings year rollup and the full-year schedule refresh), `season-partition` (a whole scores/schedule partition), `week-partition` (a game-stats week, or a week-specific scores/schedule refresh), `week-reconciliation` (a game-stats week revisited by the PLATFORM-110B bounded correction pass — a DISTINCT kind from `week-partition`, and deliberately NOT in game-stats' `DATASET_ACTIVITY_SCOPE_KINDS` entry: a correction pass targets a partition whose kickoff window closed weeks ago, so recorded under `week-partition` its attempt would be the dataset's most RECENT and would report game-stats' health from the least current data it touches — a week-1 correction failing in week 10 raising a dataset-wide refresh failure. The record stays written and readable and is ineligible as `latestScopedActivity` by construction, with no special case in the reader), `odds-target` (canonical vs filtered, keyed by the durable `odds-cache` key), or `legacy-unscoped` (pre-scoped records). **The operation's exact attempted target — never a broader rollup — chooses the scope (PLATFORM-086A-SCOPED-STATUS review remediation):** schedule records the **`year`** scope and nothing else. **AMENDED 2026-09-20 (PLATFORM-663, owner-approved), replacing ~2,200 characters of week-partition machinery that no longer exists.** This clause mandated splitting a `week` + `all` request into two independent week-partition commits, read-time composition of the pair (`readComposedWeekAllEntry`, `resolveChildCache`), per-partition precedence against a read-only legacy `<year>-<week>-all` aggregate, and `scheduleRefreshScope` throwing for the combination. **PLATFORM-663 removed the targeted partition path**: production held seven whole-year aggregates and zero partitions, no in-repo caller could construct a targeted request, nothing could discover a partition if one existed, and the canonical read precedence had been written out three independent times. All four named symbols now have zero production call sites. **THE INTENT SURVIVES AND STILL BINDS:** a repair must never be invisible to the readers that matter, and a sibling failure must never cross-contaminate another target's status. Aggregate-only satisfies both by having ONE schedule target rather than by scoping two — there is no sibling to contaminate, and a repair lands in the key every reader already reads. **Do not reintroduce a second schedule target to satisfy the old mechanism**; if a targeted repair is ever needed again, it is a new decision with this history attached. single-partition scores use `scoresPartitionScope` (`season-partition` for a whole-partition refresh, `week-partition` for a week-specific one); the aggregate scores refresh uses `scoresAggregateScope`, which writes the `year` rollup **only** when the attempted partitions cover **every applicable** partition (a subset omitting an applicable sibling records its own `season-partition`). `beginProviderRefreshAttempt`/`record*` all take `(dataset, scope, …)` and the durable key is `providerRefreshScopeKey(dataset, scope)`; a record is self-describing (persists its `scope`/`scopeKey`, and a mismatch is ignored, not shown as truth), each scope key has its own in-process lock, and a completion for one target can never overwrite another (a 2026 refresh, a targeted partition/week, or a filtered odds query never establishes a different year's or the whole target's success/freshness). A completion **token** that resolves a **different dataset or scope** than it was begun for is **rejected** — the record helper skips the write (`isMisroutedAttempt`), logging the mismatch and never throwing into the provider path — so a concurrent cross-year/cross-partition/cross-dataset refresh cannot cross-contaminate another target's record. The admin card reads only the **canonical** scope for the selected year (`canonicalCardScope`); legacy unscoped records are exposed as `legacyStatus` for deep diagnostics only — never selected-year truth, never clearing a scoped error, never implying scoped cache availability. A **failed** attempt must NEVER advance `lastSuccessAt` — it preserves the prior-good `source`/`rowsCommitted` still being served; **success** is recorded only AFTER the durable provider-data commit (composing with durable-first); and the record helpers are **best-effort** — they must never throw into the provider path, so a status-write failure can't corrupt the data commit. The newest attempt's result is an **explicit outcome** (`latestAttemptOutcome`: `in-progress`/`succeeded`/`partial`/`failed`/`no-op`), never inferred from the historical `lastSuccessAt`/`lastError` fields: begin marks `in-progress`; a valid empty/inapplicable provider partition resolves as **`no-op`** (`recordProviderRefreshNoop` — clears stale error, does not advance last-success), distinct from a failure. Success ordering uses an explicit **`committedAt`** (durable commit time captured right after `setAppState`, before post-commit work) so an older commit recording status late cannot overwrite a newer commit's metadata — status-call wall-clock time is not the ordering key. Each refresh gets a unique **attempt token** from `beginProviderRefreshAttempt` and passes it back on resolve, so an OLDER overlapping attempt finishing late cannot restore its attempt identity, clear a NEWER attempt's error, or replace its outcome (only the latest attempt owns the latest-attempt/outcome/error state; a later durable commit still advances last-success). Any refresh entry point with an early **missing-credential** return must begin the attempt BEFORE credential validation and record a failure on that exit (so the attempt is visible, prior-good preserved); a durable-commit failure after a successful fetch must resolve the open attempt as failed rather than dangle. The **game-stats cron** resolves its canonical target week (cache-only, no provider call) BEFORE the credential check, so a missing-key (or any) cron failure records against that exact **week partition** — never the year rollup — and a run with no applicable target records no scoped failure and spends no provider call (review v2 #1). A genuine durable **read** failure is distinct from an absent record — on a read failure the attempt/failure helpers SKIP their write rather than null out unknown prior-good state. Read-modify-write is serialized per dataset in-process; cross-instance status writes remain best-effort (the store has no compare-and-set) but the explicit commit timestamps + attempt IDs remove the within-process ordering and unresolved-attempt hazards. This per-**scope** attempt lock is DISTINCT from the per-**backing-file** lock in `appStateStore.ts` (`withFileWriteLock`): the file lock serializes the whole-file read → modify → temp-write → atomic-rename critical section of the **file fallback** across ALL keys/scopes (keyed by the normalized backing-file path) so concurrent writers to different keys cannot drop one another's update on rename (review v2 #3). It applies only to the file fallback (Postgres relies on the database), never serializes reads, sits strictly below the per-scope lock (no inversion), and releases on every outcome. Cross-process file locking is out of scope. Status/freshness metadata is observability only and is **never** a source of canonical data. The admin status feed reads durable **odds usage once** per request (forced through the memo) so cross-instance refreshes aren't masked. Operator auto-refresh controls (`provider-refresh-settings`: global pause + per-dataset enable) gate only **noncritical** automatic jobs via `isAutoRefreshAllowed(dataset)`; the lifecycle-critical season-transition cron is exempt, and manual admin refresh is never gated. A per-dataset enable toggle is only settable when a live job actually consumes it (`autoRefreshSettingConsumed`) — the admin API rejects toggling planned/exempt datasets rather than imply a runtime effect that does not exist. Do not add editable cron/cadence fields — cadence stays fixed in code / `vercel.json`. An **all-empty schedule** refresh is classified BEFORE any durable/process-cache write: an empty result over an already-populated schedule is **rejected** as an unexpected replacement (prior-good retained, recorded failed, `502`), while a genuinely inapplicable/unpublished empty resolves as a **no-op** — a schedule is never committed empty and then labelled a no-op (which would empty the cache while status claimed old rows still served). The **cache-only** diagnostics judge coverage by real content, never by presence: completed-slate **score** coverage is game-granular — every expected canonical game must have its own attached terminal evidence (a final with both numeric scores, or a canceled conclusion), and an in-progress numeric row or a terminal sibling in the same slate cannot cover it (`scoreGapDiagnostics.ts` through the shared `gameStatus.ts` authority); **game-stats** coverage is the evidence-based `evaluatePartitionCoverage` (participant-verified against the canonical slate through the shared evidence authority under `src/lib/gameStats/`), which the diagnostics consume; a `games: []`, all-dropped, or blank-team-identity record contributes no coverage. (`src/lib/gameStats/coverage.ts` is now only a limited presence / cache-availability probe — `isUsableGameStatsRow` / `usableGameStatsGameIds` for the admin cache-state panel — NOT the coverage or analytics authority.) And **odds** staleness derives from the **canonical/default season-scoped `odds-cache`** entry (`defaultOddsCacheKey`), never the newest across filtered markets/bookmakers variants and never the global quota-observation timestamp (quota freshness ≠ odds-data freshness). Only **stat-producing** games count as expected game-stats — disrupted games (canceled/postponed/suspended/delayed) are excluded by the canonical slate / evidence authority, so a disrupted-only slate is never expected, never polled (no wasted quota), and never warned as missing. The 15-minute cron selects at most ONE stat-applicable kickoff-window partition per run (`pollingTarget.ts`), not a whole-slate scan. **When — and only when — that selector has no target, the same run may instead take ONE bounded CORRECTION pass (PLATFORM-110B)**: a partition whose coverage is `complete` is revisited ~48h after its LATEST stat-applicable kickoff and once more at ~7 days, then never, and historical seasons are never swept. Satisfaction establishes usability, not an immutable final provider revision. It is a second CONSUMER of one run slot, never a second job — at most one billed `/games/teams` call per run still holds, and the quota reserve, attempt bookkeeping, writer fence, ingestion coordinator and outcome interpreter are unchanged. The two target sets are disjoint by construction, since `now >= latestKickoff + 48h` proves every game is more than 24h past kickoff. Reconciliation revisits SATISFIED partitions ONLY: filling a partition ordinary polling never collected would mask the collection gap rather than surface it. Its attempts are RESERVED durably before the provider request and settled after, so a store that cannot record cannot spend; a pass is closed only by a merge that actually COMPARED the partition (`written` / `partially-merged` / `unchanged` / `stale` / `conflict`) — never by `unavailable`, `indeterminate`, an unusable payload, or an empty response, none of which compared anything. Rankings empty results are classified before commit exactly as for schedule: a genuinely empty response is a **no-op** (no empty durable write, last-success not advanced), a **nonempty** payload that normalizes to zero usable content is a **failure** (`rankings-empty-replacement-rejected`, prior-good retained), and an empty result over prior-good rankings is rejected rather than persisted as healthy coverage (rankings coverage requires ≥1 usable week). **Game-stats no longer uses a standalone payload classifier** (the retired classifier was deleted when the live legacy route/cron write path was cut over; the fenced legacy writer itself is NOT deleted — it remains in `src/lib/gameStats/cache.ts` but is refused under writer control `active`): the game-stats cron and the admin `/api/game-stats` refresh both flow through the ONE ingestion path (`ingestGameStatsPartitionResponse`) and the ONE outcome interpreter (`interpretGameStatsRefreshOutcome`) — an exact empty CFBD array is an `empty-response` no-op, a non-array top-level payload is an `invalid-payload` failure (a rejection reason), and a nonempty payload with no persistable observations is a `no-persistable-observations` failure (also a rejection reason). A payload that reaches the H2 durable merge is classified by the interpreter into ONE of four **kinds** — `success`, `partial`, `no-op`, or `failure` — each via a stable **reason**: `written-clean` → success; `written-mixed` / `partially-merged` → partial; `unchanged-clean` / `stale-clean` → no-op; `unchanged-mixed` / `stale-mixed` / `conflict` / `unavailable` / `indeterminate` → failure (only the confirmed-commit `written` / `partially-merged` outcomes may advance last-success). The interpreter's four kinds, the durable-merge outcomes, and the reason strings are distinct layers — not interchangeable labels. Durable game-stat writing goes through the H2 merge authority and requires writer control `active`. **Rankings partitions are validated independently before combining (6th review):** the regular and postseason payloads are each classified (`classifyRankingsPartition`) so a nonempty partition normalizing to zero usable weeks is schema drift (`rankings-partition-schema-drift`, whole aggregate rejected, prior-good retained) — one healthy partition can never mask a drifted one, and drift is never mistaken for the raw-empty no-op/rejected-replacement path. **The schedule empty-response policy is one shared classifier (6th review):** `classifyEmptyScheduleRefresh` (`scheduleSeasonFetch.ts`) is called by BOTH the `/api/schedule` route and the season-transition cron, so an empty cron probe over a populated prior-good schedule is a rejected failure (`schedule-empty-replacement-rejected`, prior-good retained, and the league does **not** transition off that empty probe), never a silent no-op. **Status classification is separator-agnostic (6th review):** `gameStatus.ts` normalizes provider/cache enum labels (`STATUS_CANCELED`, `STATUS_POSTPONED`, hyphen/space variants) to tokens before matching (a bare `\b` word boundary silently fails on `_`), so the score-terminal and game-stats-applicability logic that consumes these predicates cannot misbucket an underscore-delimited enum. **The manual score refresh is ONE aggregate action (6th review):** the admin panels issue a single `refresh=1&aggregate=1` request that fans out over the applicable partitions under a single `scores` attempt (`handleAggregateScoreRefresh`) so no partition's success or valid no-op can erase another partition's failure (the attempt resolves exactly once from the combined outcomes: all-succeed → success, any-fail → failure with `failedPartitions`, all-no-op → no-op); a direct single-partition `refresh=1` still records its own truthful attempt. **Applicability is SERVER-authoritative (7th review):** the aggregate endpoint derives the applicable partitions cache-only from the requested year's schedule (`getApplicableScoreSeasonTypes`, `src/lib/server/scoreApplicability.ts`), so an ordinary refresh never fires a doomed postseason request before bowls exist and a client omitting/mis-sending the partition list cannot force an unnecessary partition; a nonempty `seasonTypes` query is honored only as an explicit targeted repair. The status panel guards its loads against a **year-selection race** (monotonic request seq + `AbortController` + echoed-year validation, `isCurrentStatusResponse`) so an older year's response cannot overwrite a newer selected year's feed. The shared manual-refresh interpreter treats a **stale** prior-good fallback (`meta.stale`/`meta.rebuildRequired`, e.g. rankings after rejecting an empty/drifted replacement) as a failure, alongside `meta.fallbackUsed`/`local_snapshot`. **A rankings refresh resolves its attempt exactly once (7th review):** the schema-drift branch records its specific code/`failedPartitions` and throws a marked already-recorded error so the outer catch rethrows without a second generic recording that would erase the code (a genuine fetch/commit failure still records the generic code). Future PLATFORM-086 cron jobs reuse these helpers rather than re-implementing status/settings.
-
+   - **One cache-only season score reader (PLATFORM-084B).** Every season-level score consumer —
+     public `/api/scores`, canonical standings, and the season-rollover archive build — reads cached
+     scores through the shared `loadReconciledSeasonScores` (`src/lib/server/scoreCacheReader.ts`),
+     which reconciles the season-wide (`${year}-all-*`) and per-week (`${year}-<week>-*`) cache
+     entries by canonical game identity (newest wins). Do not add a canonical consumer that reads
+     only the `-all-*` keys — that reintroduces the mismatch where a week-specific refresh is
+     visible on `/api/scores` but not in standings/archives. The reader is cache-only (no provider
+     call; provider fetch stays on the authorized `refresh=1` path per PLATFORM-075) and propagates
+     store-read failures per PLATFORM-084A.
+   - **Durable-first provider cache writes (PLATFORM-085A).** A provider refresh path that keeps a
+     process-local cache alongside durable app-state must `await setAppState(...)` (durable) BEFORE
+     updating the process cache and BEFORE invalidating standings — never memory-first. So a failed
+     durable write surfaces as an error and never leaves one instance serving "fresh" provider data
+     other instances can't reproduce. Order: `fetch/normalize → durable write → process-cache update
+     → invalidation → response`. Hydrating the process cache FROM a durable read (cache-warming on a
+     hit) is exempt — that data is already durable.
+   - **Complete-before-commit for schedule refreshes (PLATFORM-085B / 085C).** Any schedule refresh
+     that fetches provider partitions — the season-transition cron (regular + postseason →
+     `${year}-all-all`) AND the authorized `/api/schedule` route — must validate that ALL requested
+     partitions resolved before publishing durable schedule/probe state. A partition that
+     **throws**, returns a **non-array**, or normalizes a **nonempty** payload to **zero** rows
+     (schema drift) is **uncertainty** — retain prior-good durable state and surface the failure
+     (cron: `partialFailure` on the result); do not commit partial/drifted rows as a complete
+     schedule. A partition that fetches successfully with a **zero-length** array is **valid
+     absence** (e.g. postseason before bowls, a future week). **AMENDED 2026-09-20 (PLATFORM-663,
+     owner-approved).** The `/api/schedule` half of this rule named a gate that no longer exists:
+     `fetchSeasonType` and `hasRequiredSeasonTypeFailure` have **zero production call sites** since
+     the targeted partition path was removed. **The RULE is unchanged and still binds** —
+     uncertainty retains prior-good durable state and surfaces the failure; a zero-length array
+     remains valid absence; partial or drifted rows are never committed as a complete schedule. What
+     changed is that the full-season refresh is now the ONLY committing schedule path, so
+     completeness is validated once, there, rather than per requested partition. **Do not restore
+     the per-partition gate to satisfy this bullet** — the second target is what PLATFORM-663
+     removed, and the helpers are dead code pending their own removal. Reuse this shared
+     classification rather than re-deriving completeness.
+   - **Truthful provider-refresh status (PLATFORM-086A).** Every provider refresh entry point
+     records status via `src/lib/server/providerRefreshStatus.ts` (scope `provider-refresh-status`),
+     keyed by a **canonical target scope**, not merely by dataset (PLATFORM-086A-SCOPED). The scope
+     is a typed `ProviderRefreshScope` built only through `src/lib/providerRefreshScope.ts` —
+     `global` (conferences), `year` (the aggregate scores/rankings year rollup and the full-year
+     schedule refresh), `season-partition` (a whole scores/schedule partition), `week-partition` (a
+     game-stats week, or a week-specific scores/schedule refresh), `week-reconciliation` (a
+     game-stats week revisited by the PLATFORM-110B bounded correction pass — a DISTINCT kind from
+     `week-partition`, and deliberately NOT in game-stats' `DATASET_ACTIVITY_SCOPE_KINDS` entry: a
+     correction pass targets a partition whose kickoff window closed weeks ago, so recorded under
+     `week-partition` its attempt would be the dataset's most RECENT and would report game-stats'
+     health from the least current data it touches — a week-1 correction failing in week 10 raising
+     a dataset-wide refresh failure. The record stays written and readable and is ineligible as
+     `latestScopedActivity` by construction, with no special case in the reader), `odds-target`
+     (canonical vs filtered, keyed by the durable `odds-cache` key), or `legacy-unscoped`
+     (pre-scoped records).
+     - **The operation's exact attempted target — never a broader rollup — chooses the scope
+       (PLATFORM-086A-SCOPED-STATUS review remediation):** schedule records the **`year`** scope and
+       nothing else. **AMENDED 2026-09-20 (PLATFORM-663, owner-approved), replacing ~2,200
+       characters of week-partition machinery that no longer exists.** This clause mandated
+       splitting a `week` + `all` request into two independent week-partition commits, read-time
+       composition of the pair (`readComposedWeekAllEntry`, `resolveChildCache`), per-partition
+       precedence against a read-only legacy `<year>-<week>-all` aggregate, and
+       `scheduleRefreshScope` throwing for the combination. **PLATFORM-663 removed the targeted
+       partition path**: production held seven whole-year aggregates and zero partitions, no in-repo
+       caller could construct a targeted request, nothing could discover a partition if one existed,
+       and the canonical read precedence had been written out three independent times. All four
+       named symbols now have zero production call sites. **THE INTENT SURVIVES AND STILL BINDS:** a
+       repair must never be invisible to the readers that matter, and a sibling failure must never
+       cross-contaminate another target's status. Aggregate-only satisfies both by having ONE
+       schedule target rather than by scoping two — there is no sibling to contaminate, and a repair
+       lands in the key every reader already reads. **Do not reintroduce a second schedule target to
+       satisfy the old mechanism**; if a targeted repair is ever needed again, it is a new decision
+       with this history attached. single-partition scores use `scoresPartitionScope`
+       (`season-partition` for a whole-partition refresh, `week-partition` for a week-specific one);
+       the aggregate scores refresh uses `scoresAggregateScope`, which writes the `year` rollup
+       **only** when the attempted partitions cover **every applicable** partition (a subset
+       omitting an applicable sibling records its own `season-partition`).
+     - `beginProviderRefreshAttempt`/`record*` all take `(dataset, scope, …)` and the durable key is
+       `providerRefreshScopeKey(dataset, scope)`; a record is self-describing (persists its
+       `scope`/`scopeKey`, and a mismatch is ignored, not shown as truth), each scope key has its
+       own in-process lock, and a completion for one target can never overwrite another (a 2026
+       refresh, a targeted partition/week, or a filtered odds query never establishes a different
+       year's or the whole target's success/freshness).
+     - A completion **token** that resolves a **different dataset or scope** than it was begun for
+       is **rejected** — the record helper skips the write (`isMisroutedAttempt`), logging the
+       mismatch and never throwing into the provider path — so a concurrent
+       cross-year/cross-partition/cross-dataset refresh cannot cross-contaminate another target's
+       record. The admin card reads only the **canonical** scope for the selected year
+       (`canonicalCardScope`); legacy unscoped records are exposed as `legacyStatus` for deep
+       diagnostics only — never selected-year truth, never clearing a scoped error, never implying
+       scoped cache availability. A **failed** attempt must NEVER advance `lastSuccessAt` — it
+       preserves the prior-good `source`/`rowsCommitted` still being served; **success** is recorded
+       only AFTER the durable provider-data commit (composing with durable-first); and the record
+       helpers are **best-effort** — they must never throw into the provider path, so a status-write
+       failure can't corrupt the data commit. The newest attempt's result is an **explicit outcome**
+       (`latestAttemptOutcome`: `in-progress`/`succeeded`/`partial`/`failed`/`no-op`), never
+       inferred from the historical `lastSuccessAt`/`lastError` fields: begin marks `in-progress`; a
+       valid empty/inapplicable provider partition resolves as **`no-op`**
+       (`recordProviderRefreshNoop` — clears stale error, does not advance last-success), distinct
+       from a failure. Success ordering uses an explicit **`committedAt`** (durable commit time
+       captured right after `setAppState`, before post-commit work) so an older commit recording
+       status late cannot overwrite a newer commit's metadata — status-call wall-clock time is not
+       the ordering key. Each refresh gets a unique **attempt token** from
+       `beginProviderRefreshAttempt` and passes it back on resolve, so an OLDER overlapping attempt
+       finishing late cannot restore its attempt identity, clear a NEWER attempt's error, or replace
+       its outcome (only the latest attempt owns the latest-attempt/outcome/error state; a later
+       durable commit still advances last-success). Any refresh entry point with an early
+       **missing-credential** return must begin the attempt BEFORE credential validation and record
+       a failure on that exit (so the attempt is visible, prior-good preserved); a durable-commit
+       failure after a successful fetch must resolve the open attempt as failed rather than dangle.
+       The **game-stats cron** resolves its canonical target week (cache-only, no provider call)
+       BEFORE the credential check, so a missing-key (or any) cron failure records against that
+       exact **week partition** — never the year rollup — and a run with no applicable target
+       records no scoped failure and spends no provider call (review v2 #1). A genuine durable
+       **read** failure is distinct from an absent record — on a read failure the attempt/failure
+       helpers SKIP their write rather than null out unknown prior-good state. Read-modify-write is
+       serialized per dataset in-process; cross-instance status writes remain best-effort (the store
+       has no compare-and-set) but the explicit commit timestamps + attempt IDs remove the
+       within-process ordering and unresolved-attempt hazards. This per-**scope** attempt lock is
+       DISTINCT from the per-**backing-file** lock in `appStateStore.ts` (`withFileWriteLock`): the
+       file lock serializes the whole-file read → modify → temp-write → atomic-rename critical
+       section of the **file fallback** across ALL keys/scopes (keyed by the normalized backing-file
+       path) so concurrent writers to different keys cannot drop one another's update on rename
+       (review v2 #3). It applies only to the file fallback (Postgres relies on the database), never
+       serializes reads, sits strictly below the per-scope lock (no inversion), and releases on
+       every outcome. Cross-process file locking is out of scope. Status/freshness metadata is
+       observability only and is **never** a source of canonical data. The admin status feed reads
+       durable **odds usage once** per request (forced through the memo) so cross-instance refreshes
+       aren't masked. Operator auto-refresh controls (`provider-refresh-settings`: global pause +
+       per-dataset enable) gate only **noncritical** automatic jobs via
+       `isAutoRefreshAllowed(dataset)`; the lifecycle-critical season-transition cron is exempt, and
+       manual admin refresh is never gated. A per-dataset enable toggle is only settable when a live
+       job actually consumes it (`autoRefreshSettingConsumed`) — the admin API rejects toggling
+       planned/exempt datasets rather than imply a runtime effect that does not exist. Do not add
+       editable cron/cadence fields — cadence stays fixed in code / `vercel.json`. An **all-empty
+       schedule** refresh is classified BEFORE any durable/process-cache write: an empty result over
+       an already-populated schedule is **rejected** as an unexpected replacement (prior-good
+       retained, recorded failed, `502`), while a genuinely inapplicable/unpublished empty resolves
+       as a **no-op** — a schedule is never committed empty and then labelled a no-op (which would
+       empty the cache while status claimed old rows still served). The **cache-only** diagnostics
+       judge coverage by real content, never by presence: completed-slate **score** coverage is
+       game-granular — every expected canonical game must have its own attached terminal evidence (a
+       final with both numeric scores, or a canceled conclusion), and an in-progress numeric row or
+       a terminal sibling in the same slate cannot cover it (`scoreGapDiagnostics.ts` through the
+       shared `gameStatus.ts` authority); **game-stats** coverage is the evidence-based
+       `evaluatePartitionCoverage` (participant-verified against the canonical slate through the
+       shared evidence authority under `src/lib/gameStats/`), which the diagnostics consume; a
+       `games: []`, all-dropped, or blank-team-identity record contributes no coverage.
+       (`src/lib/gameStats/coverage.ts` is now only a limited presence / cache-availability probe —
+       `isUsableGameStatsRow` / `usableGameStatsGameIds` for the admin cache-state panel — NOT the
+       coverage or analytics authority.) And **odds** staleness derives from the **canonical/default
+       season-scoped `odds-cache`** entry (`defaultOddsCacheKey`), never the newest across filtered
+       markets/bookmakers variants and never the global quota-observation timestamp (quota freshness
+       ≠ odds-data freshness). Only **stat-producing** games count as expected game-stats —
+       disrupted games (canceled/postponed/suspended/delayed) are excluded by the canonical slate /
+       evidence authority, so a disrupted-only slate is never expected, never polled (no wasted
+       quota), and never warned as missing. The 15-minute cron selects at most ONE stat-applicable
+       kickoff-window partition per run (`pollingTarget.ts`), not a whole-slate scan. **When — and
+       only when — that selector has no target, the same run may instead take ONE bounded CORRECTION
+       pass (PLATFORM-110B)**: a partition whose coverage is `complete` is revisited ~48h after its
+       LATEST stat-applicable kickoff and once more at ~7 days, then never, and historical seasons
+       are never swept. Satisfaction establishes usability, not an immutable final provider
+       revision. It is a second CONSUMER of one run slot, never a second job — at most one billed
+       `/games/teams` call per run still holds, and the quota reserve, attempt bookkeeping, writer
+       fence, ingestion coordinator and outcome interpreter are unchanged. The two target sets are
+       disjoint by construction, since `now >= latestKickoff + 48h` proves every game is more than
+       24h past kickoff. Reconciliation revisits SATISFIED partitions ONLY: filling a partition
+       ordinary polling never collected would mask the collection gap rather than surface it. Its
+       attempts are RESERVED durably before the provider request and settled after, so a store that
+       cannot record cannot spend; a pass is closed only by a merge that actually COMPARED the
+       partition (`written` / `partially-merged` / `unchanged` / `stale` / `conflict`) — never by
+       `unavailable`, `indeterminate`, an unusable payload, or an empty response, none of which
+       compared anything. Rankings empty results are classified before commit exactly as for
+       schedule: a genuinely empty response is a **no-op** (no empty durable write, last-success not
+       advanced), a **nonempty** payload that normalizes to zero usable content is a **failure**
+       (`rankings-empty-replacement-rejected`, prior-good retained), and an empty result over
+       prior-good rankings is rejected rather than persisted as healthy coverage (rankings coverage
+       requires ≥1 usable week). **Game-stats no longer uses a standalone payload classifier** (the
+       retired classifier was deleted when the live legacy route/cron write path was cut over; the
+       fenced legacy writer itself is NOT deleted — it remains in `src/lib/gameStats/cache.ts` but
+       is refused under writer control `active`): the game-stats cron and the admin
+       `/api/game-stats` refresh both flow through the ONE ingestion path
+       (`ingestGameStatsPartitionResponse`) and the ONE outcome interpreter
+       (`interpretGameStatsRefreshOutcome`) — an exact empty CFBD array is an `empty-response`
+       no-op, a non-array top-level payload is an `invalid-payload` failure (a rejection reason),
+       and a nonempty payload with no persistable observations is a `no-persistable-observations`
+       failure (also a rejection reason). A payload that reaches the H2 durable merge is classified
+       by the interpreter into ONE of four **kinds** — `success`, `partial`, `no-op`, or `failure` —
+       each via a stable **reason**: `written-clean` → success; `written-mixed` / `partially-merged`
+       → partial; `unchanged-clean` / `stale-clean` → no-op; `unchanged-mixed` / `stale-mixed` /
+       `conflict` / `unavailable` / `indeterminate` → failure (only the confirmed-commit `written` /
+       `partially-merged` outcomes may advance last-success). The interpreter's four kinds, the
+       durable-merge outcomes, and the reason strings are distinct layers — not interchangeable
+       labels. Durable game-stat writing goes through the H2 merge authority and requires writer
+       control `active`. **Rankings partitions are validated independently before combining (6th
+       review):** the regular and postseason payloads are each classified
+       (`classifyRankingsPartition`) so a nonempty partition normalizing to zero usable weeks is
+       schema drift (`rankings-partition-schema-drift`, whole aggregate rejected, prior-good
+       retained) — one healthy partition can never mask a drifted one, and drift is never mistaken
+       for the raw-empty no-op/rejected-replacement path. **The schedule empty-response policy is
+       one shared classifier (6th review):** `classifyEmptyScheduleRefresh`
+       (`scheduleSeasonFetch.ts`) is called by BOTH the `/api/schedule` route and the
+       season-transition cron, so an empty cron probe over a populated prior-good schedule is a
+       rejected failure (`schedule-empty-replacement-rejected`, prior-good retained, and the league
+       does **not** transition off that empty probe), never a silent no-op. **Status classification
+       is separator-agnostic (6th review):** `gameStatus.ts` normalizes provider/cache enum labels
+       (`STATUS_CANCELED`, `STATUS_POSTPONED`, hyphen/space variants) to tokens before matching (a
+       bare `\b` word boundary silently fails on `_`), so the score-terminal and
+       game-stats-applicability logic that consumes these predicates cannot misbucket an
+       underscore-delimited enum. **The manual score refresh is ONE aggregate action (6th review):**
+       the admin panels issue a single `refresh=1&aggregate=1` request that fans out over the
+       applicable partitions under a single `scores` attempt (`handleAggregateScoreRefresh`) so no
+       partition's success or valid no-op can erase another partition's failure (the attempt
+       resolves exactly once from the combined outcomes: all-succeed → success, any-fail → failure
+       with `failedPartitions`, all-no-op → no-op); a direct single-partition `refresh=1` still
+       records its own truthful attempt. **Applicability is SERVER-authoritative (7th review):** the
+       aggregate endpoint derives the applicable partitions cache-only from the requested year's
+       schedule (`getApplicableScoreSeasonTypes`, `src/lib/server/scoreApplicability.ts`), so an
+       ordinary refresh never fires a doomed postseason request before bowls exist and a client
+       omitting/mis-sending the partition list cannot force an unnecessary partition; a nonempty
+       `seasonTypes` query is honored only as an explicit targeted repair. The status panel guards
+       its loads against a **year-selection race** (monotonic request seq + `AbortController` +
+       echoed-year validation, `isCurrentStatusResponse`) so an older year's response cannot
+       overwrite a newer selected year's feed. The shared manual-refresh interpreter treats a
+       **stale** prior-good fallback (`meta.stale`/`meta.rebuildRequired`, e.g. rankings after
+       rejecting an empty/drifted replacement) as a failure, alongside
+       `meta.fallbackUsed`/`local_snapshot`. **A rankings refresh resolves its attempt exactly once
+       (7th review):** the schema-drift branch records its specific code/`failedPartitions` and
+       throws a marked already-recorded error so the outer catch rethrows without a second generic
+       recording that would erase the code (a genuine fetch/commit failure still records the generic
+       code). Future PLATFORM-086 cron jobs reuse these helpers rather than re-implementing
+       status/settings.
 2. **Odds provider boundary**
    - Odds data should flow through internal odds route adapters, not raw provider shapes in UI state.
 
@@ -202,11 +433,25 @@ Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there
 11. **Centralized game ownership**
     - Current-season game ownership attribution must flow through `src/lib/gameOwnership.ts` (canonical-identity candidate resolution: participant `teamId` → canonical/display/raw → `canHome/away` → `csvHome/away` legacy fallback).
     - UI surfaces, routes, and selectors must not duplicate ownership-resolution logic or attribute ownership by raw provider-label equality. Schedule-derived canonical `AppGame` identity remains the source of truth for game identity; ownership is an overlay on it.
-    - Known deferrals (do not document as fixed): normalized ownership-key indexing (`PLATFORM-040`) and historical/archive ownership surfaces (`historySelectors`, `trends`, `leagueRecords`, and the Insights context/generators — `insights/context.ts`, `insights/generators/*`, which still resolve owners from `game.csvHome/csvAway` raw labels) that still match by raw label. These historical surfaces are a distinct deferral from `PLATFORM-040` (which is normalized-key-only), recorded under `PLATFORM-039`. A canonical **owner-identity** mapping across seasons (for renamed/returning owners) is also deferred — owner display names are currently raw strings.
+    - Known deferrals (do not document as fixed): normalized ownership-key indexing (`PLATFORM-040`)
+      and historical/archive ownership surfaces (`historySelectors`, `trends`, `leagueRecords`, and
+      the Insights context/generators — `insights/context.ts`, `insights/generators/*`, which still
+      resolve owners from `game.csvHome/csvAway` raw labels) that still match by raw label. These
+      historical surfaces are a distinct deferral from `PLATFORM-040` (which is
+      normalized-key-only), recorded under `PLATFORM-039`. A canonical **owner-identity** mapping
+      across seasons (for renamed/returning owners) is also deferred — owner display names are
+      currently raw strings.
 
 12. **CSV is roster-import support, never a game-identity source (transitional)**
     - CSV is never a schedule or game-identity source, and must not reintroduce CSV-first schedule/identity architecture.
-    - The in-app **draft / team-assignment flow is the intended current-season ownership mechanism.** A current-season owner CSV import is an explicit **admin repair** path, not the default user flow. `PUT /api/owners` (CSV import + inline roster editor) is platform-admin-only and, since **PLATFORM-083**, guards active-season overwrites: a league-scoped write to the league's active season (`year >= league.year`) that would replace an already-populated roster requires an explicit `?override=1` repair confirmation, so a CSV import or editor save can no longer silently clobber a confirmed-draft/manual roster. Historical/backfill (past-year) writes and initial roster creation are unguarded.
+    - The in-app **draft / team-assignment flow is the intended current-season ownership
+      mechanism.** A current-season owner CSV import is an explicit **admin repair** path, not the
+      default user flow. `PUT /api/owners` (CSV import + inline roster editor) is
+      platform-admin-only and, since **PLATFORM-083**, guards active-season overwrites: a
+      league-scoped write to the league's active season (`year >= league.year`) that would replace
+      an already-populated roster requires an explicit `?override=1` repair confirmation, so a CSV
+      import or editor save can no longer silently clobber a confirmed-draft/manual roster.
+      Historical/backfill (past-year) writes and initial roster creation are unguarded.
     - Honest current state: some current-season roster persistence still serializes via CSV (`owners:{slug}:{year}`), so CSV cannot yet be declared strictly history-only — do not overstate this as resolved. But current-season overwrites are now guarded (above), not silent. Historical archives legitimately preserve roster CSV snapshots.
 
 ---
@@ -232,7 +477,23 @@ Preferred checks:
 - `npm run lint`
 - `npx tsc --noEmit`
 - `npm run test:clock-shift -- <days> [file...]` — runs the suite under a clock shifted by `<days>`, the detector for wall-clock time bombs (Item 137/#696). A fixture pinned to a calendar date passes until that date and then fails at EVERY commit, and a bisect cannot find it because checking out an older commit does not roll back the clock. `-- 0` is the control and must be fully green; at every non-zero shift exactly one failure is expected (`testStoreLifecycle.test.ts`, which sweeps real filesystem mtimes against a shifted now and pins no date), and **any other failure is a real expiry**.
-- `npm test` — runs the full test suite via Node's built-in `node:test` runner with the `tsx` loader. Executable `*.test.ts` / `*.test.tsx` files live under the nearest `__tests__/`; the full-suite glob deliberately scans every test below `src/`, and a layout guard rejects tests outside that convention so none can silently fall out of the gate. There is no separate test runner config (no vitest/jest); the scripts are defined in `package.json`. The full suite is deterministic (the earlier Overview-related hang was fixed under the `TEST-SUITE-BASELINE-CLEANUP` arc), so it is a valid verification gate. **It is GREEN.** Item 137 (#696) removed the last two known failures on 2026-09-11 (PR #742, merged `a8593d9f`) — wall-clock time bombs in `src/app/api/odds/__tests__/writer-convergence.test.ts`, not product defects. **There is no known-failure baseline: verify against ZERO.** Any failure, anywhere, is a stop-and-report. This paragraph previously said the suite was not green and told you to verify against a recorded baseline instead — that instruction is dead, and a prompt still carrying it is instructing you to tolerate a regression. If a known failure is ever accepted onto `main` again it is recorded in `docs/next-tasks.md` beside the two-lane table, which stays canonical for whether a baseline is in force. Never state that the suite passes without saying which commit you ran it at. Use `npm run test:file -- <path...>` for exact files, or `npm run test:lib`, `npm run test:api`, and `npm run test:components` for focused subsystem runs.
+- `npm test` — runs the full test suite via Node's built-in `node:test` runner with the `tsx`
+  loader. Executable `*.test.ts` / `*.test.tsx` files live under the nearest `__tests__/`; the
+  full-suite glob deliberately scans every test below `src/`, and a layout guard rejects tests
+  outside that convention so none can silently fall out of the gate. There is no separate test
+  runner config (no vitest/jest); the scripts are defined in `package.json`. The full suite is
+  deterministic (the earlier Overview-related hang was fixed under the `TEST-SUITE-BASELINE-CLEANUP`
+  arc), so it is a valid verification gate. **It is GREEN.** Item 137 (#696) removed the last two
+  known failures on 2026-09-11 (PR #742, merged `a8593d9f`) — wall-clock time bombs in
+  `src/app/api/odds/__tests__/writer-convergence.test.ts`, not product defects. **There is no
+  known-failure baseline: verify against ZERO.** Any failure, anywhere, is a stop-and-report. This
+  paragraph previously said the suite was not green and told you to verify against a recorded
+  baseline instead — that instruction is dead, and a prompt still carrying it is instructing you to
+  tolerate a regression. If a known failure is ever accepted onto `main` again it is recorded in
+  `docs/next-tasks.md` beside the two-lane table, which stays canonical for whether a baseline is in
+  force. Never state that the suite passes without saying which commit you ran it at. Use `npm run
+  test:file -- <path...>` for exact files, or `npm run test:lib`, `npm run test:api`, and `npm run
+  test:components` for focused subsystem runs.
 
 When practical, verify key runtime flows still behave:
 
@@ -408,7 +669,13 @@ Implementation prompts automate the review cycle instead of relaying each result
 
    **Reachability applies to DESIGN QUESTIONS too, and earlier — before a prompt is written, not only when a finding arrives.** "What should happen when X?" deserves "how often is X?" first. The read-only rail (`docs/deployment-runbook.md`) answers most of these in a single query, and the answer routinely collapses a policy question into "skip it and move on".
 
-   Named failure case: **PLATFORM-139 v1.** "What renders when a finished game's score cannot be read?" was escalated as a design question and answered by owner ruling. Nobody measured it first. The implementation then grew a withholding policy, null-kickoff ordering rules, and a blast-radius argument on top of that ruling — and a reviewer escalated it further by multiplying the case across every row. The measurement, run afterwards: **3,829 of 3,831 completed 2025 games have a usable final score. Two do not.** A 0.05% case had produced a mechanism, a rule, and a review cycle. The prompt for v2 states the number so it cannot recur.
+   Named failure case: **PLATFORM-139 v1.** "What renders when a finished game's score cannot be
+   read?" was escalated as a design question and answered by owner ruling. Nobody measured it first.
+   The implementation then grew a withholding policy, null-kickoff ordering rules, and a
+   blast-radius argument on top of that ruling — and a reviewer escalated it further by multiplying
+   the case across every row. The measurement, run afterwards: **3,829 of 3,831 completed 2025 games
+   have a usable final score. Two do not.** A 0.05% case had produced a mechanism, a rule, and a
+   review cycle. The prompt for v2 states the number so it cannot recur.
 
    The tell is a design question phrased as a hypothetical — _what if the score is missing, what if the plan is corrupt, what if both teams belong to one owner_. Each is answerable with a count, and the count usually decides it. Where a real population exists, **measure before designing**; where one does not (a new surface, a future state), say so explicitly rather than leaving the reader to assume it was checked.
 4. Apply **at most one normal cohesive remediation round**, covering the accepted findings together.
@@ -416,7 +683,14 @@ Implementation prompts automate the review cycle instead of relaying each result
 6. **A second remediation round requires explicit user approval**, and only for a narrow defect **directly caused by** the first round. Anything else — a newly surfaced pre-existing issue, a broader design concern, an accumulation of P3s — is a follow-up, not a second round.
 7. After that, **no further patching**. Report the finding, evidence, impact, and a recommendation, and stop. Do not claim convergence.
 
-**Reconstruction over accumulation.** When a branch has taken two remediation rounds and still yields credible findings, or when review shows the scope itself was wrong (crossing automation jobs, shipping an untested second surface), **abandon the branch and rebuild the settled behavior from clean `main`** rather than patching further. Reconstruct by re-deriving, not by cherry-picking the stopped commits — the stopped history carries the defects that stopped it. Record the abandoned attempt as superseded/unimplemented and the replacement as the execution record. Named failure case: `PLATFORM-086F2H1T1` v1 (two remediation rounds, a false claim in a commit message, and a client-feedback layer that could not work in production).
+**Reconstruction over accumulation.** When a branch has taken two remediation rounds and still
+yields credible findings, or when review shows the scope itself was wrong (crossing automation jobs,
+shipping an untested second surface), **abandon the branch and rebuild the settled behavior from
+clean `main`** rather than patching further. Reconstruct by re-deriving, not by cherry-picking the
+stopped commits — the stopped history carries the defects that stopped it. Record the abandoned
+attempt as superseded/unimplemented and the replacement as the execution record. Named failure case:
+`PLATFORM-086F2H1T1` v1 (two remediation rounds, a false claim in a commit message, and a
+client-feedback layer that could not work in production).
 
 **Discarding the code must not discard what the rounds LEARNED.** Rebuilding from `main` throws away
 every fix the stopped branch accumulated — including the correct ones from EARLIER rounds, which
@@ -485,9 +759,25 @@ roots, call patterns, or framework behavior outside the acceptance contract.
 
 **Verification binds to an exact commit.** Report the SHA the gates ran against, and confirm the worktree was clean and `HEAD` unchanged at that moment. Results never carry forward across a commit: after any change to the tree, re-run every required gate against the new commit before reporting.
 
-**NEVER PASS A DOM NODE TO `assert.equal`/`assert.deepEqual`. THE TEST WILL HANG, NOT FAIL.** Found 2026-09-09 by the Item 204 lane, and found only because it ran the mutation. `assert.equal(queryByText(...), null)` against a jsdom element makes node's assertion diff `util.inspect` the node, which walks `ownerDocument → defaultView → window` and does not return; the test consumes the full timeout instead of failing. **A 30-second timeout reads as flake, so the caught regression is reported as infrastructure noise and dismissed.** Compare a boolean or a string — `assert.equal(queryByText(...) === null, true)` — so the failure names its own assertion in seconds. This is a general trap in every component test in this repo, not a property of that one file.
+**NEVER PASS A DOM NODE TO `assert.equal`/`assert.deepEqual`. THE TEST WILL HANG, NOT FAIL.** Found
+2026-09-09 by the Item 204 lane, and found only because it ran the mutation.
+`assert.equal(queryByText(...), null)` against a jsdom element makes node's assertion diff
+`util.inspect` the node, which walks `ownerDocument → defaultView → window` and does not return; the
+test consumes the full timeout instead of failing. **A 30-second timeout reads as flake, so the
+caught regression is reported as infrastructure noise and dismissed.** Compare a boolean or a string
+— `assert.equal(queryByText(...) === null, true)` — so the failure names its own assertion in
+seconds. This is a general trap in every component test in this repo, not a property of that one
+file.
 
-**A TEST THAT MEASURES A POPULATION MUST NOT CONSUME IT.** Added 2026-09-10, found by `/codex:review` on the Item 620 branch and missed by the lane that wrote the test. A test proving that stale files are inherited **planted a file at the path a real stale file might already occupy** — so roughly one run in four, it deleted one of the files the leak is made of. **The test was performing, in miniature, the exact act its own gate forbids.** The fix is preserve-and-restore, plus a sentinel written when nothing was there, so **the restore is asserted on every run rather than only on the runs where a real file happened to exist.** The general rule: when a test writes to a location that production or a prior run also writes to, ask what was there first and what happens to it — and make the answer assertable when the answer is "nothing".
+**A TEST THAT MEASURES A POPULATION MUST NOT CONSUME IT.** Added 2026-09-10, found by
+`/codex:review` on the Item 620 branch and missed by the lane that wrote the test. A test proving
+that stale files are inherited **planted a file at the path a real stale file might already occupy**
+— so roughly one run in four, it deleted one of the files the leak is made of. **The test was
+performing, in miniature, the exact act its own gate forbids.** The fix is preserve-and-restore,
+plus a sentinel written when nothing was there, so **the restore is asserted on every run rather
+than only on the runs where a real file happened to exist.** The general rule: when a test writes to
+a location that production or a prior run also writes to, ask what was there first and what happens
+to it — and make the answer assertable when the answer is "nothing".
 
 **A MUTATION THAT REDDENS BOTH THE OLD AND NEW ASSERTION DISCRIMINATES NOTHING.** Added 2026-09-10 by the Item 210 lane, which caught it in its own work before reporting. When a mutation is used to prove an assertion was STRENGTHENED — that the previous version would have missed a regression the new one catches — it must fail on exactly ONE side. **A mutation that fails on both is measuring something else**, typically an unrelated assertion in the same test, and reads identically to a successful discrimination. **Say which side stayed green, not merely that the mutation went red.**
 
@@ -654,11 +944,34 @@ browser navigation_.
 
 **A CLAIM ABOUT WHAT A PROVIDER SENDS IS A MEASUREMENT, NOT A DESCRIPTION.** Added 2026-09-08, and it is the figure rule pointed at external data. A code comment asserting that an upstream system emits some value, or presents some state a particular way, **reads as documentation and is treated as fact by every reader downstream** — but nothing verifies it, and it does not fail when it becomes wrong or was never right. **So state the measurement beside the claim**: what was queried, over what population, and when.
 
-**The cost of not doing it, measured:** four comments asserted that CFBD marks games `postponed`/`canceled`/`suspended`/`delayed`. It does not, and never has — 22,760 schedule rows are all `scheduled` and score packs carry only `final` or `scheduled` (Item 172). **An implementation branch ran three review rounds and was abandoned at ~560 lines, two of those rounds hardening a state that cannot occur**, and the planning session spent an hour reasoning from one of the comments to a wrong conclusion. **The query that settled it took ten minutes and had never been run**, because the comment was plausible — **the proxy that argues for itself**, one level up from the code.
+**The cost of not doing it, measured:** four comments asserted that CFBD marks games
+`postponed`/`canceled`/`suspended`/`delayed`. It does not, and never has — 22,760 schedule rows are
+all `scheduled` and score packs carry only `final` or `scheduled` (Item 172). **An implementation
+branch ran three review rounds and was abandoned at ~560 lines, two of those rounds hardening a
+state that cannot occur**, and the planning session spent an hour reasoning from one of the comments
+to a wrong conclusion. **The query that settled it took ten minutes and had never been run**,
+because the comment was plausible — **the proxy that argues for itself**, one level up from the
+code.
 
-**A COMMENT EXPLAINING WHY SOMETHING IS SAFE, BOUNDED OR CHEAP IS THE SAME KIND OF CLAIM — CLASSIFY IT BEFORE WRITING IT.** Added 2026-09-14 (#693), generalising the provider rule above from external data to internal cost and safety reasoning, which fails identically and is written far more often. Three kinds, and only two may be written: **measured** — cite the number, the population and the date; **structural** — the code makes it true, so name the file and line that does; or **a mechanism nobody verified**, which does not get written at all. **Say what the thing IS and what it guards against, and leave the unmeasured quantity unasserted.** A bound can be described honestly as a rail without asserting what it costs.
+**A COMMENT EXPLAINING WHY SOMETHING IS SAFE, BOUNDED OR CHEAP IS THE SAME KIND OF CLAIM — CLASSIFY
+IT BEFORE WRITING IT.** Added 2026-09-14 (#693), generalising the provider rule above from external
+data to internal cost and safety reasoning, which fails identically and is written far more often.
+Three kinds, and only two may be written: **measured** — cite the number, the population and the
+date; **structural** — the code makes it true, so name the file and line that does; or **a mechanism
+nobody verified**, which does not get written at all. **Say what the thing IS and what it guards
+against, and leave the unmeasured quantity unasserted.** A bound can be described honestly as a rail
+without asserting what it costs.
 
-**Caught in the act, which is why it is here.** #693's own defect IS a false comment: three sites swallowed a failed cache invalidation under a promise that the canonical value _"will refresh on the next mutation or natural cache turnover"_ — a recovery that does not exist. Nobody re-derived it; they read it and believed it. **The remediation for that defect was then about to freeze a wrong cost model into a new constant's comment, one file away, in the same commit** — planning supplied the framing (deferred rebuild cost), the lane derived a defensible number from it, and the framing was wrong because an invalidated entry with no readers costs nothing and the rebuilds never land together. **The number survived; the rationale did not.** A plausible rationale is worse than none, because it answers the question a later reader would otherwise go and measure. See `standingsCacheWarmer.ts` for the same class still live.
+**Caught in the act, which is why it is here.** #693's own defect IS a false comment: three sites
+swallowed a failed cache invalidation under a promise that the canonical value _"will refresh on the
+next mutation or natural cache turnover"_ — a recovery that does not exist. Nobody re-derived it;
+they read it and believed it. **The remediation for that defect was then about to freeze a wrong
+cost model into a new constant's comment, one file away, in the same commit** — planning supplied
+the framing (deferred rebuild cost), the lane derived a defensible number from it, and the framing
+was wrong because an invalidated entry with no readers costs nothing and the rebuilds never land
+together. **The number survived; the rationale did not.** A plausible rationale is worse than none,
+because it answers the question a later reader would otherwise go and measure. See
+`standingsCacheWarmer.ts` for the same class still live.
 
 **A GREP OF THE WRONG TREE RETURNS ZERO AND LOOKS EXACTLY LIKE A GREP OF THE RIGHT ONE.** Added 2026-09-11 after the planning session did it three times in one day, and it is the rule above with `git` as its subject. **The number is identical; only the coverage differs, and nobody states the coverage.**
 
@@ -739,12 +1052,58 @@ When a test is retargeted because an API was retired, preserve every assertion a
 - Implementation prompts should include the relevant documentation updates **in scope** (registry entry, roadmap/next-tasks status, invariant or architecture notes the change affects).
 - Finalize documentation **immediately before merge, after code review/remediation is complete**, so the docs describe the actual shipped behavior — not the plan. Do not mark work "complete" in governance/registry/roadmap docs while review findings remain open.
 - When a change resolves or supersedes a previously-documented risk or follow-up, update that earlier note; when it leaves a known risk unresolved, keep it documented as unresolved rather than quietly dropping it.
-- **When a slice DELETES a rendered treatment, grep `DESIGN.md` for it before merging.** A removal leaves the doc claim standing, and `DESIGN.md` is canonical for UI — so the file then describes a treatment nothing renders, and the next reader trusts it. Named failure case: `PLATFORM-087` slice 5 removed the line-start team-colour accent along with the orphaned legacy tile, leaving `DESIGN.md:165` asserting a per-line accent with **zero production consumers**. That was the SECOND false team-colour claim in the same file from the same mechanism; the first described the treatment as top-and-bottom card borders and stood long enough that a design comparison was built on it. This is cheap and mechanical — the deletion is in the diff, so the grep terms are too.
-- **A CAMPAIGN DECISION THAT CONTRADICTS `DESIGN.md` IS NOT SETTLED UNTIL `DESIGN.md` CHANGES.** Owner rule, 2026-09-08. Recording it in a campaign document instead produces a conflict that surfaces only when somebody consolidates — and one did, months later, when a reference document put the two claims side by side (Item 165: `recap-scoreboard.md` capped tags at two, `DESIGN.md` said chips are not capped, and the code capped nothing). **"Canonical unless something more recent disagrees" is not a rule anyone can apply**: it means every reader must know the whole document set before trusting the canonical one, which is the opposite of what canonical means. So a decision that overrides `DESIGN.md` amends it in the same closeout, marked as an amendment with its reason. The campaign document keeps the reasoning; `DESIGN.md` carries the rule.
-- **AND THE SAME OBLIGATION RUNS FROM THE CODE.** The rule above covers a campaign decision diverging from `DESIGN.md`; this covers the commoner and worse case — **a canonical claim that never matched the implementation at all.** `DESIGN.md` said chips were uncapped, authored 2026-08-29, into a codebase capping at two since at least 2026-04-16 (Item 165). **A document that was never true is worse than one that drifted**, because nothing in its history marks a moment of change, so no reader has cause to distrust it, and every consistency check between two stale readings passes. Same shape as an inert `tailwind.config.ts` asserting `darkMode: 'media'` (Item 159). **So a slice that introduces or changes a limit, a default, or a reserved value greps `DESIGN.md` for the rule it now contradicts** — the same mechanical check as the deletion grep above, on the same diff.
-- **CORRECTING A CLAIM MEANS GREPPING FOR IT, NOT FIXING THE COPIES YOU KNOW ABOUT.** Added 2026-09-08. A wrong sentence about odds on Matchups live and final rows reached **five** documents — a discharge note, an INDEX CARRY row, the queue item's own table, a supersession note, and a kickoff prompt. **It was corrected three times, each time announced as complete**, and the fourth and fifth copies were found by an implementer's read receipt. **Announcing a correction as complete without a repo-wide grep is a coverage claim you did not measure** (`A MEASUREMENT'S COVERAGE IS PART OF ITS RESULT`, above). The grep is cheap, the phrase is in the diff, and a propagated claim always has more copies than the one you found it in — that is what propagated means.
-- **AN IMPLEMENTATION LANE REPORTS NEW FINDINGS. IT DOES NOT FILE THEM.** Added 2026-09-08, after both lanes wrote the SAME three queue entries within an hour and collided at merge. The branch numbered them 168-170, planning had already numbered them 169-171 on `main`, and the branch's own closeout commit ended up naming items that never existed. **Nothing in the rules said who files, so both did.** A branch closeout updates the STATUS of the items it was given and the campaign index rows it discharges; **a new item is reported in the final message and filed by planning**, which holds `docs/next-tasks.md` and the numbering. This is not about judgement — the findings were good and the text was nearly identical — it is that two writers assigning numbers from the same sequence will collide, and the loser's commit message cannot be corrected afterwards.
-- **A module left with no production consumer must say why in the code.** Zero consumers is exactly the signature a dead-code sweep acts on, and a reviewer declining to delete it is one agent's judgement on one branch, not a durable signal. Name the item that will consume it. `EYEBROW_REASON_CLASSES` in `src/lib/gameUi.ts` is the live example: its former consumer moved to the shared pill, and the comment retains it specifically for Item 113's featured-tile reason row. The previous example, `teamColors.ts`, was deleted when the owner retired Item 119's colour-bar direction in favor of provider logos.
+- **When a slice DELETES a rendered treatment, grep `DESIGN.md` for it before merging.** A removal
+  leaves the doc claim standing, and `DESIGN.md` is canonical for UI — so the file then describes a
+  treatment nothing renders, and the next reader trusts it. Named failure case: `PLATFORM-087` slice
+  5 removed the line-start team-colour accent along with the orphaned legacy tile, leaving
+  `DESIGN.md:165` asserting a per-line accent with **zero production consumers**. That was the
+  SECOND false team-colour claim in the same file from the same mechanism; the first described the
+  treatment as top-and-bottom card borders and stood long enough that a design comparison was built
+  on it. This is cheap and mechanical — the deletion is in the diff, so the grep terms are too.
+- **A CAMPAIGN DECISION THAT CONTRADICTS `DESIGN.md` IS NOT SETTLED UNTIL `DESIGN.md` CHANGES.**
+  Owner rule, 2026-09-08. Recording it in a campaign document instead produces a conflict that
+  surfaces only when somebody consolidates — and one did, months later, when a reference document
+  put the two claims side by side (Item 165: `recap-scoreboard.md` capped tags at two, `DESIGN.md`
+  said chips are not capped, and the code capped nothing). **"Canonical unless something more recent
+  disagrees" is not a rule anyone can apply**: it means every reader must know the whole document
+  set before trusting the canonical one, which is the opposite of what canonical means. So a
+  decision that overrides `DESIGN.md` amends it in the same closeout, marked as an amendment with
+  its reason. The campaign document keeps the reasoning; `DESIGN.md` carries the rule.
+- **AND THE SAME OBLIGATION RUNS FROM THE CODE.** The rule above covers a campaign decision
+  diverging from `DESIGN.md`; this covers the commoner and worse case — **a canonical claim that
+  never matched the implementation at all.** `DESIGN.md` said chips were uncapped, authored
+  2026-08-29, into a codebase capping at two since at least 2026-04-16 (Item 165). **A document that
+  was never true is worse than one that drifted**, because nothing in its history marks a moment of
+  change, so no reader has cause to distrust it, and every consistency check between two stale
+  readings passes. Same shape as an inert `tailwind.config.ts` asserting `darkMode: 'media'` (Item
+  159). **So a slice that introduces or changes a limit, a default, or a reserved value greps
+  `DESIGN.md` for the rule it now contradicts** — the same mechanical check as the deletion grep
+  above, on the same diff.
+- **CORRECTING A CLAIM MEANS GREPPING FOR IT, NOT FIXING THE COPIES YOU KNOW ABOUT.** Added
+  2026-09-08. A wrong sentence about odds on Matchups live and final rows reached **five** documents
+  — a discharge note, an INDEX CARRY row, the queue item's own table, a supersession note, and a
+  kickoff prompt. **It was corrected three times, each time announced as complete**, and the fourth
+  and fifth copies were found by an implementer's read receipt. **Announcing a correction as
+  complete without a repo-wide grep is a coverage claim you did not measure** (`A MEASUREMENT'S
+  COVERAGE IS PART OF ITS RESULT`, above). The grep is cheap, the phrase is in the diff, and a
+  propagated claim always has more copies than the one you found it in — that is what propagated
+  means.
+- **AN IMPLEMENTATION LANE REPORTS NEW FINDINGS. IT DOES NOT FILE THEM.** Added 2026-09-08, after
+  both lanes wrote the SAME three queue entries within an hour and collided at merge. The branch
+  numbered them 168-170, planning had already numbered them 169-171 on `main`, and the branch's own
+  closeout commit ended up naming items that never existed. **Nothing in the rules said who files,
+  so both did.** A branch closeout updates the STATUS of the items it was given and the campaign
+  index rows it discharges; **a new item is reported in the final message and filed by planning**,
+  which holds `docs/next-tasks.md` and the numbering. This is not about judgement — the findings
+  were good and the text was nearly identical — it is that two writers assigning numbers from the
+  same sequence will collide, and the loser's commit message cannot be corrected afterwards.
+- **A module left with no production consumer must say why in the code.** Zero consumers is exactly
+  the signature a dead-code sweep acts on, and a reviewer declining to delete it is one agent's
+  judgement on one branch, not a durable signal. Name the item that will consume it.
+  `EYEBROW_REASON_CLASSES` in `src/lib/gameUi.ts` is the live example: its former consumer moved to
+  the shared pill, and the comment retains it specifically for Item 113's featured-tile reason row.
+  The previous example, `teamColors.ts`, was deleted when the owner retired Item 119's colour-bar
+  direction in favor of provider logos.
 
 ### Ledger ownership during closeout
 
@@ -795,7 +1154,19 @@ These rules apply from the Standings Ownership Redesign campaign onward and must
 
 7. **currentDate is passed through, never captured inside derivations.** `currentDate` is captured at request-handler level and passed through to `deriveLifecycleState` and all downstream derivation functions. No implicit `new Date()` inside selectors or derivation helpers. `usingArchivedRoster` on `InsightContext` indicates `fresh_offseason` states using the prior archive's roster.
 
-8. **Cache valid absence, never cache uncertainty (PLATFORM-084A).** The canonical standings cache is tag-only (`revalidate: false`), so a snapshot persists until a mutation busts its tag — a snapshot built from a _failed_ read would stick indefinitely. Every app-state read in the compute path must distinguish genuine **absence** (a legitimate, cacheable state — e.g. no owners CSV, empty cached schedule, missing archive/probe/preseason-owners record) from a store-read **failure** (must reject). `getAppState` embodies this: it returns `null` only when the row is absent and throws on a real store error. Do **not** wrap a critical input read in a swallow-catch that converts a failure into an empty/default result (`null`, `[]`, `{}`, empty roster, 0-0 rows, awaiting-kickoff) — `unstable_cache` never persists a rejected promise, so a propagated failure surfaces and the next request recomputes, whereas a swallowed one caches a lie. The only sanctioned catch on this path is the `incrementalCache missing` invariant (non-RSC runtime → direct compute). This extends the PLATFORM-082A archive/insights rule to the standings selector itself.
+8. **Cache valid absence, never cache uncertainty (PLATFORM-084A).** The canonical standings cache
+   is tag-only (`revalidate: false`), so a snapshot persists until a mutation busts its tag — a
+   snapshot built from a _failed_ read would stick indefinitely. Every app-state read in the compute
+   path must distinguish genuine **absence** (a legitimate, cacheable state — e.g. no owners CSV,
+   empty cached schedule, missing archive/probe/preseason-owners record) from a store-read
+   **failure** (must reject). `getAppState` embodies this: it returns `null` only when the row is
+   absent and throws on a real store error. Do **not** wrap a critical input read in a swallow-catch
+   that converts a failure into an empty/default result (`null`, `[]`, `{}`, empty roster, 0-0 rows,
+   awaiting-kickoff) — `unstable_cache` never persists a rejected promise, so a propagated failure
+   surfaces and the next request recomputes, whereas a swallowed one caches a lie. The only
+   sanctioned catch on this path is the `incrementalCache missing` invariant (non-RSC runtime →
+   direct compute). This extends the PLATFORM-082A archive/insights rule to the standings selector
+   itself.
 
 ---
 
@@ -803,7 +1174,14 @@ These rules apply from the Standings Ownership Redesign campaign onward and must
 
 These rules describe both current enforcement and the planned role model and must not be violated:
 
-1. **Clerk is the user-identity and app-role provider** — no other identity systems, no custom session handling, no roll-your-own JWT verification. Clerk establishes who the user is and their app/admin role (`platform_admin`, etc.). This is distinct from the per-league **password access gate** (`src/lib/leagueAuth.ts`, keyed by `LEAGUE_AUTH_SECRET`): the league password only unlocks a passworded league's pages via a signed `league_auth_<slug>` cookie — it is **not** Clerk authentication and **not** admin authorization, and it grants no elevated role. A canonical **owner-identity** mapping (a league member's identity across seasons) is a separate concern and remains deferred; today owner names are raw roster strings.
+1. **Clerk is the user-identity and app-role provider** — no other identity systems, no custom
+   session handling, no roll-your-own JWT verification. Clerk establishes who the user is and their
+   app/admin role (`platform_admin`, etc.). This is distinct from the per-league **password access
+   gate** (`src/lib/leagueAuth.ts`, keyed by `LEAGUE_AUTH_SECRET`): the league password only unlocks
+   a passworded league's pages via a signed `league_auth_<slug>` cookie — it is **not** Clerk
+   authentication and **not** admin authorization, and it grants no elevated role. A canonical
+   **owner-identity** mapping (a league member's identity across seasons) is a separate concern and
+   remains deferred; today owner names are raw roster strings.
 
 2. **Three roles remain the planned Clerk `publicMetadata` model**: `platform_admin`, `commissioner`, `member`. Role storage shape: `{ role: 'platform_admin' | 'commissioner' | 'member' }`. Commissioner league scoping: `{ role: 'commissioner', leagues: ['tsc', 'family'] }`. Only `platform_admin` authorizes requests today; commissioner/member enforcement remains planned under **Multi-tenant Commissioner Sign-up** and **Server Action Auth Hardening**. Current code rejecting `commissioner` is an implementation-state fact, not a retirement of the product direction.
 
@@ -817,7 +1195,24 @@ These rules describe both current enforcement and the planned role model and mus
 
 7. **Commissioner scoping remains planned product direction** — the future model for `/league/[slug]/draft/*` and commissioner-owned admin surfaces is `platform_admin` or `commissioner` with a matching league slug. Until that reviewed campaign ships, those surfaces remain platform-admin-only. Keep authorization behind the shared middleware/action/API helpers so the planned scoping can be added at those boundaries rather than through inline role checks.
 
-8. **Server Actions authorize at their own boundary via `requireAdminAction(name)`** (PLATFORM-086F2H1SB). Next treats an exported Server Action as a public endpoint reachable by its action id, so route protection is defense in depth and NEVER the action's authority. Every exported action in `src/app/admin/[slug]/actions.ts` calls the guard as its FIRST executable statement, before argument validation, registry/app-state reads, writes, cleanup, standings invalidation, `revalidatePath`, or redirects. The guard calls `resolvePlatformAdminDecision()` — the CLOSED shared decision in `src/lib/server/adminAuth.ts`, not the `isPlatformAdminSession()` boolean wrapper, which cannot supply the refusal reason — with NO argument, because passing a `Request` would reach the `ADMIN_API_TOKEN` branch whose no-token path authorizes any caller outside production. That decision refuses outright when `CLERK_SECRET_KEY` is blank (Clerk's header-signature check degrades to an HMAC over the empty string) and distinguishes `authorization-unavailable` from `not-platform-admin`, so a Clerk outage is never recorded as a role denial. It is shared with `requireAdminAuth`; middleware is a SEPARATE boundary that calls Clerk directly and does not consume it. Refusal is a plain thrown `Error`: never `redirect()` or `notFound()`, which would fetch or render the very route being refused. The precise guarantee is that after ACTION ENTRY no application or durable read, write, or side effect precedes authorization — Next deserializes arguments before entry, so "zero reads" is not claimed. A new Server Action module requires an explicit authorization decision; a test fails if one appears.
+8. **Server Actions authorize at their own boundary via `requireAdminAction(name)`**
+   (PLATFORM-086F2H1SB). Next treats an exported Server Action as a public endpoint reachable by its
+   action id, so route protection is defense in depth and NEVER the action's authority. Every
+   exported action in `src/app/admin/[slug]/actions.ts` calls the guard as its FIRST executable
+   statement, before argument validation, registry/app-state reads, writes, cleanup, standings
+   invalidation, `revalidatePath`, or redirects. The guard calls `resolvePlatformAdminDecision()` —
+   the CLOSED shared decision in `src/lib/server/adminAuth.ts`, not the `isPlatformAdminSession()`
+   boolean wrapper, which cannot supply the refusal reason — with NO argument, because passing a
+   `Request` would reach the `ADMIN_API_TOKEN` branch whose no-token path authorizes any caller
+   outside production. That decision refuses outright when `CLERK_SECRET_KEY` is blank (Clerk's
+   header-signature check degrades to an HMAC over the empty string) and distinguishes
+   `authorization-unavailable` from `not-platform-admin`, so a Clerk outage is never recorded as a
+   role denial. It is shared with `requireAdminAuth`; middleware is a SEPARATE boundary that calls
+   Clerk directly and does not consume it. Refusal is a plain thrown `Error`: never `redirect()` or
+   `notFound()`, which would fetch or render the very route being refused. The precise guarantee is
+   that after ACTION ENTRY no application or durable read, write, or side effect precedes
+   authorization — Next deserializes arguments before entry, so "zero reads" is not claimed. A new
+   Server Action module requires an explicit authorization decision; a test fails if one appears.
 
 ---
 
@@ -831,9 +1226,179 @@ These rules apply from the Season Launch Hardening campaign onward and must not 
 
 3. **Time-dependent classification belongs in consumers, not cached selectors** — `unstable_cache`-wrapped selectors must return time-invariant facts (e.g. a kickoff date string). Components and route handlers evaluate `Date.now()` at render/request time. A `Date.now()` call inside a tagged cache closure produces stale classification that persists until the tag is manually invalidated.
 
-4. **Insights engine suppression is generator-level and bypassable** — `shouldSuppressGenerator(g, context)` handles (id, lifecycle, flag)-based generator-level skips, and is controlled by `bypassSuppression`. Any new engine-level suppression rule must use `bypassSuppression || !<rule>` — never unconditional — so diagnostic runs (`?bypassSuppression=1`) receive unfiltered output. **`bypassSuppression` IS admin-enforced as of 2026-09-13** — [#627](https://github.com/znpruitt/cfb-app/issues/627), merged `d7a97917` (PR #772). The route now returns **401 when the parameter is present and the caller is not a platform admin**, via `requireAdminAuth(req)`; callers not passing it are untouched. **This paragraph previously read "is NOT admin-enforced today"** and described the flag being read straight off the query string behind `isAuthorizedForLeague`, which returns `true` for ANY caller on a passwordless league. That was accurate until #627 and is recorded because other guidance reasoned from it. **`?year=` is bounded at the route** as of 2026-09-13 — [#770](https://github.com/znpruitt/cfb-app/issues/770), merged `31fc892a` (PR #775). A caller-supplied year is accepted only within `[MIN_SEASON_YEAR, currentYear + 1]` **or** when it equals the league's own operating year, and a rejected value returns **400** rather than the silent fallback that let an absurd year reach a full rebuild wearing a 200. The ceiling reuses `maxCreatableSeasonYear`, so it cannot drift from the registry's creation cap. **This paragraph previously recorded it as the open gap #627 did not close.** **`/api/history/[slug]/[year]` and its RSC page are bounded the same way** as of 2026-09-13 — [#774](https://github.com/znpruitt/cfb-app/issues/774), merged `4c939fbf` (PR #779) — **with one difference that is derived rather than copied: the ceiling is the league's OPERATING YEAR, not `currentYear + 1`, because an archive of a season that has not finished cannot exist** — and a year the league has actually archived is admitted regardless of the range, so a real gap year (`tsc` has 2019 and 2020) still renders its designed empty state rather than a refusal. **That route's parser also accepted NON-INTEGERS** (`Number()`, not `parseInt`), so its key space was dense rather than merely unbounded — the read-side half of a hazard `rolloverTargeting.ts:83` names by value (`2026.5`) and closed on the write side only. **Both archive readers refuse a slug no league holds** as of 2026-09-14 — [#778](https://github.com/znpruitt/cfb-app/issues/778), merged `99a41fbe` (PR #783) — returning `null`/`[]` before any entry is minted, with the debug routes answering `404 league-not-found`. **The refusal is the AUTHORITY's, and that is where this differs from #770/#774: only a caller can tell a client-supplied year from a server-derived one, whereas no legitimate server-derived slug names a league that does not exist.** It covers `listSeasonArchives` as well as `getSeasonArchive`, because a refusal in one leaves the sibling unguarded for the next caller. **Residue: entries already minted are neither enumerable nor purgeable short of a global cache purge** — and `revalidate: false` is a ONE-YEAR TTL (`CACHE_ONE_YEAR`), not the absence of expiry an earlier note here claimed. **Open: the guard fans out registry reads in Route Handlers, where `React.cache` does not dedupe — [#782](https://github.com/znpruitt/cfb-app/issues/782).** **And a severity correction that applies to this whole paragraph:** it is written as though the exposure were anonymous. Measured 2026-09-13, all three production leagues carry a `passwordHash`, so `isAuthorizedForLeague`'s passwordless admit is satisfied by none of them — the live vector is any league member holding the password cookie. A passwordless league remains a supported configuration the code deliberately admits, so the wording is corrected rather than the concern retired. The flag skips the `unstable_cache` entry (a full uncached recompute per request) and skips this generator gate — **but NOT the generators' own copies of these checks, and the earlier claim here was false.** This sentence used to read _"so `career:rookie_benchmark` reaches a caller during the rollover window, which invariant 5 forbids"_. **Measured 2026-09-13** by the #627 lane, driving the full 23-generator registry with positive controls: `shouldSuppressGenerator` has exactly TWO entries and BOTH are duplicated non-bypassably inside their own generators (`career.ts:1072`, `membership.ts:294`), so `?bypassSuppression=1` currently changes **no served content** — an anonymous bypassed response differs from a plain one in `generatedAt` alone. **The live exposure is the uncached recompute, not disclosure.** Keep those in-generator checks: they are what makes this true, and they are defence in depth rather than redundancy. Guidance may now assume the flag IS privileged; what it must not assume is that the compute path is bounded — see #770. **The served feed is never filtered per insight.** INSIGHTS-029 removed the second layer (`isSuppressed(insight, records)`, "fire once, then fade") from the serving path: 21 of the 32 `InsightType` values carried a `TYPE_THRESHOLDS` rule, almost all `{ kind: 'unchanged' }` — suppress while the stat value is identical — and out of season no stat value can move, so it degenerated into "show each insight once, ever". **Sizing that drain correctly matters, because INSIGHTS-023/018 reason from this line.** It was NOT only the three `NEVER_SUPPRESS_TYPES` that survived: `isSuppressed` returns `false` for any type with no threshold entry, and 8 types are in neither table (`champion_margin`, `collapse`, `failed_chase`, `movement`, `race`, `surge`, `tight_cluster`, `toilet_bowl`) — they survived too, except when carrying a `snapshot` newsHook, which is checked before the rule lookup. 11 of 32 types were unaffected; the drain hit the other 21. `selectServedInsights` — a pure sort and cap — is the serving path. `applySuppression`/`isSuppressed` still exist but have no production caller; do not reintroduce per-insight suppression to fix feed repetition. Repetition is a POOL problem (INSIGHTS-023) and then a rotation problem (INSIGHTS-018), and rotation must be built against a pool larger than the feed or it repeats the same mistake. **EXCEPTION (INSIGHTS-025):** a rule whose purpose is withholding a FALSE CLAIM ABOUT A PERSON must additionally be enforced inside the generator, where the bypass cannot reach it — `bypassSuppression` is admin-only since #627, but this gate is still a diagnostic convenience rather than a safety boundary — **the in-generator enforcement STAYS.** It is what makes the flag change no served content at all (measured 2026-09-13), and route protection is never the authority, exactly as auth invariant 8 states for Server Actions. Do not delete these checks as redundant now that the route is guarded. See invariant 5.
+4. **Insights engine suppression is generator-level and bypassable** — `shouldSuppressGenerator(g,
+   context)` handles (id, lifecycle, flag)-based generator-level skips, and is controlled by
+   `bypassSuppression`. Any new engine-level suppression rule must use `bypassSuppression ||
+   !<rule>` — never unconditional — so diagnostic runs (`?bypassSuppression=1`) receive unfiltered
+   output. **`bypassSuppression` IS admin-enforced as of 2026-09-13** —
+   [#627](https://github.com/znpruitt/cfb-app/issues/627), merged `d7a97917` (PR #772). The route
+   now returns **401 when the parameter is present and the caller is not a platform admin**, via
+   `requireAdminAuth(req)`; callers not passing it are untouched. **This paragraph previously read
+   "is NOT admin-enforced today"** and described the flag being read straight off the query string
+   behind `isAuthorizedForLeague`, which returns `true` for ANY caller on a passwordless league.
+   That was accurate until #627 and is recorded because other guidance reasoned from it. **`?year=`
+   is bounded at the route** as of 2026-09-13 —
+   [#770](https://github.com/znpruitt/cfb-app/issues/770), merged `31fc892a` (PR #775). A
+   caller-supplied year is accepted only within `[MIN_SEASON_YEAR, currentYear + 1]` **or** when it
+   equals the league's own operating year, and a rejected value returns **400** rather than the
+   silent fallback that let an absurd year reach a full rebuild wearing a 200. The ceiling reuses
+   `maxCreatableSeasonYear`, so it cannot drift from the registry's creation cap. **This paragraph
+   previously recorded it as the open gap #627 did not close.** **`/api/history/[slug]/[year]` and
+   its RSC page are bounded the same way** as of 2026-09-13 —
+   [#774](https://github.com/znpruitt/cfb-app/issues/774), merged `4c939fbf` (PR #779) — **with one
+   difference that is derived rather than copied: the ceiling is the league's OPERATING YEAR, not
+   `currentYear + 1`, because an archive of a season that has not finished cannot exist** — and a
+   year the league has actually archived is admitted regardless of the range, so a real gap year
+   (`tsc` has 2019 and 2020) still renders its designed empty state rather than a refusal. **That
+   route's parser also accepted NON-INTEGERS** (`Number()`, not `parseInt`), so its key space was
+   dense rather than merely unbounded — the read-side half of a hazard `rolloverTargeting.ts:83`
+   names by value (`2026.5`) and closed on the write side only. **Both archive readers refuse a slug
+   no league holds** as of 2026-09-14 — [#778](https://github.com/znpruitt/cfb-app/issues/778),
+   merged `99a41fbe` (PR #783) — returning `null`/`[]` before any entry is minted, with the debug
+   routes answering `404 league-not-found`. **The refusal is the AUTHORITY's, and that is where this
+   differs from #770/#774: only a caller can tell a client-supplied year from a server-derived one,
+   whereas no legitimate server-derived slug names a league that does not exist.** It covers
+   `listSeasonArchives` as well as `getSeasonArchive`, because a refusal in one leaves the sibling
+   unguarded for the next caller. **Residue: entries already minted are neither enumerable nor
+   purgeable short of a global cache purge** — and `revalidate: false` is a ONE-YEAR TTL
+   (`CACHE_ONE_YEAR`), not the absence of expiry an earlier note here claimed. **Open: the guard
+   fans out registry reads in Route Handlers, where `React.cache` does not dedupe —
+   [#782](https://github.com/znpruitt/cfb-app/issues/782).** **And a severity correction that
+   applies to this whole paragraph:** it is written as though the exposure were anonymous. Measured
+   2026-09-13, all three production leagues carry a `passwordHash`, so `isAuthorizedForLeague`'s
+   passwordless admit is satisfied by none of them — the live vector is any league member holding
+   the password cookie. A passwordless league remains a supported configuration the code
+   deliberately admits, so the wording is corrected rather than the concern retired. The flag skips
+   the `unstable_cache` entry (a full uncached recompute per request) and skips this generator gate
+   — **but NOT the generators' own copies of these checks, and the earlier claim here was false.**
+   This sentence used to read _"so `career:rookie_benchmark` reaches a caller during the rollover
+   window, which invariant 5 forbids"_. **Measured 2026-09-13** by the #627 lane, driving the full
+   23-generator registry with positive controls: `shouldSuppressGenerator` has exactly TWO entries
+   and BOTH are duplicated non-bypassably inside their own generators (`career.ts:1072`,
+   `membership.ts:294`), so `?bypassSuppression=1` currently changes **no served content** — an
+   anonymous bypassed response differs from a plain one in `generatedAt` alone. **The live exposure
+   is the uncached recompute, not disclosure.** Keep those in-generator checks: they are what makes
+   this true, and they are defence in depth rather than redundancy. Guidance may now assume the flag
+   IS privileged; what it must not assume is that the compute path is bounded — see #770. **The
+   served feed is never filtered per insight.** INSIGHTS-029 removed the second layer
+   (`isSuppressed(insight, records)`, "fire once, then fade") from the serving path: 21 of the 32
+   `InsightType` values carried a `TYPE_THRESHOLDS` rule, almost all `{ kind: 'unchanged' }` —
+   suppress while the stat value is identical — and out of season no stat value can move, so it
+   degenerated into "show each insight once, ever". **Sizing that drain correctly matters, because
+   INSIGHTS-023/018 reason from this line.** It was NOT only the three `NEVER_SUPPRESS_TYPES` that
+   survived: `isSuppressed` returns `false` for any type with no threshold entry, and 8 types are in
+   neither table (`champion_margin`, `collapse`, `failed_chase`, `movement`, `race`, `surge`,
+   `tight_cluster`, `toilet_bowl`) — they survived too, except when carrying a `snapshot` newsHook,
+   which is checked before the rule lookup. 11 of 32 types were unaffected; the drain hit the other
+   21. `selectServedInsights` — a pure sort and cap — is the serving path.
+   `applySuppression`/`isSuppressed` still exist but have no production caller; do not reintroduce
+   per-insight suppression to fix feed repetition. Repetition is a POOL problem (INSIGHTS-023) and
+   then a rotation problem (INSIGHTS-018), and rotation must be built against a pool larger than the
+   feed or it repeats the same mistake. **EXCEPTION (INSIGHTS-025):** a rule whose purpose is
+   withholding a FALSE CLAIM ABOUT A PERSON must additionally be enforced inside the generator,
+   where the bypass cannot reach it — `bypassSuppression` is admin-only since #627, but this gate is
+   still a diagnostic convenience rather than a safety boundary — **the in-generator enforcement
+   STAYS.** It is what makes the flag change no served content at all (measured 2026-09-13), and
+   route protection is never the authority, exactly as auth invariant 8 states for Server Actions.
+   Do not delete these checks as redundant now that the route is guarded. See invariant 5.
 
-5. **`usingArchivedRoster` drives content safety, not just gating** — when `context.usingArchivedRoster` is true, a generator's output must be true of the PRIOR season it is actually drawn from, and must claim nothing about the upcoming one. A generator satisfies this in one of two ways, and needs only one: (a) **time framing** — restate when the data is from, using `applyLastSeasonFraming` from `src/lib/insights/framing.ts`, for copy that would otherwise read as current-year; or (b) **already-neutral copy** — a description that states historical fact and asserts no participation is already safe, needs no prefix, and must not be given one. Suppress completely only when NEITHER applies because the claim itself is unsound on a borrowed roster (e.g. `rookie_benchmark` — there is no valid framing for a first-archive-owner comparison drawn from someone else's roster). **Framing may only restate WHEN the data is from; it must never assert WHO will participate.** INSIGHTS-022 removed the second helper, `applyReturningOwnerFraming`, and its "Returning owner" narrative for exactly that reason: a borrowed roster proves an owner PLAYED, never that they will play again, and the prefix fired hardest in the window where the upcoming roster is least known. **AMENDED by INSIGHTS-023 (owner ruling, 2026-08-16): that feature now exists, and a CONFIRMED owner list is finalized enough.** INSIGHTS-023a put the confirmed preseason owner list on the context as `context.leagueMembers`, with `context.leagueMembersSource` recording where it came from. Copy may therefore assert participation — "still playing", "active owners", an "active" streak or drought — **only when `membershipIsKnown(context.leagueMembersSource)`**, i.e. the source is `confirmed` or `official-roster`. Those two answer "who is playing this season"; `previous-roster` does not, because it is last season's snapshot standing in, and an owner who merely sat a season out is absent from it. When membership is not known, copy states the fact and claims nothing about participation — it does NOT fall back to pre-023a wording, which is the false claim this rule exists to prevent. **`usingArchivedRoster` and membership are now INDEPENDENT**: in preseason the roster MAP is borrowed (no draft yet, so `usingArchivedRoster` is true) while the member NAMES are confirmed. Do not derive one from the other — INSIGHTS-024's audit records that conflation flipping `usingArchivedRoster` false and unlocking rookie claims as a side effect. The time-framing rule in (a) is unchanged and still governs WHEN the data is from. **AMENDED AGAIN by INSIGHTS-025 (2026-08-17): the fence is down.** That clause reserved returning-owner claims for this decision, and the decision is made — a confirmed owner list compared against the archives is exactly the finalized-roster-versus-history comparison the original invariant said no generator had. `narrative:membership` may therefore name who joined, who returned and who left, deriving every figure from `context.archives` and `context.seasonOwners` at request time. It reads NEITHER `leagueMembers` nor `membershipIsKnown` — an earlier version of this clause said it did, and the divergence was reachable: a league that drafted without ever using the confirmation screen, published, then had its owners CSV blanked, falls to `previous-roster` (the state this invariant said must silence the generator) while `seasonOwners` is still non-null. `leagueMembers` is now used for ONE thing here — `context.membershipDisagreement`, which withholds everything when the two records name different people. That is a CONTRADICTION check, not the completeness proof forbidden below. Two conditions bind it. The claims must stay factual about the CHANGE, never about its cause — the app can see that someone was on last season's roster and is not on this one; it cannot see whether they quit, took a year off, or were not asked back. And it must SAY NOTHING when the confirmed owner list and the draft name different people (`context.membershipDisagreement`), because a list re-confirmed after the draft published would otherwise report a current member as having left. (An earlier revision of this paragraph still listed `membershipIsKnown` as one of the two conditions, three sentences after stating that this generator does not read it — and its reasoning was stale besides, since joining is computed from `seasonOwners`, not from `leagueMembers`.) The app can see that someone was on last season's roster and is not on this one; it cannot see whether they quit, took a year off, or were not asked back. **A THIRD condition, and INSIGHTS-025 spent four review rounds arriving at it: a claim about ABSENCE may be made only from a CONFIRMED DRAFT's owner set** (`context.seasonOwners`, derived in `loadInsights.ts` from the published picks). **OWNER RULING (2026-08-17): "a confirmed draft should be the gate to report results on who joined/left"**, and "as for members that left, it should be a simple compare between the confirmed roster and the previous year's owners". A confirmed draft cannot be half-finished and rosters must be balanced so every owner drafts, so its owner set IS the league for that season — nothing about it needs verifying. **Do NOT reintroduce a completeness check over `context.leagueMembers`.** Four versions of one were built and every one could be satisfied while the fact was false: a lifecycle flag the season transition DELETES; an assertion that ignored a contradicting roster; two half-finished records agreeing with each other; and a publication boolean that said a draft existed but not who was in it, which a supported `?override=1` roster repair then walked straight through. `leagueMembers` walks a fallback chain and is a work-in-progress until the draft is confirmed; the draft is the record of who took part. **The check must also be enforced inside `generate`, not only in `shouldSuppressGenerator`:** that gate is lifted by `?bypassSuppression=1`, which any caller can set on a passwordless league, and for one round that URL published the withheld card. A diagnostic surface may LABEL a withheld claim about real people; no query parameter may publish one. **Rookie-benchmark claims remain separate and still rely on clause (b)** — this amendment covers membership events only. **AMENDED AGAIN by INSIGHTS-032 (owner ruling, 2026-08-18): a report of a COMPLETED season is exempt from the departed-owner rule.** INSIGHTS-025 established that a departed owner is named only by the membership event, and its wiring tests enforce that across every generator. That rule was written for claims about the CURRENT season — "Alice leads the league in career points" reads as a claim about a current member, which is why filtering those by `leagueMembers` was the fix. A season recap is a different kind of statement: "How 2025 finished: Zoe took it by 3 games over Yuri" reports a season that is over and asserts nothing about who is playing now, which is precisely the already-safe copy clause (b) describes. Gating it on membership was built first and was WRONG IN BOTH DIRECTIONS — it made the recap dark until owners were confirmed (removing it from the entire window between rollover and the draft, when it is the freshest news there is) and it silently deleted the champion card whenever last season's champion did not come back, which is a false impression created by omission. **Withholding a card about a real person is not automatically the safe choice: a missing champion is itself a claim about who won.** **The exemption is by CATEGORY (`season_wrap`) and is narrow.** Any other generator naming a departed owner still violates the rule, and the exemption holds only while the copy says WHICH season it describes. `existing:season_wrap` therefore STATES THE YEAR in every title — "How 2025 finished", "Who owns the porcelain throne in 2025?" — rather than the relative `applyLastSeasonFraming` prefix it used before; a stated year is the stronger guarantee because it survives being read out of context. The year is supplied by the generator from the ARCHIVE's own year on the archive path, so a card can never name the season about to start, and supplying it is also what switches each derivation from live-table copy to completed-season copy (the same functions serve `deriveLeagueInsights`, which describes a LIVE table for the panels and must keep its neutral titles). The test-side exemption is narrowed to the four recap id prefixes rather than the whole category, so a future `season_wrap` card with un-framed copy still fails the INSIGHTS-025 wiring tests. A `season_wrap` card that made a present-tense claim, or named the wrong year, would be a violation no membership filter could catch — which is why both are pinned by test rather than assumed. **The three ungated participation claims in `docs/next-tasks.md` item 36 (`historical:drought`, `rivalry:dominance_streak`, `career:never_last`) are NOT covered by this exemption** — they assert an ongoing relationship, which is exactly what the rule still forbids.
+5. **`usingArchivedRoster` drives content safety, not just gating** — when
+   `context.usingArchivedRoster` is true, a generator's output must be true of the PRIOR season it
+   is actually drawn from, and must claim nothing about the upcoming one. A generator satisfies this
+   in one of two ways, and needs only one: (a) **time framing** — restate when the data is from,
+   using `applyLastSeasonFraming` from `src/lib/insights/framing.ts`, for copy that would otherwise
+   read as current-year; or (b) **already-neutral copy** — a description that states historical fact
+   and asserts no participation is already safe, needs no prefix, and must not be given one.
+   Suppress completely only when NEITHER applies because the claim itself is unsound on a borrowed
+   roster (e.g. `rookie_benchmark` — there is no valid framing for a first-archive-owner comparison
+   drawn from someone else's roster). **Framing may only restate WHEN the data is from; it must
+   never assert WHO will participate.** INSIGHTS-022 removed the second helper,
+   `applyReturningOwnerFraming`, and its "Returning owner" narrative for exactly that reason: a
+   borrowed roster proves an owner PLAYED, never that they will play again, and the prefix fired
+   hardest in the window where the upcoming roster is least known. **AMENDED by INSIGHTS-023 (owner
+   ruling, 2026-08-16): that feature now exists, and a CONFIRMED owner list is finalized enough.**
+   INSIGHTS-023a put the confirmed preseason owner list on the context as `context.leagueMembers`,
+   with `context.leagueMembersSource` recording where it came from. Copy may therefore assert
+   participation — "still playing", "active owners", an "active" streak or drought — **only when
+   `membershipIsKnown(context.leagueMembersSource)`**, i.e. the source is `confirmed` or
+   `official-roster`. Those two answer "who is playing this season"; `previous-roster` does not,
+   because it is last season's snapshot standing in, and an owner who merely sat a season out is
+   absent from it. When membership is not known, copy states the fact and claims nothing about
+   participation — it does NOT fall back to pre-023a wording, which is the false claim this rule
+   exists to prevent. **`usingArchivedRoster` and membership are now INDEPENDENT**: in preseason the
+   roster MAP is borrowed (no draft yet, so `usingArchivedRoster` is true) while the member NAMES
+   are confirmed. Do not derive one from the other — INSIGHTS-024's audit records that conflation
+   flipping `usingArchivedRoster` false and unlocking rookie claims as a side effect. The
+   time-framing rule in (a) is unchanged and still governs WHEN the data is from. **AMENDED AGAIN by
+   INSIGHTS-025 (2026-08-17): the fence is down.** That clause reserved returning-owner claims for
+   this decision, and the decision is made — a confirmed owner list compared against the archives is
+   exactly the finalized-roster-versus-history comparison the original invariant said no generator
+   had. `narrative:membership` may therefore name who joined, who returned and who left, deriving
+   every figure from `context.archives` and `context.seasonOwners` at request time. It reads NEITHER
+   `leagueMembers` nor `membershipIsKnown` — an earlier version of this clause said it did, and the
+   divergence was reachable: a league that drafted without ever using the confirmation screen,
+   published, then had its owners CSV blanked, falls to `previous-roster` (the state this invariant
+   said must silence the generator) while `seasonOwners` is still non-null. `leagueMembers` is now
+   used for ONE thing here — `context.membershipDisagreement`, which withholds everything when the
+   two records name different people. That is a CONTRADICTION check, not the completeness proof
+   forbidden below. Two conditions bind it. The claims must stay factual about the CHANGE, never
+   about its cause — the app can see that someone was on last season's roster and is not on this
+   one; it cannot see whether they quit, took a year off, or were not asked back. And it must SAY
+   NOTHING when the confirmed owner list and the draft name different people
+   (`context.membershipDisagreement`), because a list re-confirmed after the draft published would
+   otherwise report a current member as having left. (An earlier revision of this paragraph still
+   listed `membershipIsKnown` as one of the two conditions, three sentences after stating that this
+   generator does not read it — and its reasoning was stale besides, since joining is computed from
+   `seasonOwners`, not from `leagueMembers`.) The app can see that someone was on last season's
+   roster and is not on this one; it cannot see whether they quit, took a year off, or were not
+   asked back. **A THIRD condition, and INSIGHTS-025 spent four review rounds arriving at it: a
+   claim about ABSENCE may be made only from a CONFIRMED DRAFT's owner set**
+   (`context.seasonOwners`, derived in `loadInsights.ts` from the published picks). **OWNER RULING
+   (2026-08-17): "a confirmed draft should be the gate to report results on who joined/left"**, and
+   "as for members that left, it should be a simple compare between the confirmed roster and the
+   previous year's owners". A confirmed draft cannot be half-finished and rosters must be balanced
+   so every owner drafts, so its owner set IS the league for that season — nothing about it needs
+   verifying. **Do NOT reintroduce a completeness check over `context.leagueMembers`.** Four
+   versions of one were built and every one could be satisfied while the fact was false: a lifecycle
+   flag the season transition DELETES; an assertion that ignored a contradicting roster; two
+   half-finished records agreeing with each other; and a publication boolean that said a draft
+   existed but not who was in it, which a supported `?override=1` roster repair then walked straight
+   through. `leagueMembers` walks a fallback chain and is a work-in-progress until the draft is
+   confirmed; the draft is the record of who took part. **The check must also be enforced inside
+   `generate`, not only in `shouldSuppressGenerator`:** that gate is lifted by
+   `?bypassSuppression=1`, which any caller can set on a passwordless league, and for one round that
+   URL published the withheld card. A diagnostic surface may LABEL a withheld claim about real
+   people; no query parameter may publish one. **Rookie-benchmark claims remain separate and still
+   rely on clause (b)** — this amendment covers membership events only. **AMENDED AGAIN by
+   INSIGHTS-032 (owner ruling, 2026-08-18): a report of a COMPLETED season is exempt from the
+   departed-owner rule.** INSIGHTS-025 established that a departed owner is named only by the
+   membership event, and its wiring tests enforce that across every generator. That rule was written
+   for claims about the CURRENT season — "Alice leads the league in career points" reads as a claim
+   about a current member, which is why filtering those by `leagueMembers` was the fix. A season
+   recap is a different kind of statement: "How 2025 finished: Zoe took it by 3 games over Yuri"
+   reports a season that is over and asserts nothing about who is playing now, which is precisely
+   the already-safe copy clause (b) describes. Gating it on membership was built first and was WRONG
+   IN BOTH DIRECTIONS — it made the recap dark until owners were confirmed (removing it from the
+   entire window between rollover and the draft, when it is the freshest news there is) and it
+   silently deleted the champion card whenever last season's champion did not come back, which is a
+   false impression created by omission. **Withholding a card about a real person is not
+   automatically the safe choice: a missing champion is itself a claim about who won.** **The
+   exemption is by CATEGORY (`season_wrap`) and is narrow.** Any other generator naming a departed
+   owner still violates the rule, and the exemption holds only while the copy says WHICH season it
+   describes. `existing:season_wrap` therefore STATES THE YEAR in every title — "How 2025 finished",
+   "Who owns the porcelain throne in 2025?" — rather than the relative `applyLastSeasonFraming`
+   prefix it used before; a stated year is the stronger guarantee because it survives being read out
+   of context. The year is supplied by the generator from the ARCHIVE's own year on the archive
+   path, so a card can never name the season about to start, and supplying it is also what switches
+   each derivation from live-table copy to completed-season copy (the same functions serve
+   `deriveLeagueInsights`, which describes a LIVE table for the panels and must keep its neutral
+   titles). The test-side exemption is narrowed to the four recap id prefixes rather than the whole
+   category, so a future `season_wrap` card with un-framed copy still fails the INSIGHTS-025 wiring
+   tests. A `season_wrap` card that made a present-tense claim, or named the wrong year, would be a
+   violation no membership filter could catch — which is why both are pinned by test rather than
+   assumed. **The three ungated participation claims in `docs/next-tasks.md` item 36
+   (`historical:drought`, `rivalry:dominance_streak`, `career:never_last`) are NOT covered by this
+   exemption** — they assert an ongoing relationship, which is exactly what the rule still forbids.
 
 ---
 
@@ -841,19 +1406,295 @@ These rules apply from the Season Launch Hardening campaign onward and must not 
 
 These rules apply from PLATFORM-086F2B onward and must not be violated:
 
-1. **`league.status` is the lifecycle authority; `league.year` is only its synchronized projection.** The guarded write authority and the fixed-target demo-league control share `applyLifecycleStatus`: `season`/`preseason` set `status` AND synchronize `league.year = status.year` in ONE registry write; `offseason` sets `status` and writes the last authoritative season year — the outgoing `status.year` when one exists — into `league.year` (healing any desynchronized legacy top-level year rather than carrying it forward). `guardedLifecycleWrite` is the serialized write authority for the commissioner transitions, the automatic season transition, and the demo-league control; do not add a parallel read-modify-write path. **There is no general-purpose lifecycle setter.** PLATFORM-086F2H1T1 retired the arbitrary-slug `updateLeagueStatus`, leaving `setTestLeagueLifecycleState(state)` and `resetTestLeagueLifecycle()` — which take NO slug and always target `TEST_LEAGUE_SLUG` (defined in `src/lib/league.ts`) — as the only writes without an expected-state predicate, because forcing a state is exactly what the sandbox controls exist to do. They are not unguarded in the other sense: the year is DERIVED and structurally validated inside the same transaction (`season(N)`→`preseason(N+1)`, `preseason(N)` stays at N, `preseason(N)`→`season(N)`, offseason/missing derive from the stored authoritative year), so an unusable stored year or an unrepresentable successor refuses without writing. `resetTestLeagueLifecycle()` derives nothing, so it always recovers a corrupt demo record. Demo controls clear only demo-SCOPED app-state, strictly after a confirmed commit, and never a year-keyed record shared with production leagues such as `schedule-probe/<year>`. The two controls clear DIFFERENT years, deliberately: preseason setup clears the year the authority returned (the preseason it just installed), while the reset clears the DERIVED SUCCESSOR (`returned year + 1`) — the preseason a fresh dry run will use — because clearing the season the reset just installed would wipe the demo's live owners and draft. The pre-existing `completeSeasonRollover` still hand-rolls the equivalent projection inside its own exact-year transaction under rule 5; converging it is F2H2. ALL registry mutations serialize on the registry key via `withAppStateKeyTransaction` (whole-array read-modify-write; without the lock, concurrent mutators would drop one another's update). Generic `updateLeague` and the league-configuration PATCH (`/api/admin/leagues/[slug]`) must not mutate `year` or `status` (the API rejects with `409 league-year-lifecycle-managed` / `league-status-lifecycle-managed`) — never reintroduce a second year authority. New leagues are created with an explicit status, and WHICH status depends on the path (PLATFORM-093): ordinary creation seeds `{ state: 'preseason', year }` — a league with no owners, no roster and no draft is setting up, and every setup surface is gated on `preseason` — while ADOPTION keeps `{ state: 'season', year }`. That asymmetry is load-bearing, not an oversight: the season-transition cron selects on `status.state === 'preseason'` and groups by `status.year`, so seeding a restored 2024 league `preseason` would enrol 2024 as a transition target and buy a billed regular + postseason CFBD refetch plus a durable re-commit of that season's schedule.
+1. **`league.status` is the lifecycle authority; `league.year` is only its synchronized
+   projection.** The guarded write authority and the fixed-target demo-league control share
+   `applyLifecycleStatus`: `season`/`preseason` set `status` AND synchronize `league.year =
+   status.year` in ONE registry write; `offseason` sets `status` and writes the last authoritative
+   season year — the outgoing `status.year` when one exists — into `league.year` (healing any
+   desynchronized legacy top-level year rather than carrying it forward). `guardedLifecycleWrite` is
+   the serialized write authority for the commissioner transitions, the automatic season transition,
+   and the demo-league control; do not add a parallel read-modify-write path. **There is no
+   general-purpose lifecycle setter.** PLATFORM-086F2H1T1 retired the arbitrary-slug
+   `updateLeagueStatus`, leaving `setTestLeagueLifecycleState(state)` and
+   `resetTestLeagueLifecycle()` — which take NO slug and always target `TEST_LEAGUE_SLUG` (defined
+   in `src/lib/league.ts`) — as the only writes without an expected-state predicate, because forcing
+   a state is exactly what the sandbox controls exist to do. They are not unguarded in the other
+   sense: the year is DERIVED and structurally validated inside the same transaction
+   (`season(N)`→`preseason(N+1)`, `preseason(N)` stays at N, `preseason(N)`→`season(N)`,
+   offseason/missing derive from the stored authoritative year), so an unusable stored year or an
+   unrepresentable successor refuses without writing. `resetTestLeagueLifecycle()` derives nothing,
+   so it always recovers a corrupt demo record. Demo controls clear only demo-SCOPED app-state,
+   strictly after a confirmed commit, and never a year-keyed record shared with production leagues
+   such as `schedule-probe/<year>`. The two controls clear DIFFERENT years, deliberately: preseason
+   setup clears the year the authority returned (the preseason it just installed), while the reset
+   clears the DERIVED SUCCESSOR (`returned year + 1`) — the preseason a fresh dry run will use —
+   because clearing the season the reset just installed would wipe the demo's live owners and draft.
+   The pre-existing `completeSeasonRollover` still hand-rolls the equivalent projection inside its
+   own exact-year transaction under rule 5; converging it is F2H2. ALL registry mutations serialize
+   on the registry key via `withAppStateKeyTransaction` (whole-array read-modify-write; without the
+   lock, concurrent mutators would drop one another's update). Generic `updateLeague` and the
+   league-configuration PATCH (`/api/admin/leagues/[slug]`) must not mutate `year` or `status` (the
+   API rejects with `409 league-year-lifecycle-managed` / `league-status-lifecycle-managed`) — never
+   reintroduce a second year authority. New leagues are created with an explicit status, and WHICH
+   status depends on the path (PLATFORM-093): ordinary creation seeds `{ state: 'preseason', year }`
+   — a league with no owners, no roster and no draft is setting up, and every setup surface is gated
+   on `preseason` — while ADOPTION keeps `{ state: 'season', year }`. That asymmetry is
+   load-bearing, not an oversight: the season-transition cron selects on `status.state ===
+   'preseason'` and groups by `status.year`, so seeding a restored 2024 league `preseason` would
+   enrol 2024 as a transition target and buy a billed regular + postseason CFBD refetch plus a
+   durable re-commit of that season's schedule.
 
-2. **Commissioner preseason mutations make their decision under the registry lock.** `beginPreseasonTransition` requires `offseason`, derives and validates the successor year under the same transaction, and writes the status/year projection once. `completePreseasonSetup` requires `preseason` at exactly the submitted year; a stale form writes nothing, while an already-complete record may heal only a stale top-level projection. Both return closed outcomes without credential-bearing league records. Callers may log a refusal, but they must not bypass the authority or recompute the lifecycle decision from a pre-lock snapshot.
+2. **Commissioner preseason mutations make their decision under the registry lock.**
+   `beginPreseasonTransition` requires `offseason`, derives and validates the successor year under
+   the same transaction, and writes the status/year projection once. `completePreseasonSetup`
+   requires `preseason` at exactly the submitted year; a stale form writes nothing, while an
+   already-complete record may heal only a stale top-level projection. Both return closed outcomes
+   without credential-bearing league records. Callers may log a refusal, but they must not bypass
+   the authority or recompute the lifecycle decision from a pre-lock snapshot.
 
-   **The AUTOMATIC transition is guarded on the same terms** (PLATFORM-086F2H1B). `GET /api/cron/season-transition` reads its target snapshot once and then performs lengthy provider/probe work, so it commits through `completeSeasonTransition(slug, targetYear)`, which re-checks the expected state and exact year inside the registry transaction and returns one of four closed outcomes: `transitioned`, `already-in-target-season` (a benign idempotent overlap or redelivery, which also heals a stale top-level projection), `league-removed` (a normal admin deletion after selection), or `not-in-target-preseason` (genuinely stale). The four dispositions are counted INDEPENDENTLY and reported identically across the HTTP response, the runtime event, and the durable receipt — as counts only, never league slugs. Only a refusal is anomalous: a year with any refusal is ALWAYS `partial` (even when every target refused, since the authenticated run did its canonical stage and then did not complete its lifecycle work), which is what System Health surfaces; benign already/removed dispositions raise nothing either way, and classify `no-op` ONLY when the run committed nothing at all. `no-op` asserts that neither a canonical refresh nor a lifecycle projection landed, so two cases classify `success` instead: an `already-in-target-season` target whose stale top-level projection was durably healed, and a year whose E1A refresh durably committed a schedule (`cached`). Both are real writes, and the same `cached`-counts-as-work rule governs the post-commit failure paths — otherwise an identical year would read `no-op` when it completed cleanly and `partial` when its cache bust threw. The reason always names the LIFECYCLE outcome; the E1A detail travels on `scheduleRefreshReason`. `transitioned` in the HTTP body means `transitionedLeagues > 0` — an actual write occurred — not that the year is complete. **The demo league is NOT an automatic transition target** (PLATFORM-086F2H1T2). `TEST_LEAGUE_SLUG` is filtered out BEFORE the zero-target decision and before grouping by year, so a demo-only year never reaches a probe read or write, a provider refresh, a lifecycle write, standings invalidation, or any target or disposition count on the response, event, or receipt. A registry whose only preseason league is the demo reports `skipped / no-automatic-preseason-leagues` — distinct from `no-preseason-leagues`, which would falsely tell an operator no league awaits transition. Because that cron was the demo's only automatic preseason→season path, its manual control (`setTestLeagueStatus`) now carries the standings invalidation the cron performed. **The demo league is NOT a weekly schedule-maintenance target either** (PLATFORM-086F2H1T3). `GET /api/cron/schedule-refresh` filters `TEST_LEAGUE_SLUG` PER LEAGUE, inside the year-ownership loop — never against the resolved target years, which would drop a year a production league also occupies. This is an owner-selector rule, not only a target removal: `season` outranks `preseason` for a shared year, so a demo league in `season(Y)` must not promote Y to the pause-exempt active-season policy over production leagues in `preseason(Y)`. That is the direction the rule changes; production `season` precedence over `preseason` is PRESERVED, not newly created — the existing precedence already prevented a preseason league from displacing a `season` owner. A registry whose only active leagues are the demo reports `skipped / no-automatic-maintenance-target`; `no-maintenance-target` keeps its exact meaning (no active league at all). No per-year entry, provider request, settings read, probe or latch operation, presentation refresh, or receipt target is produced for a demo-only year. **No league-scoped duty transfers to the manual control** — every durable key this cron writes is year- or global-scoped — but two consequences follow from that same fact and are deliberate. First, existing `schedule-weekly-control/<year>` boundary latches are RETAINED, including any written while only the demo occupied that year: the latch records a year-level fact derived from the shared canonical schedule, and a production league later sharing the year is entitled to read it. Second, a registry whose only active leagues are the demo no longer refreshes the GLOBAL `venue-catalog` automatically, because the presentation authority runs only after a populated per-year refresh; an authenticated manual full-year refresh remains the supported path. Do NOT delete shared latch, probe, canonical schedule, or presentation state to "clean up" after the exclusion — that state is year- or global-scoped and is read on production leagues' behalf. **The demo league is NOT an automatic rankings-publication target either** (PLATFORM-086F2H1T4). `selectRankingsTargetYears` (`src/lib/rankings/automaticContext.ts`) resolves ownership from PRODUCTION leagues only, filtering `TEST_LEAGUE_SLUG` PER LEAGUE inside its ownership loop — never against the resolved target years, which would drop a year a production league also occupies — and returns a closed `{ years, excludedDemoCandidate }` so the years and the exclusion truth that shaped them cannot be observed apart. The flag is derived from `slug` and `status.state` ONLY, never `status.year`, so an unvalidated legacy year cannot flip the zero-target reason, and an `offseason` demo record is not an excluded CANDIDATE. **Unlike F2H1T3 this is NOT an owner-selector rule with behavioral weight:** `RankingsPublicationContext.lifecycle` is inert — no publication window branches on it, the publication key omits it, and it never reaches the durable receipt — so a demo `season(Y)` that previously outranked production `preseason(Y)` changed only the REPORTED lifecycle, not window eligibility, quota, provider spend, or any durable write. A registry whose only active leagues are the demo reports `skipped / no-automatic-ranking-target`; `no-ranking-target` keeps its exact meaning (no eligible league at all). The automation gate stays AHEAD of target selection, so a PAUSED demo-only run still reports `automation-paused-or-disabled` and a registry fault can never turn a deliberately paused job into a scheduler failure. No league-scoped duty transfers to the demo controls — this path writes none — but a year the demo occupies ALONE loses automatic publication outright: `rankings/<year>` is never refreshed, and the consequence is NOT uniform across readers. The draft board's AP annotation and Insights swallow the miss; the LEAGUE APP does not — `loadSeasonRankings` throws on a total cache miss, `/api/rankings` maps it to 503, and the resulting `CFBD rankings load failed:` note is suppressed only while the league is in PRESEASON, so a demo league in `season(Y)` on a demo-only year surfaces a standing operator-visible error. The authorized manual refresh is the upkeep path and is ungated by the automation settings, but it is NOT unconditionally reachable: `/api/rankings` rejects any year above `currentUTCYear + 1` with a 400 before authorizing, while the demo lifecycle authority imposes no such ceiling, so a demo parked far enough ahead has no upkeep path at all until the calendar catches up. Existing `rankings-publication-window/<year>:<kind>:<date>`, `rankings/<year>`, lease, and year-scoped provider-refresh records are RETAINED: they are year-scoped provider evidence a production league later sharing the year is entitled to read, and a completed window key names a slot that has already elapsed, so deleting it could not change any future run. **The demo league does NOT select the System Health operational year either** (PLATFORM-086F2H1T5). `resolveOperationalSeasonYear` (`src/lib/server/systemHealthYear.ts`) filters `TEST_LEAGUE_SLUG` out of its population ONCE, before BOTH resolution branches, and delegates the unchanged three-step rule to a private helper that receives only the filtered list. **The exclusion is UNCONDITIONAL — deliberately unlike F2H1T3/F2H1T4, and copying their `isActive &&` gate here ships the bug.** Those jobs gate because an `offseason` demo was never an automatic TARGET, so flagging it would falsify their zero-target reason. Here the second branch reads the top-level `league.year`, which `applyLifecycleStatus` keeps synchronized to the demo's lifecycle and RETAINS on the move to `offseason`, so an active-only exclusion leaves a demo parked in offseason still selecting the year. Offseason and status-less demo records are excluded too. The predicate is slug-only and never reads a demo `year`, so an unvalidated legacy value cannot influence resolution before the demo is rejected; a record whose slug is not the demo slug is treated as production, failing toward production rather than letting corruption acquire demo-like influence. Production lifecycle authority is preserved (`status.year` for an active league, never `league.year`), as are the production stored-year fallback, the calendar fallback, the `[2000, currentUTCYear + 1]` clamp, and the numeric return — this resolver is TOTAL, so there is no zero-target state and no `excludedDemoCandidate` analogue, new reason, receipt field, or event. **Scope truth:** this removes demo INFLUENCE; it does NOT promise the resolved year is one automation maintains. An all-offseason registry resolves to the last authoritative production projection and a registry with no production league resolves to the calendar season, either of which may still need manual provider-data preparation. **The shared-predicate decision is now CLOSED: no universal predicate is warranted.** All five sites share the canonical slug identity (`TEST_LEAGUE_SLUG`, which already is that shared abstraction) but not lifecycle eligibility or ownership semantics — their eligibility sets are `{season}` for rollover, `{preseason}` for the season transition, `{season, preseason}` for weekly schedule and rankings, and EVERY league here. Any predicate carrying an active-state gate is provably wrong at this site. Do not create a successor convergence slice merely because the weekly-schedule and rankings selectors have similar loops.
+   **The AUTOMATIC transition is guarded on the same terms** (PLATFORM-086F2H1B). `GET
+   /api/cron/season-transition` reads its target snapshot once and then performs lengthy
+   provider/probe work, so it commits through `completeSeasonTransition(slug, targetYear)`, which
+   re-checks the expected state and exact year inside the registry transaction and returns one of
+   four closed outcomes: `transitioned`, `already-in-target-season` (a benign idempotent overlap or
+   redelivery, which also heals a stale top-level projection), `league-removed` (a normal admin
+   deletion after selection), or `not-in-target-preseason` (genuinely stale). The four dispositions
+   are counted INDEPENDENTLY and reported identically across the HTTP response, the runtime event,
+   and the durable receipt — as counts only, never league slugs. Only a refusal is anomalous: a year
+   with any refusal is ALWAYS `partial` (even when every target refused, since the authenticated run
+   did its canonical stage and then did not complete its lifecycle work), which is what System
+   Health surfaces; benign already/removed dispositions raise nothing either way, and classify
+   `no-op` ONLY when the run committed nothing at all. `no-op` asserts that neither a canonical
+   refresh nor a lifecycle projection landed, so two cases classify `success` instead: an
+   `already-in-target-season` target whose stale top-level projection was durably healed, and a year
+   whose E1A refresh durably committed a schedule (`cached`). Both are real writes, and the same
+   `cached`-counts-as-work rule governs the post-commit failure paths — otherwise an identical year
+   would read `no-op` when it completed cleanly and `partial` when its cache bust threw. The reason
+   always names the LIFECYCLE outcome; the E1A detail travels on `scheduleRefreshReason`.
+   `transitioned` in the HTTP body means `transitionedLeagues > 0` — an actual write occurred — not
+   that the year is complete. **The demo league is NOT an automatic transition target**
+   (PLATFORM-086F2H1T2). `TEST_LEAGUE_SLUG` is filtered out BEFORE the zero-target decision and
+   before grouping by year, so a demo-only year never reaches a probe read or write, a provider
+   refresh, a lifecycle write, standings invalidation, or any target or disposition count on the
+   response, event, or receipt. A registry whose only preseason league is the demo reports `skipped
+   / no-automatic-preseason-leagues` — distinct from `no-preseason-leagues`, which would falsely
+   tell an operator no league awaits transition. Because that cron was the demo's only automatic
+   preseason→season path, its manual control (`setTestLeagueStatus`) now carries the standings
+   invalidation the cron performed. **The demo league is NOT a weekly schedule-maintenance target
+   either** (PLATFORM-086F2H1T3). `GET /api/cron/schedule-refresh` filters `TEST_LEAGUE_SLUG` PER
+   LEAGUE, inside the year-ownership loop — never against the resolved target years, which would
+   drop a year a production league also occupies. This is an owner-selector rule, not only a target
+   removal: `season` outranks `preseason` for a shared year, so a demo league in `season(Y)` must
+   not promote Y to the pause-exempt active-season policy over production leagues in `preseason(Y)`.
+   That is the direction the rule changes; production `season` precedence over `preseason` is
+   PRESERVED, not newly created — the existing precedence already prevented a preseason league from
+   displacing a `season` owner. A registry whose only active leagues are the demo reports `skipped /
+   no-automatic-maintenance-target`; `no-maintenance-target` keeps its exact meaning (no active
+   league at all). No per-year entry, provider request, settings read, probe or latch operation,
+   presentation refresh, or receipt target is produced for a demo-only year. **No league-scoped duty
+   transfers to the manual control** — every durable key this cron writes is year- or global-scoped
+   — but two consequences follow from that same fact and are deliberate. First, existing
+   `schedule-weekly-control/<year>` boundary latches are RETAINED, including any written while only
+   the demo occupied that year: the latch records a year-level fact derived from the shared
+   canonical schedule, and a production league later sharing the year is entitled to read it.
+   Second, a registry whose only active leagues are the demo no longer refreshes the GLOBAL
+   `venue-catalog` automatically, because the presentation authority runs only after a populated
+   per-year refresh; an authenticated manual full-year refresh remains the supported path. Do NOT
+   delete shared latch, probe, canonical schedule, or presentation state to "clean up" after the
+   exclusion — that state is year- or global-scoped and is read on production leagues' behalf. **The
+   demo league is NOT an automatic rankings-publication target either** (PLATFORM-086F2H1T4).
+   `selectRankingsTargetYears` (`src/lib/rankings/automaticContext.ts`) resolves ownership from
+   PRODUCTION leagues only, filtering `TEST_LEAGUE_SLUG` PER LEAGUE inside its ownership loop —
+   never against the resolved target years, which would drop a year a production league also
+   occupies — and returns a closed `{ years, excludedDemoCandidate }` so the years and the exclusion
+   truth that shaped them cannot be observed apart. The flag is derived from `slug` and
+   `status.state` ONLY, never `status.year`, so an unvalidated legacy year cannot flip the
+   zero-target reason, and an `offseason` demo record is not an excluded CANDIDATE. **Unlike F2H1T3
+   this is NOT an owner-selector rule with behavioral weight:**
+   `RankingsPublicationContext.lifecycle` is inert — no publication window branches on it, the
+   publication key omits it, and it never reaches the durable receipt — so a demo `season(Y)` that
+   previously outranked production `preseason(Y)` changed only the REPORTED lifecycle, not window
+   eligibility, quota, provider spend, or any durable write. A registry whose only active leagues
+   are the demo reports `skipped / no-automatic-ranking-target`; `no-ranking-target` keeps its exact
+   meaning (no eligible league at all). The automation gate stays AHEAD of target selection, so a
+   PAUSED demo-only run still reports `automation-paused-or-disabled` and a registry fault can never
+   turn a deliberately paused job into a scheduler failure. No league-scoped duty transfers to the
+   demo controls — this path writes none — but a year the demo occupies ALONE loses automatic
+   publication outright: `rankings/<year>` is never refreshed, and the consequence is NOT uniform
+   across readers. The draft board's AP annotation and Insights swallow the miss; the LEAGUE APP
+   does not — `loadSeasonRankings` throws on a total cache miss, `/api/rankings` maps it to 503, and
+   the resulting `CFBD rankings load failed:` note is suppressed only while the league is in
+   PRESEASON, so a demo league in `season(Y)` on a demo-only year surfaces a standing
+   operator-visible error. The authorized manual refresh is the upkeep path and is ungated by the
+   automation settings, but it is NOT unconditionally reachable: `/api/rankings` rejects any year
+   above `currentUTCYear + 1` with a 400 before authorizing, while the demo lifecycle authority
+   imposes no such ceiling, so a demo parked far enough ahead has no upkeep path at all until the
+   calendar catches up. Existing `rankings-publication-window/<year>:<kind>:<date>`,
+   `rankings/<year>`, lease, and year-scoped provider-refresh records are RETAINED: they are
+   year-scoped provider evidence a production league later sharing the year is entitled to read, and
+   a completed window key names a slot that has already elapsed, so deleting it could not change any
+   future run. **The demo league does NOT select the System Health operational year either**
+   (PLATFORM-086F2H1T5). `resolveOperationalSeasonYear` (`src/lib/server/systemHealthYear.ts`)
+   filters `TEST_LEAGUE_SLUG` out of its population ONCE, before BOTH resolution branches, and
+   delegates the unchanged three-step rule to a private helper that receives only the filtered list.
+   **The exclusion is UNCONDITIONAL — deliberately unlike F2H1T3/F2H1T4, and copying their `isActive
+   &&` gate here ships the bug.** Those jobs gate because an `offseason` demo was never an automatic
+   TARGET, so flagging it would falsify their zero-target reason. Here the second branch reads the
+   top-level `league.year`, which `applyLifecycleStatus` keeps synchronized to the demo's lifecycle
+   and RETAINS on the move to `offseason`, so an active-only exclusion leaves a demo parked in
+   offseason still selecting the year. Offseason and status-less demo records are excluded too. The
+   predicate is slug-only and never reads a demo `year`, so an unvalidated legacy value cannot
+   influence resolution before the demo is rejected; a record whose slug is not the demo slug is
+   treated as production, failing toward production rather than letting corruption acquire demo-like
+   influence. Production lifecycle authority is preserved (`status.year` for an active league, never
+   `league.year`), as are the production stored-year fallback, the calendar fallback, the `[2000,
+   currentUTCYear + 1]` clamp, and the numeric return — this resolver is TOTAL, so there is no
+   zero-target state and no `excludedDemoCandidate` analogue, new reason, receipt field, or event.
+   **Scope truth:** this removes demo INFLUENCE; it does NOT promise the resolved year is one
+   automation maintains. An all-offseason registry resolves to the last authoritative production
+   projection and a registry with no production league resolves to the calendar season, either of
+   which may still need manual provider-data preparation. **The shared-predicate decision is now
+   CLOSED: no universal predicate is warranted.** All five sites share the canonical slug identity
+   (`TEST_LEAGUE_SLUG`, which already is that shared abstraction) but not lifecycle eligibility or
+   ownership semantics — their eligibility sets are `{season}` for rollover, `{preseason}` for the
+   season transition, `{season, preseason}` for weekly schedule and rankings, and EVERY league here.
+   Any predicate carrying an active-state gate is provably wrong at this site. Do not create a
+   successor convergence slice merely because the weekly-schedule and rankings selectors have
+   similar loops.
 
-   **Standings invalidation follows the outcome.** A confirmed transition records its counters first and then invalidates; an `already-in-target-season` delivery also invalidates, reconciling an overlapping invocation or a redelivery that STILL HOLDS a preseason snapshot; it does NOT guarantee recovery on a later daily run, because a league that already moved to `season` is no longer selected by the preseason-only target filter (see `docs/next-tasks.md` for the deferral); `league-removed` and `not-in-target-preseason` invalidate nothing because nothing was mutated. A durable lifecycle write and a Next cache invalidation cannot be one atomic operation — an invalidation throw after a confirmed commit reports `standings-invalidation-failed` and never rolls back or relabels the committed write. That year is `partial` only when it actually recorded work — canonical data, a transition, a heal, or a refusal; a year whose sole target was an UNTOUCHED `already-in-target-season` match wrote nothing, so it is a clean `failure` rather than a `partial` asserting progress that did not happen. This narrows the window; it does not close it.
+   **Standings invalidation follows the outcome.** A confirmed transition records its counters first
+   and then invalidates; an `already-in-target-season` delivery also invalidates, reconciling an
+   overlapping invocation or a redelivery that STILL HOLDS a preseason snapshot; it does NOT
+   guarantee recovery on a later daily run, because a league that already moved to `season` is no
+   longer selected by the preseason-only target filter (see `docs/next-tasks.md` for the deferral);
+   `league-removed` and `not-in-target-preseason` invalidate nothing because nothing was mutated. A
+   durable lifecycle write and a Next cache invalidation cannot be one atomic operation — an
+   invalidation throw after a confirmed commit reports `standings-invalidation-failed` and never
+   rolls back or relabels the committed write. That year is `partial` only when it actually recorded
+   work — canonical data, a transition, a heal, or a refusal; a year whose sole target was an
+   UNTOUCHED `already-in-target-season` match wrote nothing, so it is a clean `failure` rather than
+   a `partial` asserting progress that did not happen. This narrows the window; it does not close
+   it.
 
-3. **The new-league season horizon is an ingress rule, not a legacy-record cutoff.** `POST /api/admin/leagues` accepts a year ONLY on the adoption path, where it is validated as an integer from `2000` through `currentUTCYear + 1` via `isCreatableSeasonYear`. Ordinary creation DERIVES the season (`seasonYearForNewLeague`, the calendar year — January belongs to the upcoming season) and REFUSES a supplied value with 400, exactly as it refuses `restoreFoundedYear`. Adoption must state the year because it re-attaches a record to data belonging to a particular season, and the value is frozen afterwards. Persisted records are checked only for safe lifecycle arithmetic (`isStructurallyValidSeasonYear`); applying the creation horizon during a transition would freeze legacy data. A transition that derives `year + 1` must validate the successor before writing it.
+3. **The new-league season horizon is an ingress rule, not a legacy-record cutoff.** `POST
+   /api/admin/leagues` accepts a year ONLY on the adoption path, where it is validated as an integer
+   from `2000` through `currentUTCYear + 1` via `isCreatableSeasonYear`. Ordinary creation DERIVES
+   the season (`seasonYearForNewLeague`, the calendar year — January belongs to the upcoming season)
+   and REFUSES a supplied value with 400, exactly as it refuses `restoreFoundedYear`. Adoption must
+   state the year because it re-attaches a record to data belonging to a particular season, and the
+   value is frozen afterwards. Persisted records are checked only for safe lifecycle arithmetic
+   (`isStructurallyValidSeasonYear`); applying the creation horizon during a transition would freeze
+   legacy data. A transition that derives `year + 1` must validate the successor before writing it.
 
-4. **Rendering never persists lifecycle state.** Admin pages/GETs read legacy missing-status records through the read-only `{ state: 'season', year: league.year }` inference; initialization or repair is an explicit operation, never a render side effect. (Legacy missing-status records are also excluded from rollover targeting — as they already were from the automatic cron pre-F2B; their explicit repair path is owned by the F2H lifecycle-recovery slice, deliberately not by F2B.) **The registry CONTAINER read is classified, and its consumers migrate one job at a time** (PLATFORM-086F2H1R1, first of five). `readLeagueRegistry()` returns `ok` / `missing` / `malformed`; a store failure still THROWS, so unavailability stays distinct from corruption, and a present record whose value is not an array is `malformed` — including a stored JSON `null`, which deliberately diverges from `readScheduleItems`, where a null-valued record is ordinary absence. `getLeagues()` delegates with its behavior UNCHANGED (absent and malformed both still yield `[]`), because ~69 modules depend on it; callers that can act on the distinction consume the reader directly. The classification is CONTAINER-level only — it does not validate individual records, so a non-object element still throws downstream. `GET /api/cron/season-transition` is the first consumer: a malformed container refuses with `failure / registry-malformed` (500) before any probe, provider, lifecycle, or invalidation work, instead of reporting a zero-target reason asserting no league is awaiting transition. **`GET /api/cron/schedule-refresh` is the SECOND consumer (PLATFORM-086F2H1R2), on the same shape: a malformed container refuses with `failure / registry-malformed` before any schedule, probe, latch, settings, provider, or presentation work, and production candidates surviving the demo exclusion are validated the same way. Its HTTP status DIFFERS deliberately — 200, not R1's 500 — because this route answers every controlled outcome with 200 and only auth returns 401; the divergence is the route's pre-existing convention, not a new rule, and reconciling the two is a recorded follow-up. `GET /api/cron/rankings` is the THIRD consumer (PLATFORM-086F2H1R3), same shape, with its container read kept strictly BEHIND the automation gate so a corrupt registry can never turn a deliberately paused run into a scheduler failure. Its refusal count is published into a REQUIRED sink as the selector counts it, because there the counting loop lives inside the pure selector where the run state is not in scope — a count returned after the loop is discarded by a mid-loop throw, which is how R3 first reintroduced the very defect R2 closed. `GET /api/cron/season-rollover` and its then-shared manual consumer `/api/admin/rollover` are the FOURTH and final migration (PLATFORM-086F2H1R4), **completing the container-truth work across all four registry consumers**. (PLATFORM-086F2H4 has since retired that admin route, so the cron is the sole surviving consumer of this policy; the migration record stands as history.) Rollover is the one that WRITES durable data derived from the year — `saveSeasonArchive` keys on `String(archive.year)`, and the written status `{ state: 'offseason' }` carries no year, so the top-level `league.year` becomes the only surviving record and feeds `resolveOperationalSeasonYear` — so its refusal lands before championship resolution, archive build/save, lifecycle write, standings invalidation, and suppression cleanup. `completeSeasonRollover` ALSO validates independently inside its transaction, because it is the last writer before durable state and is reachable directly; **validity is decided on BOTH the stored and requested year BEFORE the exact-year comparison** — ordering it after makes the stored check dead code and misreports a corrupt record as `not-in-target-season`, conflating "another actor moved it" (retry) with "the record is corrupt" (repair). **A refusal counted at WRITE time counts too** — the field means production records refused this run, and the selector is not the only place that can decide it. Since PLATFORM-086F2H3A that write-time count exists ONLY on the cron, and since PLATFORM-086F2H4 the cron is the only consumer at all. **The 200-vs-500 divergence is a DELIVERY-BOUNDARY rule, now stated once:** the QStash-delivered routes (`schedule-refresh`, `rankings`) answer every controlled outcome with 200 and reserve non-200 for auth, because an at-least-once delivery layer must not read a controlled refusal as a transport fault; the Vercel-native lifecycle crons keep 500. **And the refusal-degraded aggregate has a consequence that is sharper on rankings than on any sibling:** because `skipped` is that job's modal outcome, one unrepaired record makes nearly every run classify `failure` and shows a standing System Health warning until the record is fixed. That is the intended encoding of "a deferral alone never causes failure; the unusable production target does" — recorded, not accidental. **Production preseason candidates are then validated with `isStructurallyValidSeasonYear`, AFTER the demo exclusion** — validating first would let a malformed demo record flip the zero-target reason and undo F2H1T2. Refused candidates produce no year key, per-year entry, probe read/write, provider request, lifecycle write, or `targetLeagues` contribution; they are reported as one run-level `invalidLifecycleTargets` count on the response, event, and receipt (counts only — never a slug or the unusable value; LEAGUES, not distinct years). **The count must survive a mid-loop throw.** Where the loop that counts refusals is also the loop that can throw — the registry array is typed `League[]` but nothing validates each element, so a non-object member throws on property access — the count must be accumulated on the run state itself, not in a local published after the loop, which a throw would skip. The predicate is structural, not a plausibility window: an in-range but absurd year (`999999`) still passes and still drives billed work, which remains F2H1R's to close. Aggregation: no refusals → the normal aggregate; refusals with no executed years → `failure / unusable-lifecycle-year`; refusals plus executed years → preserve the executed years' uniform reason (`year-results` only when they genuinely disagree) and classify `partial` when their aggregate is `success` or `partial`, else `failure`. The reason is never overwritten by the refusal, because the receipt's year entries carry counts and no reason field, so overwriting would erase the only durable record of what those years did. **Correction to a long-standing claim in `leagueRegistry.ts`:** `guardedLifecycleWrite` is NOT the only lifecycle write path — `completeSeasonRollover` calls `mutateRegistry` directly, bypasses `applyLifecycleStatus`, and is the only lifecycle writer with no structural year check. Closing that is F2H1R4's.
+4. **Rendering never persists lifecycle state.** Admin pages/GETs read legacy missing-status records
+   through the read-only `{ state: 'season', year: league.year }` inference; initialization or
+   repair is an explicit operation, never a render side effect. (Legacy missing-status records are
+   also excluded from rollover targeting — as they already were from the automatic cron pre-F2B;
+   their explicit repair path is owned by the F2H lifecycle-recovery slice, deliberately not by
+   F2B.) **The registry CONTAINER read is classified, and its consumers migrate one job at a time**
+   (PLATFORM-086F2H1R1, first of five). `readLeagueRegistry()` returns `ok` / `missing` /
+   `malformed`; a store failure still THROWS, so unavailability stays distinct from corruption, and
+   a present record whose value is not an array is `malformed` — including a stored JSON `null`,
+   which deliberately diverges from `readScheduleItems`, where a null-valued record is ordinary
+   absence. `getLeagues()` delegates with its behavior UNCHANGED (absent and malformed both still
+   yield `[]`), because ~69 modules depend on it; callers that can act on the distinction consume
+   the reader directly. The classification is CONTAINER-level only — it does not validate individual
+   records, so a non-object element still throws downstream. `GET /api/cron/season-transition` is
+   the first consumer: a malformed container refuses with `failure / registry-malformed` (500)
+   before any probe, provider, lifecycle, or invalidation work, instead of reporting a zero-target
+   reason asserting no league is awaiting transition. **`GET /api/cron/schedule-refresh` is the
+   SECOND consumer (PLATFORM-086F2H1R2), on the same shape: a malformed container refuses with
+   `failure / registry-malformed` before any schedule, probe, latch, settings, provider, or
+   presentation work, and production candidates surviving the demo exclusion are validated the same
+   way. Its HTTP status DIFFERS deliberately — 200, not R1's 500 — because this route answers every
+   controlled outcome with 200 and only auth returns 401; the divergence is the route's pre-existing
+   convention, not a new rule, and reconciling the two is a recorded follow-up. `GET
+   /api/cron/rankings` is the THIRD consumer (PLATFORM-086F2H1R3), same shape, with its container
+   read kept strictly BEHIND the automation gate so a corrupt registry can never turn a deliberately
+   paused run into a scheduler failure. Its refusal count is published into a REQUIRED sink as the
+   selector counts it, because there the counting loop lives inside the pure selector where the run
+   state is not in scope — a count returned after the loop is discarded by a mid-loop throw, which
+   is how R3 first reintroduced the very defect R2 closed. `GET /api/cron/season-rollover` and its
+   then-shared manual consumer `/api/admin/rollover` are the FOURTH and final migration
+   (PLATFORM-086F2H1R4), **completing the container-truth work across all four registry consumers**.
+   (PLATFORM-086F2H4 has since retired that admin route, so the cron is the sole surviving consumer
+   of this policy; the migration record stands as history.) Rollover is the one that WRITES durable
+   data derived from the year — `saveSeasonArchive` keys on `String(archive.year)`, and the written
+   status `{ state: 'offseason' }` carries no year, so the top-level `league.year` becomes the only
+   surviving record and feeds `resolveOperationalSeasonYear` — so its refusal lands before
+   championship resolution, archive build/save, lifecycle write, standings invalidation, and
+   suppression cleanup. `completeSeasonRollover` ALSO validates independently inside its
+   transaction, because it is the last writer before durable state and is reachable directly;
+   **validity is decided on BOTH the stored and requested year BEFORE the exact-year comparison** —
+   ordering it after makes the stored check dead code and misreports a corrupt record as
+   `not-in-target-season`, conflating "another actor moved it" (retry) with "the record is corrupt"
+   (repair). **A refusal counted at WRITE time counts too** — the field means production records
+   refused this run, and the selector is not the only place that can decide it. Since
+   PLATFORM-086F2H3A that write-time count exists ONLY on the cron, and since PLATFORM-086F2H4 the
+   cron is the only consumer at all. **The 200-vs-500 divergence is a DELIVERY-BOUNDARY rule, now
+   stated once:** the QStash-delivered routes (`schedule-refresh`, `rankings`) answer every
+   controlled outcome with 200 and reserve non-200 for auth, because an at-least-once delivery layer
+   must not read a controlled refusal as a transport fault; the Vercel-native lifecycle crons keep
+   500. **And the refusal-degraded aggregate has a consequence that is sharper on rankings than on
+   any sibling:** because `skipped` is that job's modal outcome, one unrepaired record makes nearly
+   every run classify `failure` and shows a standing System Health warning until the record is
+   fixed. That is the intended encoding of "a deferral alone never causes failure; the unusable
+   production target does" — recorded, not accidental. **Production preseason candidates are then
+   validated with `isStructurallyValidSeasonYear`, AFTER the demo exclusion** — validating first
+   would let a malformed demo record flip the zero-target reason and undo F2H1T2. Refused candidates
+   produce no year key, per-year entry, probe read/write, provider request, lifecycle write, or
+   `targetLeagues` contribution; they are reported as one run-level `invalidLifecycleTargets` count
+   on the response, event, and receipt (counts only — never a slug or the unusable value; LEAGUES,
+   not distinct years). **The count must survive a mid-loop throw.** Where the loop that counts
+   refusals is also the loop that can throw — the registry array is typed `League[]` but nothing
+   validates each element, so a non-object member throws on property access — the count must be
+   accumulated on the run state itself, not in a local published after the loop, which a throw would
+   skip. The predicate is structural, not a plausibility window: an in-range but absurd year
+   (`999999`) still passes and still drives billed work, which remains F2H1R's to close.
+   Aggregation: no refusals → the normal aggregate; refusals with no executed years → `failure /
+   unusable-lifecycle-year`; refusals plus executed years → preserve the executed years' uniform
+   reason (`year-results` only when they genuinely disagree) and classify `partial` when their
+   aggregate is `success` or `partial`, else `failure`. The reason is never overwritten by the
+   refusal, because the receipt's year entries carry counts and no reason field, so overwriting
+   would erase the only durable record of what those years did. **Correction to a long-standing
+   claim in `leagueRegistry.ts`:** `guardedLifecycleWrite` is NOT the only lifecycle write path —
+   `completeSeasonRollover` calls `mutateRegistry` directly, bypasses `applyLifecycleStatus`, and is
+   the only lifecycle writer with no structural year check. Closing that is F2H1R4's.
 
-5. **Season rollover is per-year and strict, and the CRON is its only executor.** Target selection goes through `groupRolloverTargets` (`src/lib/rolloverTargeting.ts`): non-test leagues with `status.state === 'season'`, grouped exclusively by `status.year` (never `league.year`, the first registered league, or the calendar). **`GET /api/cron/season-rollover` is the ONLY rollover surface of any kind (PLATFORM-086F2H3A, completed by PLATFORM-086F2H4).** F2H3A retired manual EXECUTION, leaving a preview-only `/api/admin/rollover`; F2H4 retired that route and the `/admin/season` page it served. There is now no admin route, page, or control for rollover at all. Manual execution went first because it had no unique authority and no unique recovery behavior — identical gate to the daily cron, no force bypass, so its only effect was advancing an ALREADY-ELIGIBLE rollover by less than 24 hours. The preview went second because it was **unactionable by construction**: the cron has no automation-pause gate, so an operator could see which owners' final standings would move and had no supported way to prevent it. What remains observable is the `season-rollover` scheduler row on System Health. Its receipt carries the exact `ChampionshipRolloverSkipReason` **when every targeted year agrees** — which is the ordinary shape, since production leagues normally share one season year — so "why has this not rolled over yet" is answerable there. **It is NOT answerable from the receipt when production years disagree AND their gates skip for different reasons:** `aggregateLifecycleCronReason` records `year-results`, and the `season-rollover-years` receipt target carries `year`/`targetLeagues`/`rolledOverLeagues` per year but no per-year reason. The per-year reasons are still emitted on the runtime EVENT (Vercel Runtime Logs), so the information exists but is not on the dashboard. Persisting per-year reasons onto the receipt is a recorded follow-up, deliberately not folded into the retirement. Eligibility remains `resolveNationalChampionshipRollover` (structured `cfbd-structured` CFP national championship + confirmed complete final + seven-day delay; cache-only, no provider calls). Archive-before-status is guaranteed in the executing path: the cron preserves per-league isolation (each league transitions only after its own archive save; one league's archive failure skips only that league), so no league can transition without its own durable archive. Every season→offseason transition goes through the guarded `completeSeasonRollover` (inside the serialized registry transaction, the league must STILL be in `season` for the exact requested year — a stale request can never clobber a league another actor already rolled or advanced). Partial status failures are reported truthfully. There is no force/emergency bypass; an exceptional forced recovery would require a separately reviewed operation with explicit semantics — never a restored generic execute control. **If manual execution is ever restored, its standings-invalidation handling must be hardened and tested**, not reinstated from the bare `catch {}` the retired path carried.
+5. **Season rollover is per-year and strict, and the CRON is its only executor.** Target selection
+   goes through `groupRolloverTargets` (`src/lib/rolloverTargeting.ts`): non-test leagues with
+   `status.state === 'season'`, grouped exclusively by `status.year` (never `league.year`, the first
+   registered league, or the calendar). **`GET /api/cron/season-rollover` is the ONLY rollover
+   surface of any kind (PLATFORM-086F2H3A, completed by PLATFORM-086F2H4).** F2H3A retired manual
+   EXECUTION, leaving a preview-only `/api/admin/rollover`; F2H4 retired that route and the
+   `/admin/season` page it served. There is now no admin route, page, or control for rollover at
+   all. Manual execution went first because it had no unique authority and no unique recovery
+   behavior — identical gate to the daily cron, no force bypass, so its only effect was advancing an
+   ALREADY-ELIGIBLE rollover by less than 24 hours. The preview went second because it was
+   **unactionable by construction**: the cron has no automation-pause gate, so an operator could see
+   which owners' final standings would move and had no supported way to prevent it. What remains
+   observable is the `season-rollover` scheduler row on System Health. Its receipt carries the exact
+   `ChampionshipRolloverSkipReason` **when every targeted year agrees** — which is the ordinary
+   shape, since production leagues normally share one season year — so "why has this not rolled over
+   yet" is answerable there. **It is NOT answerable from the receipt when production years disagree
+   AND their gates skip for different reasons:** `aggregateLifecycleCronReason` records
+   `year-results`, and the `season-rollover-years` receipt target carries
+   `year`/`targetLeagues`/`rolledOverLeagues` per year but no per-year reason. The per-year reasons
+   are still emitted on the runtime EVENT (Vercel Runtime Logs), so the information exists but is
+   not on the dashboard. Persisting per-year reasons onto the receipt is a recorded follow-up,
+   deliberately not folded into the retirement. Eligibility remains
+   `resolveNationalChampionshipRollover` (structured `cfbd-structured` CFP national championship +
+   confirmed complete final + seven-day delay; cache-only, no provider calls). Archive-before-status
+   is guaranteed in the executing path: the cron preserves per-league isolation (each league
+   transitions only after its own archive save; one league's archive failure skips only that
+   league), so no league can transition without its own durable archive. Every season→offseason
+   transition goes through the guarded `completeSeasonRollover` (inside the serialized registry
+   transaction, the league must STILL be in `season` for the exact requested year — a stale request
+   can never clobber a league another actor already rolled or advanced). Partial status failures are
+   reported truthfully. There is no force/emergency bypass; an exceptional forced recovery would
+   require a separately reviewed operation with explicit semantics — never a restored generic
+   execute control. **If manual execution is ever restored, its standings-invalidation handling must
+   be hardened and tested**, not reinstated from the bare `catch {}` the retired path carried.
 
 ---
 
@@ -866,9 +1707,35 @@ git push origin HEAD                 # the branch
 git push origin HEAD:preview --force # and preview, same breath
 ```
 
-**Codex does not push `preview`, or any other preview branch.** Decided 2026-08-18, when parallel worktrees (`cfb-app` and `cfb-app-codex`) made a single force-pushed branch ambiguous: it shows whichever agent committed last, changing under the owner mid-review with no indication of which branch is on screen. Codex verifies locally instead, and its work reaches the owner as a branch to pull and run rather than as a URL. Run the Codex worktree's dev server on port 3010 — both worktrees default to 3000, and killing a dev server can orphan the `next-server` child, which then serves stale code from that port. **This decision is due for review if Codex takes a slice with a user-visible surface**; a deployed URL is how the owner has caught defects that reviews did not. **That review has now happened once, and the answer was a SLICE-SCOPED exception rather than an amendment — Item 117, granted 2026-09-07.** The reasoning, so the next grant is judged the same way: the rule exists because two worktrees force-pushing one branch make `preview` ambiguous, and that reason was ABSENT because the Claude lane was idle. **A grant is conditional on exactly that** — one writer TO `preview`, which is not the same as one active lane, and my first wording of this conflated them (corrected 2026-09-07 after the Claude lane correctly flagged the ambiguity). A second lane may take work while a grant stands, **provided its kickoff explicitly suspends `CLAUDE.md`'s push-`preview` instruction for that branch**; the single-writer property is preserved by that suspension, not by lane idleness. The grant lapses when the slice merges. **Notify the holder whenever the second lane starts** — it does not revoke the grant, but the holder must know a suspension is now load-bearing rather than theoretical. Do not read this as a general permission; read it as the rule's review clause working.
+**Codex does not push `preview`, or any other preview branch.** Decided 2026-08-18, when parallel
+worktrees (`cfb-app` and `cfb-app-codex`) made a single force-pushed branch ambiguous: it shows
+whichever agent committed last, changing under the owner mid-review with no indication of which
+branch is on screen. Codex verifies locally instead, and its work reaches the owner as a branch to
+pull and run rather than as a URL. Run the Codex worktree's dev server on port 3010 — both worktrees
+default to 3000, and killing a dev server can orphan the `next-server` child, which then serves
+stale code from that port. **This decision is due for review if Codex takes a slice with a
+user-visible surface**; a deployed URL is how the owner has caught defects that reviews did not.
+**That review has now happened once, and the answer was a SLICE-SCOPED exception rather than an
+amendment — Item 117, granted 2026-09-07.** The reasoning, so the next grant is judged the same way:
+the rule exists because two worktrees force-pushing one branch make `preview` ambiguous, and that
+reason was ABSENT because the Claude lane was idle. **A grant is conditional on exactly that** — one
+writer TO `preview`, which is not the same as one active lane, and my first wording of this
+conflated them (corrected 2026-09-07 after the Claude lane correctly flagged the ambiguity). A
+second lane may take work while a grant stands, **provided its kickoff explicitly suspends
+`CLAUDE.md`'s push-`preview` instruction for that branch**; the single-writer property is preserved
+by that suspension, not by lane idleness. The grant lapses when the slice merges. **Notify the
+holder whenever the second lane starts** — it does not revoke the grant, but the holder must know a
+suspension is now load-bearing rather than theoretical. Do not read this as a general permission;
+read it as the rule's review clause working.
 
-**A docs-only push advances the ref without redeploying, and nothing says so.** `vercel.json`'s `ignoreCommand` skips the build for any commit touching only `^docs/` or `*.md` — see `docs/deployment-runbook.md` §6d, which is canonical for the gate. So for a closeout commit the push above succeeds, no build runs, and the preview URL keeps serving the previous deployment. Push both anyway: the rule is one habit rather than a judgement call about which commits count, and the ref staying current is what makes the next code commit deploy the right tree. Just do not read a green push as a redeployed surface. A skipped build shows in the Vercel dashboard as `Canceled` after a few seconds, with no alias assigned.
+**A docs-only push advances the ref without redeploying, and nothing says so.** `vercel.json`'s
+`ignoreCommand` skips the build for any commit touching only `^docs/` or `*.md` — see
+`docs/deployment-runbook.md` §6d, which is canonical for the gate. So for a closeout commit the push
+above succeeds, no build runs, and the preview URL keeps serving the previous deployment. Push both
+anyway: the rule is one habit rather than a judgement call about which commits count, and the ref
+staying current is what makes the next code commit deploy the right tree. Just do not read a green
+push as a redeployed surface. A skipped build shows in the Vercel dashboard as `Canceled` after a
+few seconds, with no alias assigned.
 
 The project ALSO carries a dashboard-level Ignored Build Step that allowlists refs by name (`main` and `preview`), but `vercel.json` overrides it, so that field is not the gate in force — do not reason from it. A second preview branch would therefore build like any other; what it would lack is a stable alias, which is a project-settings change and not something a branch alone provides.
 
