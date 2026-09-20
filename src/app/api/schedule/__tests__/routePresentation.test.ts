@@ -239,38 +239,21 @@ test('the stale prior-good non-admin branch applies the same cache-only join', a
   assert.equal(json.items[0].media[0].outlet, 'ESPN', 'stale prior-good rows are still enriched');
 });
 
-test('the composed week+all read applies the same cache-only join', async () => {
+// PLATFORM-663: a `week` read is now a PROJECTION of the season aggregate rather
+// than a composition of per-week child caches, so this seeds the canonical key the
+// projection reads. The assertion is unchanged and is the point of the test: a
+// narrowed read gets the SAME cache-only presentation join as the full-year read,
+// which is exactly what a second key would have been free to diverge from.
+test('a narrowed week read applies the same cache-only join', async () => {
   const now = Date.now();
-  const child: CacheEntry = {
-    at: now,
-    items: [
-      {
-        id: '101',
-        week: 1,
-        startDate: '2027-08-28T23:00:00Z',
-        neutralSite: false,
-        conferenceGame: false,
-        homeTeam: 'Texas',
-        awayTeam: 'Rice',
-        homeId: 251,
-        awayId: 242,
-        homeConference: 'SEC',
-        awayConference: 'American',
-        status: 'scheduled',
-        venueId: 3504,
-        seasonType: 'regular',
-      },
-    ],
-    partialFailure: false,
-    failedSeasonTypes: [],
-  };
-  await setAppState('schedule', `${YEAR}-1-regular`, child);
+  await seedDurableCanonicalSchedule(now);
   await seedPresentationCaches(now);
   forbidProviderCalls();
 
   const res = await GET(new Request(`http://localhost/api/schedule?year=${YEAR}&week=1`));
   const json = await res.json();
   assert.equal(res.status, 200);
+  assert.equal(json.items.length, 1, 'the projection keeps the week-1 row');
   assert.equal(json.items[0].media[0].outlet, 'ESPN');
   assert.equal(json.items[0].venue.stadium, 'Darrell K Royal–Texas Memorial Stadium');
 });

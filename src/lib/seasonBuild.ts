@@ -1,4 +1,5 @@
 import { getAppState } from './server/appStateStore.ts';
+import { loadCachedScheduleItems } from './server/canonicalScheduleCache.ts';
 import { loadReconciledSeasonScoresByType } from './server/scoreCacheReader.ts';
 import { getScopedAliasMap } from './server/globalAliasStore.ts';
 import { getTeamDatabaseItems } from './server/teamDatabaseStore.ts';
@@ -89,23 +90,12 @@ export async function assembleSeasonScoredBuild(
   leagueSlug: string,
   year: number
 ): Promise<SeasonScoredBuild> {
-  // Load schedule items from cache (CacheEntry.items is ScheduleItem[] from cfbdSchedule.ts,
-  // which is a structural subtype of ScheduleWireItem[] from schedule.ts — cast is safe)
-  let scheduleItems: ScheduleWireItem[];
-  const combinedCache = await getAppState<{ items: unknown[] }>('schedule', `${year}-all-all`);
-  if (combinedCache?.value?.items && combinedCache.value.items.length > 0) {
-    scheduleItems = combinedCache.value.items as ScheduleWireItem[];
-  } else {
-    // Fall back to combining regular + postseason caches if the combined key is absent
-    const [regularScheduleCache, postseasonScheduleCache] = await Promise.all([
-      getAppState<{ items: unknown[] }>('schedule', `${year}-all-regular`),
-      getAppState<{ items: unknown[] }>('schedule', `${year}-all-postseason`),
-    ]);
-    scheduleItems = [
-      ...((regularScheduleCache?.value?.items ?? []) as ScheduleWireItem[]),
-      ...((postseasonScheduleCache?.value?.items ?? []) as ScheduleWireItem[]),
-    ];
-  }
+  // Load schedule items through the ONE canonical reader (PLATFORM-663). This
+  // function previously re-implemented `loadCachedScheduleItems`' aggregate-then-
+  // pair precedence inline; two copies of that precedence could disagree about
+  // which key serves, and the archive is the consumer where disagreeing is
+  // durable — a wrong season gets written down rather than re-rendered.
+  const scheduleItems: ScheduleWireItem[] = await loadCachedScheduleItems(year);
 
   if (scheduleItems.length === 0) {
     throw new SeasonScheduleCacheUnavailableError(year);
