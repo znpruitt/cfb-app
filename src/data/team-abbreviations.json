@@ -1,0 +1,2735 @@
+{
+  "year": 2026,
+  "sourceUrl": "https://api.collegefootballdata.com/teams?year=2026",
+  "generatedAt": "2026-09-20T07:41:13.660Z",
+  "items": [
+    {
+      "school": "Abilene Christian",
+      "abbreviation": "ACU"
+    },
+    {
+      "school": "Adams State",
+      "abbreviation": "ADSU"
+    },
+    {
+      "school": "Adrian",
+      "abbreviation": "ADR"
+    },
+    {
+      "school": "Air Force",
+      "abbreviation": "AF"
+    },
+    {
+      "school": "Akron",
+      "abbreviation": "AKR"
+    },
+    {
+      "school": "Alabama",
+      "abbreviation": "ALA"
+    },
+    {
+      "school": "Alabama A&M",
+      "abbreviation": "AAMU"
+    },
+    {
+      "school": "Alabama State",
+      "abbreviation": "ALST"
+    },
+    {
+      "school": "Albany State",
+      "abbreviation": "ABSU"
+    },
+    {
+      "school": "Albion",
+      "abbreviation": "ALBI"
+    },
+    {
+      "school": "Albright",
+      "abbreviation": "ALBR"
+    },
+    {
+      "school": "Alcorn State",
+      "abbreviation": "ALCN"
+    },
+    {
+      "school": "Alderson-Broaddus",
+      "abbreviation": "ABC"
+    },
+    {
+      "school": "Alfred",
+      "abbreviation": "ALFR"
+    },
+    {
+      "school": "Alfred State",
+      "abbreviation": "AFST"
+    },
+    {
+      "school": "Allegheny",
+      "abbreviation": "ALLG"
+    },
+    {
+      "school": "Allen",
+      "abbreviation": "ALNU"
+    },
+    {
+      "school": "Alma",
+      "abbreviation": "ALMA"
+    },
+    {
+      "school": "Alvernia",
+      "abbreviation": "ALVR"
+    },
+    {
+      "school": "American International",
+      "abbreviation": "AIC"
+    },
+    {
+      "school": "Amherst",
+      "abbreviation": "AMH"
+    },
+    {
+      "school": "Anderson (IN)",
+      "abbreviation": "ANIN"
+    },
+    {
+      "school": "Anderson (SC)",
+      "abbreviation": "ANSC"
+    },
+    {
+      "school": "Angelo State",
+      "abbreviation": "AGSU"
+    },
+    {
+      "school": "App State",
+      "abbreviation": "APP"
+    },
+    {
+      "school": "Apprentice School",
+      "abbreviation": "APPRE"
+    },
+    {
+      "school": "Arizona",
+      "abbreviation": "ARIZ"
+    },
+    {
+      "school": "Arizona State",
+      "abbreviation": "ASU"
+    },
+    {
+      "school": "Arkansas",
+      "abbreviation": "ARK"
+    },
+    {
+      "school": "Arkansas Monticello",
+      "abbreviation": "UAM"
+    },
+    {
+      "school": "Arkansas State",
+      "abbreviation": "ARST"
+    },
+    {
+      "school": "Arkansas Tech",
+      "abbreviation": "ARTE"
+    },
+    {
+      "school": "Arkansas-Pine Bluff",
+      "abbreviation": "UAPB"
+    },
+    {
+      "school": "Army",
+      "abbreviation": "ARMY"
+    },
+    {
+      "school": "Ashland",
+      "abbreviation": "ASH"
+    },
+    {
+      "school": "Assumption",
+      "abbreviation": "ASP"
+    },
+    {
+      "school": "Auburn",
+      "abbreviation": "AUB"
+    },
+    {
+      "school": "Augsburg",
+      "abbreviation": "AUGS"
+    },
+    {
+      "school": "Augustana (IL)",
+      "abbreviation": "AUGC"
+    },
+    {
+      "school": "Augustana (SD)",
+      "abbreviation": "AUSD"
+    },
+    {
+      "school": "Aurora",
+      "abbreviation": "AUR"
+    },
+    {
+      "school": "Austin",
+      "abbreviation": "AUS"
+    },
+    {
+      "school": "Austin Peay",
+      "abbreviation": "APSU"
+    },
+    {
+      "school": "Averett",
+      "abbreviation": "AVER"
+    },
+    {
+      "school": "Azusa Pacific",
+      "abbreviation": "APU"
+    },
+    {
+      "school": "Baldwin Wallace",
+      "abbreviation": "BW"
+    },
+    {
+      "school": "Ball State",
+      "abbreviation": "BALL"
+    },
+    {
+      "school": "Barton",
+      "abbreviation": "BART"
+    },
+    {
+      "school": "Bates",
+      "abbreviation": "BATE"
+    },
+    {
+      "school": "Baylor",
+      "abbreviation": "BAY"
+    },
+    {
+      "school": "Belhaven",
+      "abbreviation": "BELH"
+    },
+    {
+      "school": "Beloit",
+      "abbreviation": "BELO"
+    },
+    {
+      "school": "Bemidji State",
+      "abbreviation": "BST"
+    },
+    {
+      "school": "Benedict",
+      "abbreviation": "BEN"
+    },
+    {
+      "school": "Benedictine (IL)",
+      "abbreviation": "BNIL"
+    },
+    {
+      "school": "Bentley",
+      "abbreviation": "BENT"
+    },
+    {
+      "school": "Berry",
+      "abbreviation": "BERR"
+    },
+    {
+      "school": "Bethany (WV)",
+      "abbreviation": "BCWV"
+    },
+    {
+      "school": "Bethel (MN)",
+      "abbreviation": "BUMN"
+    },
+    {
+      "school": "Bethune-Cookman",
+      "abbreviation": "BCU"
+    },
+    {
+      "school": "Birmingham-Southern",
+      "abbreviation": "BIR"
+    },
+    {
+      "school": "Black Hills State",
+      "abbreviation": "BHSU"
+    },
+    {
+      "school": "Bloomsburg",
+      "abbreviation": "BBU"
+    },
+    {
+      "school": "Bluefield State",
+      "abbreviation": "BLUS"
+    },
+    {
+      "school": "Bluffton",
+      "abbreviation": "BLF"
+    },
+    {
+      "school": "Boise State",
+      "abbreviation": "BOIS"
+    },
+    {
+      "school": "Boston College",
+      "abbreviation": "BC"
+    },
+    {
+      "school": "Bowdoin",
+      "abbreviation": "BOW"
+    },
+    {
+      "school": "Bowie State",
+      "abbreviation": "BOWE"
+    },
+    {
+      "school": "Bowling Green",
+      "abbreviation": "BGSU"
+    },
+    {
+      "school": "Brevard",
+      "abbreviation": "BRE"
+    },
+    {
+      "school": "Bridgewater",
+      "abbreviation": "BRI"
+    },
+    {
+      "school": "Bridgewater State",
+      "abbreviation": "BRIS"
+    },
+    {
+      "school": "Brockport",
+      "abbreviation": "BRO"
+    },
+    {
+      "school": "Brown",
+      "abbreviation": "BRWN"
+    },
+    {
+      "school": "Bryant",
+      "abbreviation": "BRY"
+    },
+    {
+      "school": "Bucknell",
+      "abbreviation": "BUCK"
+    },
+    {
+      "school": "Buena Vista",
+      "abbreviation": "BVU"
+    },
+    {
+      "school": "Buffalo",
+      "abbreviation": "BUF"
+    },
+    {
+      "school": "Buffalo State",
+      "abbreviation": "BSU"
+    },
+    {
+      "school": "Butler",
+      "abbreviation": "BTLR"
+    },
+    {
+      "school": "BYU",
+      "abbreviation": "BYU"
+    },
+    {
+      "school": "Cal Lutheran",
+      "abbreviation": "CLU"
+    },
+    {
+      "school": "Cal Poly",
+      "abbreviation": "CP"
+    },
+    {
+      "school": "California",
+      "abbreviation": "CAL"
+    },
+    {
+      "school": "California (PA)",
+      "abbreviation": "CAPA"
+    },
+    {
+      "school": "Calvin",
+      "abbreviation": "CALU"
+    },
+    {
+      "school": "Campbell",
+      "abbreviation": "CAM"
+    },
+    {
+      "school": "Capital",
+      "abbreviation": "CAPU"
+    },
+    {
+      "school": "Carleton",
+      "abbreviation": "CAR"
+    },
+    {
+      "school": "Carnegie Mellon",
+      "abbreviation": "CGMU"
+    },
+    {
+      "school": "Carroll (WI)",
+      "abbreviation": "CRU"
+    },
+    {
+      "school": "Carson Newman",
+      "abbreviation": "CN"
+    },
+    {
+      "school": "Carthage",
+      "abbreviation": "CCW"
+    },
+    {
+      "school": "Case Western Reserve",
+      "abbreviation": "CWRU"
+    },
+    {
+      "school": "Catawba",
+      "abbreviation": "CAT"
+    },
+    {
+      "school": "Catholic",
+      "abbreviation": "CATH"
+    },
+    {
+      "school": "Centenary (LA)",
+      "abbreviation": "CTLA"
+    },
+    {
+      "school": "Central Arkansas",
+      "abbreviation": "CARK"
+    },
+    {
+      "school": "Central College",
+      "abbreviation": "CNTC"
+    },
+    {
+      "school": "Central Connecticut",
+      "abbreviation": "CCSU"
+    },
+    {
+      "school": "Central Michigan",
+      "abbreviation": "CMU"
+    },
+    {
+      "school": "Central Missouri",
+      "abbreviation": "UCM"
+    },
+    {
+      "school": "Central Oklahoma",
+      "abbreviation": "UCO"
+    },
+    {
+      "school": "Central State",
+      "abbreviation": "CNSU"
+    },
+    {
+      "school": "Central Washington",
+      "abbreviation": "CWAU"
+    },
+    {
+      "school": "Centre",
+      "abbreviation": "CCO"
+    },
+    {
+      "school": "Chadron State",
+      "abbreviation": "CHAD"
+    },
+    {
+      "school": "Chapman",
+      "abbreviation": "CHAP"
+    },
+    {
+      "school": "Charleston (WV)",
+      "abbreviation": "UCWV"
+    },
+    {
+      "school": "Charleston Southern",
+      "abbreviation": "CHSO"
+    },
+    {
+      "school": "Charlotte",
+      "abbreviation": "CLT"
+    },
+    {
+      "school": "Chattanooga",
+      "abbreviation": "UTC"
+    },
+    {
+      "school": "Cheyney",
+      "abbreviation": "CHE"
+    },
+    {
+      "school": "Chicago",
+      "abbreviation": "CHI"
+    },
+    {
+      "school": "Chicago State",
+      "abbreviation": null
+    },
+    {
+      "school": "Chowan",
+      "abbreviation": "CWAN"
+    },
+    {
+      "school": "Christopher Newport",
+      "abbreviation": "CNU"
+    },
+    {
+      "school": "Cincinnati",
+      "abbreviation": "CIN"
+    },
+    {
+      "school": "Claremont Mudd Scripps",
+      "abbreviation": "CMS"
+    },
+    {
+      "school": "Clarion",
+      "abbreviation": "CLRN"
+    },
+    {
+      "school": "Clark Atlanta",
+      "abbreviation": "CKGA"
+    },
+    {
+      "school": "Clemson",
+      "abbreviation": "CLEM"
+    },
+    {
+      "school": "Coast Guard",
+      "abbreviation": "USCG"
+    },
+    {
+      "school": "Coastal Carolina",
+      "abbreviation": "CCU"
+    },
+    {
+      "school": "Coe",
+      "abbreviation": "COE"
+    },
+    {
+      "school": "Colby",
+      "abbreviation": "CLBY"
+    },
+    {
+      "school": "Colgate",
+      "abbreviation": "COLG"
+    },
+    {
+      "school": "Colorado",
+      "abbreviation": "COLO"
+    },
+    {
+      "school": "Colorado Mesa",
+      "abbreviation": "COMU"
+    },
+    {
+      "school": "Colorado School of Mines",
+      "abbreviation": "CMIN"
+    },
+    {
+      "school": "Colorado State",
+      "abbreviation": "CSU"
+    },
+    {
+      "school": "Columbia",
+      "abbreviation": "COLU"
+    },
+    {
+      "school": "Concord",
+      "abbreviation": "CONC"
+    },
+    {
+      "school": "Concordia (MN)",
+      "abbreviation": "CCMN"
+    },
+    {
+      "school": "Concordia (WI)",
+      "abbreviation": "CUW"
+    },
+    {
+      "school": "Concordia Chicago",
+      "abbreviation": "CUC"
+    },
+    {
+      "school": "Concordia St. Paul",
+      "abbreviation": "CSP"
+    },
+    {
+      "school": "Cornell",
+      "abbreviation": "COR"
+    },
+    {
+      "school": "Cornell (IA)",
+      "abbreviation": "CNIA"
+    },
+    {
+      "school": "Crown",
+      "abbreviation": "CRWN"
+    },
+    {
+      "school": "CSU Pueblo",
+      "abbreviation": "CSUP"
+    },
+    {
+      "school": "Curry",
+      "abbreviation": "CC"
+    },
+    {
+      "school": "Dartmouth",
+      "abbreviation": "DART"
+    },
+    {
+      "school": "Davenport",
+      "abbreviation": "DU"
+    },
+    {
+      "school": "Davidson",
+      "abbreviation": "DAV"
+    },
+    {
+      "school": "Dayton",
+      "abbreviation": "DAY"
+    },
+    {
+      "school": "Dean",
+      "abbreviation": "DEAN"
+    },
+    {
+      "school": "Delaware",
+      "abbreviation": "DEL"
+    },
+    {
+      "school": "Delaware State",
+      "abbreviation": "DSU"
+    },
+    {
+      "school": "Delaware Valley",
+      "abbreviation": "DVU"
+    },
+    {
+      "school": "Delta State",
+      "abbreviation": "DLST"
+    },
+    {
+      "school": "Denison",
+      "abbreviation": "DSN"
+    },
+    {
+      "school": "DePauw",
+      "abbreviation": "DPU"
+    },
+    {
+      "school": "Dickinson",
+      "abbreviation": "DKSN"
+    },
+    {
+      "school": "Drake",
+      "abbreviation": "DRKE"
+    },
+    {
+      "school": "Dubuque",
+      "abbreviation": "DBQ"
+    },
+    {
+      "school": "Duke",
+      "abbreviation": "DUKE"
+    },
+    {
+      "school": "Duquesne",
+      "abbreviation": "DUQ"
+    },
+    {
+      "school": "East Carolina",
+      "abbreviation": "ECU"
+    },
+    {
+      "school": "East Central",
+      "abbreviation": "ECNU"
+    },
+    {
+      "school": "East Stroudsburg",
+      "abbreviation": "ESU"
+    },
+    {
+      "school": "East Tennessee State",
+      "abbreviation": "ETSU"
+    },
+    {
+      "school": "East Texas A&M",
+      "abbreviation": "ETAM"
+    },
+    {
+      "school": "East Texas Baptist",
+      "abbreviation": "ETBU"
+    },
+    {
+      "school": "Eastern",
+      "abbreviation": "EU"
+    },
+    {
+      "school": "Eastern Illinois",
+      "abbreviation": "EIU"
+    },
+    {
+      "school": "Eastern Kentucky",
+      "abbreviation": "EKU"
+    },
+    {
+      "school": "Eastern Michigan",
+      "abbreviation": "EMU"
+    },
+    {
+      "school": "Eastern New Mexico",
+      "abbreviation": "ENMU"
+    },
+    {
+      "school": "Eastern Washington",
+      "abbreviation": "EWU"
+    },
+    {
+      "school": "Edinboro",
+      "abbreviation": "EDBR"
+    },
+    {
+      "school": "Edward Waters",
+      "abbreviation": "EDW"
+    },
+    {
+      "school": "Elizabeth City State",
+      "abbreviation": "ECSU"
+    },
+    {
+      "school": "Elmhurst",
+      "abbreviation": "ELMH"
+    },
+    {
+      "school": "Elon",
+      "abbreviation": "ELON"
+    },
+    {
+      "school": "Emory & Henry",
+      "abbreviation": "EHC"
+    },
+    {
+      "school": "Emporia State",
+      "abbreviation": "EMSU"
+    },
+    {
+      "school": "Endicott",
+      "abbreviation": "ENDC"
+    },
+    {
+      "school": "Erskine",
+      "abbreviation": "ERSK"
+    },
+    {
+      "school": "Eureka",
+      "abbreviation": "ERKA"
+    },
+    {
+      "school": "Fairmont State",
+      "abbreviation": "FMSU"
+    },
+    {
+      "school": "Fayetteville State",
+      "abbreviation": "FAYU"
+    },
+    {
+      "school": "FDU Florham",
+      "abbreviation": "FDUF"
+    },
+    {
+      "school": "Ferris State",
+      "abbreviation": "FRST"
+    },
+    {
+      "school": "Ferrum",
+      "abbreviation": "FC"
+    },
+    {
+      "school": "Findlay",
+      "abbreviation": "UF"
+    },
+    {
+      "school": "Finlandia University",
+      "abbreviation": "FINL"
+    },
+    {
+      "school": "Fitchburg State",
+      "abbreviation": "FBSU"
+    },
+    {
+      "school": "Florida",
+      "abbreviation": "FLA"
+    },
+    {
+      "school": "Florida A&M",
+      "abbreviation": "FAMU"
+    },
+    {
+      "school": "Florida Atlantic",
+      "abbreviation": "FAU"
+    },
+    {
+      "school": "Florida International",
+      "abbreviation": "FIU"
+    },
+    {
+      "school": "Florida State",
+      "abbreviation": "FSU"
+    },
+    {
+      "school": "Fordham",
+      "abbreviation": "FOR"
+    },
+    {
+      "school": "Fort Hays",
+      "abbreviation": "FHSU"
+    },
+    {
+      "school": "Fort Lewis",
+      "abbreviation": "FLWC"
+    },
+    {
+      "school": "Fort Valley State",
+      "abbreviation": "FVSU"
+    },
+    {
+      "school": "Framingham State",
+      "abbreviation": "FRSU"
+    },
+    {
+      "school": "Franklin",
+      "abbreviation": "FRKL"
+    },
+    {
+      "school": "Franklin & Marshall",
+      "abbreviation": "FMC"
+    },
+    {
+      "school": "Franklin Pierce",
+      "abbreviation": "FP"
+    },
+    {
+      "school": "Fresno State",
+      "abbreviation": "FRES"
+    },
+    {
+      "school": "Frostburg State",
+      "abbreviation": "FSTU"
+    },
+    {
+      "school": "Furman",
+      "abbreviation": "FUR"
+    },
+    {
+      "school": "Gallaudet",
+      "abbreviation": "GLDT"
+    },
+    {
+      "school": "Gannon",
+      "abbreviation": "GANN"
+    },
+    {
+      "school": "Gardner-Webb",
+      "abbreviation": "GWEB"
+    },
+    {
+      "school": "Geneva",
+      "abbreviation": "GEN"
+    },
+    {
+      "school": "George Fox",
+      "abbreviation": "GFU"
+    },
+    {
+      "school": "Georgetown",
+      "abbreviation": "GTWN"
+    },
+    {
+      "school": "Georgia",
+      "abbreviation": "UGA"
+    },
+    {
+      "school": "Georgia Southern",
+      "abbreviation": "GASO"
+    },
+    {
+      "school": "Georgia State",
+      "abbreviation": "GAST"
+    },
+    {
+      "school": "Georgia Tech",
+      "abbreviation": "GT"
+    },
+    {
+      "school": "Gettysburg",
+      "abbreviation": "GTYB"
+    },
+    {
+      "school": "Glenville State",
+      "abbreviation": "GVLS"
+    },
+    {
+      "school": "Grambling",
+      "abbreviation": "GRAM"
+    },
+    {
+      "school": "Grand Valley State",
+      "abbreviation": "GVSU"
+    },
+    {
+      "school": "Greensboro",
+      "abbreviation": "GRNB"
+    },
+    {
+      "school": "Greenville",
+      "abbreviation": "GRNV"
+    },
+    {
+      "school": "Grinnell",
+      "abbreviation": "GRNL"
+    },
+    {
+      "school": "Grove City",
+      "abbreviation": "GRO"
+    },
+    {
+      "school": "Guilford",
+      "abbreviation": "GLFD"
+    },
+    {
+      "school": "Gustavus Adolphus",
+      "abbreviation": "GAC"
+    },
+    {
+      "school": "Hamilton",
+      "abbreviation": "HAM"
+    },
+    {
+      "school": "Hamline",
+      "abbreviation": "HMLN"
+    },
+    {
+      "school": "Hampden Sydney",
+      "abbreviation": "HSC"
+    },
+    {
+      "school": "Hampton",
+      "abbreviation": "HAMP"
+    },
+    {
+      "school": "Hanover",
+      "abbreviation": "HNVR"
+    },
+    {
+      "school": "Hardin Simmons",
+      "abbreviation": "HSU"
+    },
+    {
+      "school": "Harding",
+      "abbreviation": "HARD"
+    },
+    {
+      "school": "Hartwick",
+      "abbreviation": "HRTW"
+    },
+    {
+      "school": "Harvard",
+      "abbreviation": "HARV"
+    },
+    {
+      "school": "Hawai'i",
+      "abbreviation": "HAW"
+    },
+    {
+      "school": "Heidelberg",
+      "abbreviation": "HDBG"
+    },
+    {
+      "school": "Henderson State",
+      "abbreviation": "HSTU"
+    },
+    {
+      "school": "Hendrix",
+      "abbreviation": "HDX"
+    },
+    {
+      "school": "Hilbert",
+      "abbreviation": "HLBT"
+    },
+    {
+      "school": "Hillsdale",
+      "abbreviation": "HLDL"
+    },
+    {
+      "school": "Hiram",
+      "abbreviation": "HIRM"
+    },
+    {
+      "school": "Hobart",
+      "abbreviation": "HBRT"
+    },
+    {
+      "school": "Holy Cross",
+      "abbreviation": "HC"
+    },
+    {
+      "school": "Hope",
+      "abbreviation": "HOPE"
+    },
+    {
+      "school": "Houston",
+      "abbreviation": "HOU"
+    },
+    {
+      "school": "Houston Christian",
+      "abbreviation": "HCU"
+    },
+    {
+      "school": "Howard",
+      "abbreviation": "HOW"
+    },
+    {
+      "school": "Howard Payne",
+      "abbreviation": "HWPU"
+    },
+    {
+      "school": "Huntingdon",
+      "abbreviation": "HNTC"
+    },
+    {
+      "school": "Husson",
+      "abbreviation": "HUSS"
+    },
+    {
+      "school": "Idaho",
+      "abbreviation": "IDHO"
+    },
+    {
+      "school": "Idaho State",
+      "abbreviation": "IDST"
+    },
+    {
+      "school": "Illinois",
+      "abbreviation": "ILL"
+    },
+    {
+      "school": "Illinois College",
+      "abbreviation": "ILLC"
+    },
+    {
+      "school": "Illinois State",
+      "abbreviation": "ILST"
+    },
+    {
+      "school": "Illinois Wesleyan",
+      "abbreviation": "ILWU"
+    },
+    {
+      "school": "Incarnate Word",
+      "abbreviation": "UIW"
+    },
+    {
+      "school": "Indiana",
+      "abbreviation": "IU"
+    },
+    {
+      "school": "Indiana State",
+      "abbreviation": "INST"
+    },
+    {
+      "school": "Indianapolis",
+      "abbreviation": "INDY"
+    },
+    {
+      "school": "Iowa",
+      "abbreviation": "IOWA"
+    },
+    {
+      "school": "Iowa State",
+      "abbreviation": "ISU"
+    },
+    {
+      "school": "Ithaca",
+      "abbreviation": "ITH"
+    },
+    {
+      "school": "IU Pennsylvania",
+      "abbreviation": "IUP"
+    },
+    {
+      "school": "Jackson State",
+      "abbreviation": "JKST"
+    },
+    {
+      "school": "Jacksonville State",
+      "abbreviation": "JXST"
+    },
+    {
+      "school": "James Madison",
+      "abbreviation": "JMU"
+    },
+    {
+      "school": "Jamestown",
+      "abbreviation": "UJ"
+    },
+    {
+      "school": "John Carroll",
+      "abbreviation": "JCU"
+    },
+    {
+      "school": "Johns Hopkins",
+      "abbreviation": "JHU"
+    },
+    {
+      "school": "Johnson C. Smith",
+      "abbreviation": "JCSU"
+    },
+    {
+      "school": "Juniata",
+      "abbreviation": "JUN"
+    },
+    {
+      "school": "Kalamazoo",
+      "abbreviation": "KALC"
+    },
+    {
+      "school": "Kansas",
+      "abbreviation": "KU"
+    },
+    {
+      "school": "Kansas State",
+      "abbreviation": "KSU"
+    },
+    {
+      "school": "Kean",
+      "abbreviation": "KEAN"
+    },
+    {
+      "school": "Kennesaw State",
+      "abbreviation": "KENN"
+    },
+    {
+      "school": "Kent State",
+      "abbreviation": "KENT"
+    },
+    {
+      "school": "Kentucky",
+      "abbreviation": "UK"
+    },
+    {
+      "school": "Kentucky State",
+      "abbreviation": "KYSU"
+    },
+    {
+      "school": "Kentucky Wesleyan",
+      "abbreviation": "KWC"
+    },
+    {
+      "school": "Kenyon",
+      "abbreviation": "KNY"
+    },
+    {
+      "school": "Keystone",
+      "abbreviation": "KYSN"
+    },
+    {
+      "school": "King's",
+      "abbreviation": "KNGS"
+    },
+    {
+      "school": "Knox",
+      "abbreviation": "KNOX"
+    },
+    {
+      "school": "Kutztown",
+      "abbreviation": "KUTZ"
+    },
+    {
+      "school": "La Verne",
+      "abbreviation": "ULV"
+    },
+    {
+      "school": "Lafayette",
+      "abbreviation": "LAF"
+    },
+    {
+      "school": "LaGrange",
+      "abbreviation": "LGC"
+    },
+    {
+      "school": "Lake Erie",
+      "abbreviation": "LKER"
+    },
+    {
+      "school": "Lake Forest",
+      "abbreviation": "LFC"
+    },
+    {
+      "school": "Lakeland",
+      "abbreviation": "LKLD"
+    },
+    {
+      "school": "Lamar",
+      "abbreviation": "LAM"
+    },
+    {
+      "school": "Lane College",
+      "abbreviation": "LANE"
+    },
+    {
+      "school": "Lawrence",
+      "abbreviation": "LAW"
+    },
+    {
+      "school": "Lebanon Valley",
+      "abbreviation": "LVC"
+    },
+    {
+      "school": "Lehigh",
+      "abbreviation": "LEH"
+    },
+    {
+      "school": "Lenoir Rhyne",
+      "abbreviation": "LENR"
+    },
+    {
+      "school": "Lewis & Clark",
+      "abbreviation": "LC"
+    },
+    {
+      "school": "Liberty",
+      "abbreviation": "LIB"
+    },
+    {
+      "school": "Limestone",
+      "abbreviation": "LIMESTONE"
+    },
+    {
+      "school": "Lincoln (CA)",
+      "abbreviation": "LNCA"
+    },
+    {
+      "school": "Lincoln (MO)",
+      "abbreviation": "LNMO"
+    },
+    {
+      "school": "Lincoln (PA)",
+      "abbreviation": "LNPA"
+    },
+    {
+      "school": "Lindenwood",
+      "abbreviation": "LIN"
+    },
+    {
+      "school": "Linfield",
+      "abbreviation": "LINF"
+    },
+    {
+      "school": "Livingstone",
+      "abbreviation": "LIV"
+    },
+    {
+      "school": "Lock Haven",
+      "abbreviation": "LHU"
+    },
+    {
+      "school": "Long Island University",
+      "abbreviation": "LIU"
+    },
+    {
+      "school": "Loras",
+      "abbreviation": "LOR"
+    },
+    {
+      "school": "Louisiana",
+      "abbreviation": "UL"
+    },
+    {
+      "school": "Louisiana Tech",
+      "abbreviation": "LT"
+    },
+    {
+      "school": "Louisville",
+      "abbreviation": "LOU"
+    },
+    {
+      "school": "LSU",
+      "abbreviation": "LSU"
+    },
+    {
+      "school": "Luther",
+      "abbreviation": "LUTH"
+    },
+    {
+      "school": "Lycoming",
+      "abbreviation": "LYCO"
+    },
+    {
+      "school": "Lyon",
+      "abbreviation": "LYON"
+    },
+    {
+      "school": "Macalester",
+      "abbreviation": "MAC"
+    },
+    {
+      "school": "Maine",
+      "abbreviation": "ME"
+    },
+    {
+      "school": "Maine Maritime",
+      "abbreviation": "UMMA"
+    },
+    {
+      "school": "Manchester",
+      "abbreviation": "MNCH"
+    },
+    {
+      "school": "Marietta",
+      "abbreviation": "MRTT"
+    },
+    {
+      "school": "Marist",
+      "abbreviation": "MRST"
+    },
+    {
+      "school": "Mars Hill",
+      "abbreviation": "MHU"
+    },
+    {
+      "school": "Marshall",
+      "abbreviation": "MRSH"
+    },
+    {
+      "school": "Martin Luther",
+      "abbreviation": "MLC"
+    },
+    {
+      "school": "Mary Hardin Baylor",
+      "abbreviation": "MHB"
+    },
+    {
+      "school": "Maryland",
+      "abbreviation": "MD"
+    },
+    {
+      "school": "Maryville (TN)",
+      "abbreviation": "MCTN"
+    },
+    {
+      "school": "Mass Maritime",
+      "abbreviation": "MMT"
+    },
+    {
+      "school": "Massachusetts",
+      "abbreviation": "MASS"
+    },
+    {
+      "school": "McDaniel",
+      "abbreviation": "MCD"
+    },
+    {
+      "school": "McKendree",
+      "abbreviation": "MCK"
+    },
+    {
+      "school": "McMurry",
+      "abbreviation": "MCM"
+    },
+    {
+      "school": "McNeese",
+      "abbreviation": "MCN"
+    },
+    {
+      "school": "Memphis",
+      "abbreviation": "MEM"
+    },
+    {
+      "school": "Mercer",
+      "abbreviation": "MER"
+    },
+    {
+      "school": "Merchant Marine",
+      "abbreviation": "MMA"
+    },
+    {
+      "school": "Mercyhurst",
+      "abbreviation": "MERC"
+    },
+    {
+      "school": "Merrimack",
+      "abbreviation": "MRMK"
+    },
+    {
+      "school": "Methodist",
+      "abbreviation": "MU"
+    },
+    {
+      "school": "Miami",
+      "abbreviation": "MIA"
+    },
+    {
+      "school": "Miami (OH)",
+      "abbreviation": "M-OH"
+    },
+    {
+      "school": "Michigan",
+      "abbreviation": "MICH"
+    },
+    {
+      "school": "Michigan State",
+      "abbreviation": "MSU"
+    },
+    {
+      "school": "Michigan Tech",
+      "abbreviation": "MTU"
+    },
+    {
+      "school": "Middle Tennessee",
+      "abbreviation": "MTSU"
+    },
+    {
+      "school": "Middlebury",
+      "abbreviation": "MIDB"
+    },
+    {
+      "school": "Midwestern State",
+      "abbreviation": "MWSU"
+    },
+    {
+      "school": "Miles",
+      "abbreviation": "MILE"
+    },
+    {
+      "school": "Millersville",
+      "abbreviation": "MILL"
+    },
+    {
+      "school": "Millikin",
+      "abbreviation": "MILK"
+    },
+    {
+      "school": "Millsaps",
+      "abbreviation": "MLSP"
+    },
+    {
+      "school": "Minnesota",
+      "abbreviation": "MINN"
+    },
+    {
+      "school": "Minnesota Duluth",
+      "abbreviation": "UMD"
+    },
+    {
+      "school": "Minnesota Morris",
+      "abbreviation": "MNMO"
+    },
+    {
+      "school": "Minnesota St Moorhead",
+      "abbreviation": "MSUM"
+    },
+    {
+      "school": "Minnesota State",
+      "abbreviation": "MNST"
+    },
+    {
+      "school": "Minot State",
+      "abbreviation": "MINS"
+    },
+    {
+      "school": "Misericordia",
+      "abbreviation": "MISE"
+    },
+    {
+      "school": "Mississippi College",
+      "abbreviation": "MIS"
+    },
+    {
+      "school": "Mississippi State",
+      "abbreviation": "MSST"
+    },
+    {
+      "school": "Mississippi Valley State",
+      "abbreviation": "MVSU"
+    },
+    {
+      "school": "Missouri",
+      "abbreviation": "MIZ"
+    },
+    {
+      "school": "Missouri S&T",
+      "abbreviation": "MS&T"
+    },
+    {
+      "school": "Missouri Southern State",
+      "abbreviation": "MSSU"
+    },
+    {
+      "school": "Missouri State",
+      "abbreviation": "MOST"
+    },
+    {
+      "school": "Missouri Western",
+      "abbreviation": "MOWE"
+    },
+    {
+      "school": "MIT",
+      "abbreviation": "MIT"
+    },
+    {
+      "school": "Monmouth",
+      "abbreviation": "MONM"
+    },
+    {
+      "school": "Monmouth (IL)",
+      "abbreviation": "MNIL"
+    },
+    {
+      "school": "Montana",
+      "abbreviation": "MONT"
+    },
+    {
+      "school": "Montana State",
+      "abbreviation": "MTST"
+    },
+    {
+      "school": "Montclair State",
+      "abbreviation": "MCST"
+    },
+    {
+      "school": "Moravian",
+      "abbreviation": "MOR"
+    },
+    {
+      "school": "Morehead State",
+      "abbreviation": "MORE"
+    },
+    {
+      "school": "Morehouse",
+      "abbreviation": "MRHO"
+    },
+    {
+      "school": "Morgan State",
+      "abbreviation": "MORG"
+    },
+    {
+      "school": "Mount St Joseph",
+      "abbreviation": "MSJ"
+    },
+    {
+      "school": "Mount Union",
+      "abbreviation": "UMU"
+    },
+    {
+      "school": "Muhlenberg",
+      "abbreviation": "MUHL"
+    },
+    {
+      "school": "Murray State",
+      "abbreviation": "MUR"
+    },
+    {
+      "school": "Muskingum",
+      "abbreviation": "MSK"
+    },
+    {
+      "school": "Navy",
+      "abbreviation": "NAVY"
+    },
+    {
+      "school": "NC State",
+      "abbreviation": "NCSU"
+    },
+    {
+      "school": "Nebraska",
+      "abbreviation": "NEB"
+    },
+    {
+      "school": "Nebraska Kearney",
+      "abbreviation": "NEBK"
+    },
+    {
+      "school": "Nebraska Wesleyan",
+      "abbreviation": "NWU"
+    },
+    {
+      "school": "Nevada",
+      "abbreviation": "NEV"
+    },
+    {
+      "school": "New England",
+      "abbreviation": "UNE"
+    },
+    {
+      "school": "New Hampshire",
+      "abbreviation": "UNH"
+    },
+    {
+      "school": "New Haven",
+      "abbreviation": "NHVN"
+    },
+    {
+      "school": "New Mexico",
+      "abbreviation": "UNM"
+    },
+    {
+      "school": "New Mexico Highlands",
+      "abbreviation": "NMHU"
+    },
+    {
+      "school": "New Mexico State",
+      "abbreviation": "NMSU"
+    },
+    {
+      "school": "Newberry",
+      "abbreviation": "NBRY"
+    },
+    {
+      "school": "Nicholls",
+      "abbreviation": "NICH"
+    },
+    {
+      "school": "Nichols",
+      "abbreviation": "NICC"
+    },
+    {
+      "school": "Norfolk State",
+      "abbreviation": "NORF"
+    },
+    {
+      "school": "North Alabama",
+      "abbreviation": "UNA"
+    },
+    {
+      "school": "North Carolina",
+      "abbreviation": "UNC"
+    },
+    {
+      "school": "North Carolina A&T",
+      "abbreviation": "NCAT"
+    },
+    {
+      "school": "North Carolina Central",
+      "abbreviation": "NCCU"
+    },
+    {
+      "school": "North Carolina Wesleyan",
+      "abbreviation": "NCW"
+    },
+    {
+      "school": "North Central College",
+      "abbreviation": "NCC"
+    },
+    {
+      "school": "North Dakota",
+      "abbreviation": "UND"
+    },
+    {
+      "school": "North Dakota State",
+      "abbreviation": "NDSU"
+    },
+    {
+      "school": "North Greenville",
+      "abbreviation": "NGU"
+    },
+    {
+      "school": "North Park",
+      "abbreviation": "NPU"
+    },
+    {
+      "school": "North Texas",
+      "abbreviation": "UNT"
+    },
+    {
+      "school": "Northeastern State",
+      "abbreviation": "NESU"
+    },
+    {
+      "school": "Northern Arizona",
+      "abbreviation": "NAU"
+    },
+    {
+      "school": "Northern Colorado",
+      "abbreviation": "UNCO"
+    },
+    {
+      "school": "Northern Illinois",
+      "abbreviation": "NIU"
+    },
+    {
+      "school": "Northern Iowa",
+      "abbreviation": "UNI"
+    },
+    {
+      "school": "Northern Michigan",
+      "abbreviation": "NMI"
+    },
+    {
+      "school": "Northern State",
+      "abbreviation": "NSU"
+    },
+    {
+      "school": "Northwest Missouri State",
+      "abbreviation": "MWMO"
+    },
+    {
+      "school": "Northwestern",
+      "abbreviation": "NU"
+    },
+    {
+      "school": "Northwestern (MN)",
+      "abbreviation": "UNW"
+    },
+    {
+      "school": "Northwestern (OK)",
+      "abbreviation": "NWOK"
+    },
+    {
+      "school": "Northwestern State",
+      "abbreviation": "NWST"
+    },
+    {
+      "school": "Northwood",
+      "abbreviation": "NWD"
+    },
+    {
+      "school": "Norwich",
+      "abbreviation": "NWCH"
+    },
+    {
+      "school": "Notre Dame",
+      "abbreviation": "ND"
+    },
+    {
+      "school": "Notre Dame College",
+      "abbreviation": "NOT"
+    },
+    {
+      "school": "Oberlin",
+      "abbreviation": "OBE"
+    },
+    {
+      "school": "Occidental",
+      "abbreviation": "OCC"
+    },
+    {
+      "school": "Ohio",
+      "abbreviation": "OHIO"
+    },
+    {
+      "school": "Ohio Dominican",
+      "abbreviation": null
+    },
+    {
+      "school": "Ohio Northern",
+      "abbreviation": "OHNU"
+    },
+    {
+      "school": "Ohio State",
+      "abbreviation": "OSU"
+    },
+    {
+      "school": "Ohio Wesleyan",
+      "abbreviation": "OWU"
+    },
+    {
+      "school": "Oklahoma",
+      "abbreviation": "OU"
+    },
+    {
+      "school": "Oklahoma Baptist",
+      "abbreviation": "OKBU"
+    },
+    {
+      "school": "Oklahoma State",
+      "abbreviation": "OKST"
+    },
+    {
+      "school": "Old Dominion",
+      "abbreviation": "ODU"
+    },
+    {
+      "school": "Ole Miss",
+      "abbreviation": "MISS"
+    },
+    {
+      "school": "Olivet",
+      "abbreviation": "UOO"
+    },
+    {
+      "school": "Oregon",
+      "abbreviation": "ORE"
+    },
+    {
+      "school": "Oregon State",
+      "abbreviation": "ORST"
+    },
+    {
+      "school": "Otterbein",
+      "abbreviation": "OTTB"
+    },
+    {
+      "school": "Ouachita Baptist",
+      "abbreviation": "OBU"
+    },
+    {
+      "school": "Pace",
+      "abbreviation": "PACE"
+    },
+    {
+      "school": "Pacific (OR)",
+      "abbreviation": "PCOR"
+    },
+    {
+      "school": "Pacific Lutheran",
+      "abbreviation": "PCLT"
+    },
+    {
+      "school": "Penn State",
+      "abbreviation": "PSU"
+    },
+    {
+      "school": "Pennsylvania",
+      "abbreviation": "PENN"
+    },
+    {
+      "school": "Pittsburg State",
+      "abbreviation": "PTSU"
+    },
+    {
+      "school": "Pittsburgh",
+      "abbreviation": "PITT"
+    },
+    {
+      "school": "Plymouth State",
+      "abbreviation": "PLYM"
+    },
+    {
+      "school": "Pomona Pitzer",
+      "abbreviation": "POPI"
+    },
+    {
+      "school": "Portland State",
+      "abbreviation": "PRST"
+    },
+    {
+      "school": "Post",
+      "abbreviation": "POST"
+    },
+    {
+      "school": "Prairie View A&M",
+      "abbreviation": "PV"
+    },
+    {
+      "school": "Presbyterian",
+      "abbreviation": "PRES"
+    },
+    {
+      "school": "Princeton",
+      "abbreviation": "PRIN"
+    },
+    {
+      "school": "Puget Sound",
+      "abbreviation": "PUG"
+    },
+    {
+      "school": "Purdue",
+      "abbreviation": "PUR"
+    },
+    {
+      "school": "Quincy",
+      "abbreviation": "QUI"
+    },
+    {
+      "school": "Randolph Macon",
+      "abbreviation": "RMC"
+    },
+    {
+      "school": "Redlands",
+      "abbreviation": "REDL"
+    },
+    {
+      "school": "Rensselaer",
+      "abbreviation": "RPI"
+    },
+    {
+      "school": "Rhode Island",
+      "abbreviation": "URI"
+    },
+    {
+      "school": "Rhodes",
+      "abbreviation": "RHDS"
+    },
+    {
+      "school": "Rice",
+      "abbreviation": "RICE"
+    },
+    {
+      "school": "Richmond",
+      "abbreviation": "RICH"
+    },
+    {
+      "school": "Ripon",
+      "abbreviation": "RIP"
+    },
+    {
+      "school": "Robert Morris",
+      "abbreviation": "RMU"
+    },
+    {
+      "school": "Rochester (NY)",
+      "abbreviation": "URNY"
+    },
+    {
+      "school": "Rockford",
+      "abbreviation": "RFU"
+    },
+    {
+      "school": "Roosevelt",
+      "abbreviation": "RSVT"
+    },
+    {
+      "school": "Rose Hulman",
+      "abbreviation": "RHIT"
+    },
+    {
+      "school": "Rowan",
+      "abbreviation": "ROW"
+    },
+    {
+      "school": "Rutgers",
+      "abbreviation": "RUTG"
+    },
+    {
+      "school": "Sacramento State",
+      "abbreviation": "SAC"
+    },
+    {
+      "school": "Sacred Heart",
+      "abbreviation": "SHU"
+    },
+    {
+      "school": "Saginaw Valley State",
+      "abbreviation": "SVSU"
+    },
+    {
+      "school": "Saint Anselm",
+      "abbreviation": "SANS"
+    },
+    {
+      "school": "Saint Francis",
+      "abbreviation": "SFPA"
+    },
+    {
+      "school": "Saint John's (MN)",
+      "abbreviation": "STJM"
+    },
+    {
+      "school": "Saint Vincent",
+      "abbreviation": "SVC"
+    },
+    {
+      "school": "Salisbury",
+      "abbreviation": "SAL"
+    },
+    {
+      "school": "Salve Regina",
+      "abbreviation": "SALV"
+    },
+    {
+      "school": "Sam Houston",
+      "abbreviation": "SHSU"
+    },
+    {
+      "school": "Samford",
+      "abbreviation": "SAM"
+    },
+    {
+      "school": "San Diego",
+      "abbreviation": "USD"
+    },
+    {
+      "school": "San Diego State",
+      "abbreviation": "SDSU"
+    },
+    {
+      "school": "San José State",
+      "abbreviation": "SJSU"
+    },
+    {
+      "school": "Savannah State",
+      "abbreviation": "SAV"
+    },
+    {
+      "school": "Schreiner",
+      "abbreviation": null
+    },
+    {
+      "school": "SE Louisiana",
+      "abbreviation": "SELA"
+    },
+    {
+      "school": "Seton Hill",
+      "abbreviation": "SEHI"
+    },
+    {
+      "school": "Sewanee",
+      "abbreviation": "SEWA"
+    },
+    {
+      "school": "Shaw",
+      "abbreviation": "SHAW"
+    },
+    {
+      "school": "Shenandoah",
+      "abbreviation": "SHEN"
+    },
+    {
+      "school": "Shepherd",
+      "abbreviation": "SHEP"
+    },
+    {
+      "school": "Shippensburg",
+      "abbreviation": "SHIP"
+    },
+    {
+      "school": "Shorter",
+      "abbreviation": "SHOU"
+    },
+    {
+      "school": "Simon Fraser",
+      "abbreviation": "SIM"
+    },
+    {
+      "school": "Simpson (IA)",
+      "abbreviation": "SCIA"
+    },
+    {
+      "school": "Sioux Falls",
+      "abbreviation": "SFU"
+    },
+    {
+      "school": "Slippery Rock",
+      "abbreviation": "SRU"
+    },
+    {
+      "school": "SMU",
+      "abbreviation": "SMU"
+    },
+    {
+      "school": "South Alabama",
+      "abbreviation": "USA"
+    },
+    {
+      "school": "South Carolina",
+      "abbreviation": "SC"
+    },
+    {
+      "school": "South Carolina State",
+      "abbreviation": "SCST"
+    },
+    {
+      "school": "South Dakota",
+      "abbreviation": "SDAK"
+    },
+    {
+      "school": "South Dakota Mines",
+      "abbreviation": "SDMT"
+    },
+    {
+      "school": "South Dakota State",
+      "abbreviation": "SDST"
+    },
+    {
+      "school": "South Florida",
+      "abbreviation": "USF"
+    },
+    {
+      "school": "Southeast Missouri State",
+      "abbreviation": "SEMO"
+    },
+    {
+      "school": "Southeastern Oklahoma State",
+      "abbreviation": "SEOK"
+    },
+    {
+      "school": "Southern",
+      "abbreviation": "SOU"
+    },
+    {
+      "school": "Southern Arkansas",
+      "abbreviation": "SAR"
+    },
+    {
+      "school": "Southern Connecticut State",
+      "abbreviation": "SCTS"
+    },
+    {
+      "school": "Southern Illinois",
+      "abbreviation": "SIU"
+    },
+    {
+      "school": "Southern Miss",
+      "abbreviation": "USM"
+    },
+    {
+      "school": "Southern Nazarene",
+      "abbreviation": "SNU"
+    },
+    {
+      "school": "Southern Utah",
+      "abbreviation": "SUU"
+    },
+    {
+      "school": "Southern Virginia",
+      "abbreviation": "SOVA"
+    },
+    {
+      "school": "Southwest Baptist",
+      "abbreviation": "SWBU"
+    },
+    {
+      "school": "Southwest Minnesota State",
+      "abbreviation": "SWMS"
+    },
+    {
+      "school": "Southwestern Oklahoma State",
+      "abbreviation": "SOSU"
+    },
+    {
+      "school": "Southwestern U",
+      "abbreviation": "SWU"
+    },
+    {
+      "school": "Springfield",
+      "abbreviation": "SPR"
+    },
+    {
+      "school": "St. Augustine's",
+      "abbreviation": "STA"
+    },
+    {
+      "school": "St. John Fisher",
+      "abbreviation": "STJF"
+    },
+    {
+      "school": "St. Joseph's (IN)",
+      "abbreviation": "ST"
+    },
+    {
+      "school": "St. Lawrence",
+      "abbreviation": "USL"
+    },
+    {
+      "school": "St. Norbert",
+      "abbreviation": "STNC"
+    },
+    {
+      "school": "St. Olaf",
+      "abbreviation": "OLAF"
+    },
+    {
+      "school": "St. Scholastica",
+      "abbreviation": "CSS"
+    },
+    {
+      "school": "St. Thomas (MN)",
+      "abbreviation": "STMN"
+    },
+    {
+      "school": "Stanford",
+      "abbreviation": "STAN"
+    },
+    {
+      "school": "Stephen F. Austin",
+      "abbreviation": "SFA"
+    },
+    {
+      "school": "Stetson",
+      "abbreviation": "STET"
+    },
+    {
+      "school": "Stevenson",
+      "abbreviation": "STVS"
+    },
+    {
+      "school": "Stonehill",
+      "abbreviation": "STO"
+    },
+    {
+      "school": "Stony Brook",
+      "abbreviation": "STBK"
+    },
+    {
+      "school": "Sul Ross State",
+      "abbreviation": "SRST"
+    },
+    {
+      "school": "SUNY Cortland",
+      "abbreviation": "NYCL"
+    },
+    {
+      "school": "SUNY Maritime",
+      "abbreviation": "NYMT"
+    },
+    {
+      "school": "SUNY Morrisville",
+      "abbreviation": "NYMS"
+    },
+    {
+      "school": "Susquehanna",
+      "abbreviation": "SUSQ"
+    },
+    {
+      "school": "Syracuse",
+      "abbreviation": "SYR"
+    },
+    {
+      "school": "Tarleton State",
+      "abbreviation": "TAR"
+    },
+    {
+      "school": "TCU",
+      "abbreviation": "TCU"
+    },
+    {
+      "school": "Temple",
+      "abbreviation": "TEM"
+    },
+    {
+      "school": "Tennessee",
+      "abbreviation": "TENN"
+    },
+    {
+      "school": "Tennessee State",
+      "abbreviation": "TNST"
+    },
+    {
+      "school": "Tennessee Tech",
+      "abbreviation": "TNTC"
+    },
+    {
+      "school": "Texas",
+      "abbreviation": "TEX"
+    },
+    {
+      "school": "Texas A&M",
+      "abbreviation": "TA&M"
+    },
+    {
+      "school": "Texas A&M-Kingsville",
+      "abbreviation": "TAMK"
+    },
+    {
+      "school": "Texas Lutheran",
+      "abbreviation": "TXLU"
+    },
+    {
+      "school": "Texas Southern",
+      "abbreviation": "TXSO"
+    },
+    {
+      "school": "Texas State",
+      "abbreviation": "TXST"
+    },
+    {
+      "school": "Texas Tech",
+      "abbreviation": "TTU"
+    },
+    {
+      "school": "The Citadel",
+      "abbreviation": "CIT"
+    },
+    {
+      "school": "The College of New Jersey",
+      "abbreviation": "TCNJ"
+    },
+    {
+      "school": "Thiel",
+      "abbreviation": "THI"
+    },
+    {
+      "school": "Thomas More",
+      "abbreviation": "TMOR"
+    },
+    {
+      "school": "Tiffin",
+      "abbreviation": "TIFF"
+    },
+    {
+      "school": "Tiffin University",
+      "abbreviation": "TIF"
+    },
+    {
+      "school": "Toledo",
+      "abbreviation": "TOL"
+    },
+    {
+      "school": "Towson",
+      "abbreviation": "TOW"
+    },
+    {
+      "school": "Trine",
+      "abbreviation": "TRNE"
+    },
+    {
+      "school": "Trinity (CT)",
+      "abbreviation": "TCCT"
+    },
+    {
+      "school": "Trinity (TX)",
+      "abbreviation": "TUTX"
+    },
+    {
+      "school": "Troy",
+      "abbreviation": "TROY"
+    },
+    {
+      "school": "Truman State",
+      "abbreviation": "TRST"
+    },
+    {
+      "school": "Tufts",
+      "abbreviation": "TUFT"
+    },
+    {
+      "school": "Tulane",
+      "abbreviation": "TULN"
+    },
+    {
+      "school": "Tulsa",
+      "abbreviation": "TLSA"
+    },
+    {
+      "school": "Tusculum",
+      "abbreviation": "TUSC"
+    },
+    {
+      "school": "Tuskegee",
+      "abbreviation": "TUSK"
+    },
+    {
+      "school": "UAB",
+      "abbreviation": "UAB"
+    },
+    {
+      "school": "UAlbany",
+      "abbreviation": "UALB"
+    },
+    {
+      "school": "UC Davis",
+      "abbreviation": "UCD"
+    },
+    {
+      "school": "UCF",
+      "abbreviation": "UCF"
+    },
+    {
+      "school": "UCLA",
+      "abbreviation": "UCLA"
+    },
+    {
+      "school": "UConn",
+      "abbreviation": "CONN"
+    },
+    {
+      "school": "UL Monroe",
+      "abbreviation": "ULM"
+    },
+    {
+      "school": "UMass Dartmouth",
+      "abbreviation": "MDAR"
+    },
+    {
+      "school": "UNC Pembroke",
+      "abbreviation": "UNCP"
+    },
+    {
+      "school": "Union",
+      "abbreviation": "UNNY"
+    },
+    {
+      "school": "University of Mary",
+      "abbreviation": "MARY"
+    },
+    {
+      "school": "UNLV",
+      "abbreviation": "UNLV"
+    },
+    {
+      "school": "Upper Iowa",
+      "abbreviation": "UIU"
+    },
+    {
+      "school": "Ursinus",
+      "abbreviation": "URSN"
+    },
+    {
+      "school": "USC",
+      "abbreviation": "USC"
+    },
+    {
+      "school": "UT Martin",
+      "abbreviation": "UTM"
+    },
+    {
+      "school": "UT Permian Basin",
+      "abbreviation": "UTPB"
+    },
+    {
+      "school": "UT Rio Grande Valley",
+      "abbreviation": "RGV"
+    },
+    {
+      "school": "Utah",
+      "abbreviation": "UTAH"
+    },
+    {
+      "school": "Utah State",
+      "abbreviation": "USU"
+    },
+    {
+      "school": "Utah Tech",
+      "abbreviation": "UTU"
+    },
+    {
+      "school": "UTEP",
+      "abbreviation": "UTEP"
+    },
+    {
+      "school": "Utica",
+      "abbreviation": "UTIC"
+    },
+    {
+      "school": "UTSA",
+      "abbreviation": "UTSA"
+    },
+    {
+      "school": "UVA Wise",
+      "abbreviation": "UVAW"
+    },
+    {
+      "school": "Valdosta State",
+      "abbreviation": "VALD"
+    },
+    {
+      "school": "Valparaiso",
+      "abbreviation": "VAL"
+    },
+    {
+      "school": "Vanderbilt",
+      "abbreviation": "VAN"
+    },
+    {
+      "school": "Vermont State Castleton",
+      "abbreviation": "VTSC"
+    },
+    {
+      "school": "Villanova",
+      "abbreviation": "VILL"
+    },
+    {
+      "school": "Virginia",
+      "abbreviation": "UVA"
+    },
+    {
+      "school": "Virginia State",
+      "abbreviation": "VSU"
+    },
+    {
+      "school": "Virginia Tech",
+      "abbreviation": "VT"
+    },
+    {
+      "school": "Virginia Union",
+      "abbreviation": "VUU"
+    },
+    {
+      "school": "VMI",
+      "abbreviation": "VMI"
+    },
+    {
+      "school": "Wabash",
+      "abbreviation": "WAB"
+    },
+    {
+      "school": "Wagner",
+      "abbreviation": "WAG"
+    },
+    {
+      "school": "Wake Forest",
+      "abbreviation": "WAKE"
+    },
+    {
+      "school": "Walsh",
+      "abbreviation": "WLSH"
+    },
+    {
+      "school": "Wartburg",
+      "abbreviation": "WTBG"
+    },
+    {
+      "school": "Washburn",
+      "abbreviation": "WSBN"
+    },
+    {
+      "school": "Washington",
+      "abbreviation": "WASH"
+    },
+    {
+      "school": "Washington & Jefferson",
+      "abbreviation": "W&J"
+    },
+    {
+      "school": "Washington and Lee",
+      "abbreviation": "W&L"
+    },
+    {
+      "school": "Washington St. Louis",
+      "abbreviation": "WUMO"
+    },
+    {
+      "school": "Washington State",
+      "abbreviation": "WSU"
+    },
+    {
+      "school": "Wayne State (MI)",
+      "abbreviation": "WSMI"
+    },
+    {
+      "school": "Wayne State (NE)",
+      "abbreviation": "WSNE"
+    },
+    {
+      "school": "Waynesburg",
+      "abbreviation": "WAYN"
+    },
+    {
+      "school": "Weber State",
+      "abbreviation": "WEB"
+    },
+    {
+      "school": "Wesleyan (CT)",
+      "abbreviation": "WSCT"
+    },
+    {
+      "school": "West Alabama",
+      "abbreviation": "UWA"
+    },
+    {
+      "school": "West Chester",
+      "abbreviation": "WCHT"
+    },
+    {
+      "school": "West Florida",
+      "abbreviation": "WFL"
+    },
+    {
+      "school": "West Georgia",
+      "abbreviation": "WGA"
+    },
+    {
+      "school": "West Liberty",
+      "abbreviation": "WLU"
+    },
+    {
+      "school": "West Texas",
+      "abbreviation": "WTAM"
+    },
+    {
+      "school": "West Virginia",
+      "abbreviation": "WVU"
+    },
+    {
+      "school": "West Virginia State",
+      "abbreviation": "WVSU"
+    },
+    {
+      "school": "West Virginia Wesleyan",
+      "abbreviation": "WVWC"
+    },
+    {
+      "school": "Western Carolina",
+      "abbreviation": "WCU"
+    },
+    {
+      "school": "Western Colorado",
+      "abbreviation": "WCOL"
+    },
+    {
+      "school": "Western Connecticut State",
+      "abbreviation": "WCSU"
+    },
+    {
+      "school": "Western Illinois",
+      "abbreviation": "WIU"
+    },
+    {
+      "school": "Western Kentucky",
+      "abbreviation": "WKU"
+    },
+    {
+      "school": "Western Michigan",
+      "abbreviation": "WMU"
+    },
+    {
+      "school": "Western New England",
+      "abbreviation": "WNE"
+    },
+    {
+      "school": "Western New Mexico",
+      "abbreviation": "WNMU"
+    },
+    {
+      "school": "Western Oregon",
+      "abbreviation": "WORU"
+    },
+    {
+      "school": "Westfield State",
+      "abbreviation": "WFST"
+    },
+    {
+      "school": "Westminster (MO)",
+      "abbreviation": "WCMO"
+    },
+    {
+      "school": "Westminster (PA)",
+      "abbreviation": "WCPA"
+    },
+    {
+      "school": "Wheaton (IL)",
+      "abbreviation": "WCIL"
+    },
+    {
+      "school": "Wheeling",
+      "abbreviation": "WHLG"
+    },
+    {
+      "school": "Whittier",
+      "abbreviation": "WHTR"
+    },
+    {
+      "school": "Whitworth",
+      "abbreviation": "WHIW"
+    },
+    {
+      "school": "Widener",
+      "abbreviation": "WIDE"
+    },
+    {
+      "school": "Wilkes",
+      "abbreviation": "WILK"
+    },
+    {
+      "school": "Willamette",
+      "abbreviation": "WLMT"
+    },
+    {
+      "school": "William & Mary",
+      "abbreviation": "W&M"
+    },
+    {
+      "school": "William Jewell",
+      "abbreviation": "WJC"
+    },
+    {
+      "school": "William Paterson",
+      "abbreviation": "WPU"
+    },
+    {
+      "school": "Williams",
+      "abbreviation": "WLM"
+    },
+    {
+      "school": "Wilmington (OH)",
+      "abbreviation": "WCOH"
+    },
+    {
+      "school": "Wingate",
+      "abbreviation": "WINU"
+    },
+    {
+      "school": "Winona State",
+      "abbreviation": "WNST"
+    },
+    {
+      "school": "Winston-Salem State",
+      "abbreviation": "WSSU"
+    },
+    {
+      "school": "Wisconsin",
+      "abbreviation": "WIS"
+    },
+    {
+      "school": "Wisconsin Eau Claire",
+      "abbreviation": "UWEC"
+    },
+    {
+      "school": "Wisconsin La Crosse",
+      "abbreviation": "UWL"
+    },
+    {
+      "school": "Wisconsin Lutheran",
+      "abbreviation": "WLC"
+    },
+    {
+      "school": "Wisconsin Oshkosh",
+      "abbreviation": "UWO"
+    },
+    {
+      "school": "Wisconsin Platteville",
+      "abbreviation": "UWP"
+    },
+    {
+      "school": "Wisconsin River Falls",
+      "abbreviation": "UWRF"
+    },
+    {
+      "school": "Wisconsin Stevens Point",
+      "abbreviation": "UWSP"
+    },
+    {
+      "school": "Wisconsin Stout",
+      "abbreviation": "UWST"
+    },
+    {
+      "school": "Wisconsin Whitewater",
+      "abbreviation": "UWW"
+    },
+    {
+      "school": "Wittenberg",
+      "abbreviation": "WITT"
+    },
+    {
+      "school": "Wofford",
+      "abbreviation": "WOF"
+    },
+    {
+      "school": "Wooster",
+      "abbreviation": "WOO"
+    },
+    {
+      "school": "Worcester State",
+      "abbreviation": "WORC"
+    },
+    {
+      "school": "WPI",
+      "abbreviation": "WPI"
+    },
+    {
+      "school": "Wyoming",
+      "abbreviation": "WYO"
+    },
+    {
+      "school": "Yale",
+      "abbreviation": "YALE"
+    },
+    {
+      "school": "Youngstown State",
+      "abbreviation": "YSU"
+    }
+  ]
+}
