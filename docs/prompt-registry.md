@@ -162,6 +162,100 @@ These consolidate recurring historical observations, not new project-governance 
 - Status: Superseded/unimplemented by
   `PLATFORM-750-OVERVIEW-COLUMN-BREAKPOINT-CODEX-v2`; its measurements became v2's inputs.
 
+### PLATFORM-663-SCHEDULE-CONVERGENCE-CLAUDE-v1
+
+- Purpose: targeted schedule repairs never converged on the whole-season snapshot (audit A1).
+  `/api/schedule` could commit `schedule/${year}-${week}-${seasonType}` and
+  `${year}-all-<seasonType>` — keys no whole-season reader consults — while standings, Insights, the
+  draft board, recap, archives and diagnostics kept building from the untouched `${year}-all-all`
+  aggregate. Refs [#663](https://github.com/znpruitt/cfb-app/issues/663).
+- Phase A was design only; the ruling on the receipt was **aggregate-only**, and Phase B removes the
+  targeted partition path rather than reconciling it. Implementation `c9a078a1` on
+  `claude/663-schedule-convergence`.
+- **THE DEFECT WAS LATENT AND THE ONLY TRIGGER WAS A TYPED URL.** Measured on the read-only replica
+  2026-09-19 and re-measured 2026-09-20: seven `schedule` keys, every one a `-all-all` aggregate,
+  zero week partitions and zero `-all-<seasonType>` pairs. No cron, no scheduler job, no UI and no
+  server-side caller can construct a targeted request — `fetchSeasonSchedule` has no week parameter,
+  and `manualRefresh.ts:125` emits year-only for schedule while `:137` deliberately carries week +
+  seasonType for game-stats. The path was reachable only by a hand-authored, admin-authenticated GET.
+  **That is why deletion beat reconciliation: the cheapest moment to remove a code path is while it
+  has never produced data, and that will never be more true than it was here.**
+- **FOUR SHAPES WERE WEIGHED AND THREE REJECTED FOR ONE REASON — they all require agreement to be
+  maintained.** Fold-on-write needs an ordering quantity the store does not have; fold-on-read needs
+  nine-plus readers across five precedences to agree, plus the first-ever prefix scan of a scope whose
+  rows are ~2.5 MB of JSON each (`appStateStore.ts:465`); a generation counter detects staleness and
+  still leaves the reader with no correct value to serve. Aggregate-only needs nothing maintained.
+- **THE STORE HOLDS NO QUANTITY THAT CAN ORDER AN AGGREGATE COMMIT AGAINST A PARTITION COMMIT**, which
+  is what killed the reconciling shapes. `at` is `Date.now()` on the writing instance;
+  `nextProviderCommitSeq` is a module-level `let commitSeqCounter = 0`
+  (`providerRefreshStatus.ts:176`) whose own comment says _"Cross-process it is not comparable"_, and
+  it is never persisted into the schedule entry at all. The kickoff offered three ordering candidates
+  and the code supports zero.
+- **THE CONCURRENCY ANSWER IS REMOVAL, NOT ARBITRATION.** The old targeted writer took no lease and
+  locked a different key from the full-season authority, so a repair and a season refresh both
+  committed and neither knew the other ran. A window refresh now contends on the year lease and the
+  loser is told `refresh-in-progress`.
+- **THE DEPENDENT-VIEW FAILURE WAS NOT THE ONE #663 PREDICTED.** The kickoff asked what happens when
+  invalidation fails. It did not fail: the targeted path invalidated standings for every league and
+  succeeded, then the rebuild re-read `loadCachedScheduleItems` and got the unchanged aggregate. The
+  invalidation was correct and useless, so retrying converged on the same wrong answer.
+- **THE CANONICAL PRECEDENCE EXISTED IN THREE COPIES PLUS A FOURTH RESOLUTION IN THE ROUTE**, and that
+  is the root defect the ruling named. `canonicalScheduleCache` now owns the key strings and the
+  aggregate-serves predicate; `assembleSeasonScoredBuild` calls it instead of its inline copy, and
+  `loadCanonicalScheduleEntry` gives the route the metadata projection so it no longer resolves keys
+  its own way. `loadScheduleDisappearanceFallback` shares the keys and the predicate but deliberately
+  does NOT call the item-only reader: it must not re-read the aggregate (snapshot order decides
+  eligibility) and its malformed-partition policy is stricter on purpose, because a partial baseline
+  would manufacture a disappearance. Sharing the drift-prone strings without flattening a deliberate
+  policy difference is the distinction.
+- **METHODOLOGICAL CORRECTION, WORTH MORE THAN THE FINDING COUNT.** The Phase A seam map was built
+  with a grep keyed on `'schedule',` **on one line**, and several store calls put the scope and key on
+  separate lines. That single-line pattern hid four sites: `seasonRollover.ts:13-27` (aggregate else
+  `-all-postseason` only — a fifth precedence), `scheduleDisappearanceBaseline.ts:43-44`,
+  `draft/page.tsx:105-107` (a **prior-year** read, `year - 1`, on a member-visible page), and the
+  `schedule-weekly-control` sibling scope. An independent multiline sweep found all four. **A grep
+  keyed on source FORMATTING rather than on the quantity asked about under-reports silently** — the
+  same failure shape as the diff-base rule in `CLAUDE.md` that has now been corrected three times.
+- Closeout corrections to the Phase A receipt, recorded because the receipt was wrong in ways a reader
+  would inherit: the full-season durable writes are `fullSeasonScheduleRefresh.ts:170` (metadata-only
+  bump) and **`:174`** (full replace), **not `:280`**, which is the prior-state read; and the
+  pre-#663 `?year=Y&week=N` form with no `seasonType` wrote **two** keys per request
+  (`${Y}-${N}-regular` and `${Y}-${N}-postseason`), not one, so the divergent key count per targeted
+  request was double what the receipt's trace showed.
+- **THE `schedule-eligibility` QUESTION IS MOOT UNDER THIS RULING AND IS NOT LEFT STANDING.** Phase A
+  flagged that `/api/debug/schedule-eligibility:52` forwards a numeric `week` to `/api/schedule`
+  without credentials, and that both sweeps concluded by READING — not executing — that the inner
+  request is anonymous and therefore cannot write. That assumption is no longer load-bearing: no
+  targeted write path exists for any caller, authenticated or not. It is retired, not carried.
+- Behaviour changes, both intended: `?seasonType=regular` now issues two provider calls instead of one
+  and commits the aggregate (a cost the weekly Tuesday cron already pays); and a window refresh
+  serializes against a full-season refresh.
+- Scope held: `src/app/api/schedule/route.ts` (1258 -> 421 lines; the route's entire provider-fetch
+  machinery went with the targeted path), `canonicalScheduleCache.ts`, `seasonBuild.ts`,
+  `scheduleDisappearanceBaseline.ts` and their tests. Nothing outside it was touched.
+- **TWO ITEMS STOPPED AND REPORTED RATHER THAN DECIDED.** (1) Naming the remaining four precedences as
+  helpers needs `seasonRollover.ts`, `LeagueStatusPanel.tsx`, `draft/page.tsx` and
+  `providerDataDiagnostics.ts` — all outside scope — and shipping exported helpers with no callers
+  would reproduce #693's "a helper nothing called". (2) `fullSeasonScheduleRefresh.ts:63` still spells
+  the aggregate key locally as `scheduleKey(year)`, a fourth copy of the string this slice otherwise
+  centralised; the file is out of scope.
+- Verification: `npx tsc --noEmit` exit 0; `npm run lint:all` exit 0; `npm test` exit 0 at 5452/5452;
+  `npm run build` exit 0 with `/api/schedule` still registered. Test delta in the touched files:
+  route suite 38 -> 21, `canonicalScheduleCache.test.ts` 0 -> 10, `routePresentation.test.ts` 8 -> 8
+  (one rewritten) — net -8. The 21 week+all composition tests and 5 targeted-commit tests pinned
+  deleted machinery; the policies they duplicated (schema drift, empty-replacement classification,
+  durable-commit-failure resolution, observation ordering) now have ONE implementation and are owned
+  by `fullSeasonScheduleRefresh.test.ts`, so removing the route-level copies closed no coverage.
+- **BOTH CONVERGENCE TESTS ARE MUTATION-PROVEN, AND THEY CATCH DIFFERENT HALVES OF THE DEFECT.**
+  Restoring the child-key commit failed _"a window refresh must write the aggregate and nothing else"_
+  with the diff naming `2027-1-regular`; making a window refresh leave the aggregate untouched failed
+  _"the window read serves the repair"_ on the old kickoff. Neither mutation tripped the other's test.
+  Reverting the pair stamp from `Math.min` to `Math.max` failed the oldest-contributing-partition
+  test. One test of my own was initially wrong for a reason worth recording: it omitted
+  `ADMIN_API_TOKEN`, and with no token configured `resolvePlatformAdminDecision` AUTHORIZES outside
+  production (`adminAuth.ts:86-90`), so the intended non-admin request was running as admin.
+- Review: not yet gathered. `/code-review` and `/codex:review` are user-invocable only.
+
 ### PLATFORM-816-STANDINGS-CACHE-DELTA-CLAUDE-v2
 
 - Purpose: `GET /api/debug/standings-cache-delta` — admin-gated, one league and year per request —
