@@ -309,7 +309,19 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   This buys a kickoff time on tagged rows on phones; it is not a general licence to wrap
 - Rankings display inline with team names — "#4 Oregon vs #2 Indiana"
 - **Team names on scoreboard rows are the provider's full school name, and every surface uses the same
-  field** — "Mississippi State", never "MSST". A team outside the catalog and a TBD placeholder go
+  field** — "Mississippi State", never "MSST". **Amended 2026-09-20 by owner decision on
+  [#821](https://github.com/znpruitt/cfb-app/issues/821): a team name is never TRUNCATED. When a
+  column cannot hold the full name, the row renders that team's abbreviation instead — `SEMO`, not
+  `Southeast Missouri S…`.** The full name remains available to assistive technology, the
+  abbreviation is the provider's own (`abbreviation` from CFBD `/teams`) and is never a fabricated
+  short form, and a name with no abbreviation keeps its full name. **This inverts how column width is
+  derived**: a column no longer has to fit the longest renderable name, so its width is a density
+  choice. Measured 2026-09-20: of the 238 names that can render on a league surface, 238 have a
+  provider abbreviation of 2-4 characters, and only 5 labels in a 1,776-label season exceed 21
+  characters. Implementation is [#832](https://github.com/znpruitt/cfb-app/issues/832) (the fallback)
+  and [#831](https://github.com/znpruitt/cfb-app/issues/831) (the lookup, which must NOT widen the
+  138-team draft catalog); [#726](https://github.com/znpruitt/cfb-app/issues/726) re-derives the
+  column thresholds once it ships. A team outside the catalog and a TBD placeholder go
   through that same field, so one row never mixes a full name with an abbreviation. Governs every
   scoreboard surface: Overview, Matchups, Schedule and the Postseason tab it renders, and the recap.
   **Added 2026-09-16** by owner decision on #729. This file was silent; Overview and Matchups already
