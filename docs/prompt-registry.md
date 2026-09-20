@@ -244,12 +244,12 @@ These consolidate recurring historical observations, not new project-governance 
   durable ledger. The review caught it. Both figures here are now measured from the COMMITTED blob
   (`git show <sha>:<path> | wc -l`), which is the artifact the claim is about — measuring the working
   tree mid-flight is what produced the error.
-- **THIS BRANCH CONFLICTS WITH TWO BINDING CORE RULES IN `AGENTS.md`, AND THAT CONFLICT IS NOT MINE TO
-  RESOLVE.** `AGENTS.md` is canonical for binding rules and wins over every other document. Its core
-  rule 1 currently MANDATES, in binding language, the machinery this slice deleted. Measured
-  2026-09-20 — five symbols named in `AGENTS.md` core rules now have **zero** production call sites:
+- **THIS BRANCH CONFLICTED WITH TWO BINDING CORE RULES IN `AGENTS.md`. RESOLVED BY OWNER AMENDMENT
+  `91aa30a3`, MERGED INTO THIS BRANCH AT `6919b5fd`.** `AGENTS.md` is canonical for binding rules and
+  wins over every other document, so this was a stop-and-report, not a thing to resolve in the lane.
+  Measured 2026-09-20 — five symbols named in `AGENTS.md` core rules had **zero** production call sites:
   `readComposedWeekAllEntry`, `resolveChildCache`, `fetchSeasonType`, `hasRequiredSeasonTypeFailure`,
-  `scheduleRefreshScope`. Specifically:
+  `scheduleRefreshScope`. What the document required, before the amendment:
   - **Truthful provider-refresh status (PLATFORM-086A)** requires that "a targeted `seasonType` records
     the `season-partition` and a specific week records the `week-partition`", that `week` + `all` "is
     split into TWO independent week-partition operations ... each committing to its own child key", that
@@ -260,40 +260,80 @@ These consolidate recurring historical observations, not new project-governance 
     enforces the nonempty→zero and non-array checks by throwing ... the completeness gate
     (`hasRequiredSeasonTypeFailure`) then rejects before the commit block." Both symbols are gone from
     the route; the authority enforces the same policy by its own code.
-  **The CODE is what the ruling decided; the DOCUMENT is now wrong and needs amending.** The invariants
-  were right about WHAT MUST NOT HAPPEN — a targeted repair must not be invisible, and a sibling
-  partition's failure must not cross-contaminate another target's status — and aggregate-only achieves
-  both by removing the second target rather than by scoping it. But the document still prescribes the
-  old HOW, so `AGENTS.md` and `src/` disagree until an owner amends it. Codex raised the scope half of
-  this as a P2 and proposed either rejecting targeted shapes or preserving their partition scope; both
-  would undo the ruling, so neither was applied. **`AGENTS.md` is outside this slice's scope and is a
-  binding-rule edit, so it is reported, not written.**
+  **The CODE was what the ruling decided; the DOCUMENT was the thing that had gone wrong.** Both
+  invariants were right about WHAT MUST NOT HAPPEN — a targeted repair must not be invisible, and a
+  sibling partition's failure must not cross-contaminate another target's status — and aggregate-only
+  achieves both by removing the second target rather than by scoping it. `91aa30a3` amends both bullets
+  on exactly that basis: **each keeps its intent, drops the mechanism, and says not to restore the
+  mechanism to satisfy it.** 085B/085C keeps uncertainty-retains-prior-good, zero-length-is-valid-absence
+  and never-commit-partial-rows, and states that completeness is now validated once in the full-season
+  refresh instead of per requested partition. 086A reduces to "schedule records the **`year`** scope and
+  nothing else", replacing ~2,200 characters of week-partition machinery, and records that if a targeted
+  repair is ever wanted again it is a NEW decision with this history attached.
+  **Compliance re-verified after the merge:** `/api/schedule` records no provider-refresh status of its
+  own (zero `beginProviderRefreshAttempt` / `record*` calls), and the authority records
+  `yearScope(year)` and nothing else (`fullSeasonScheduleRefresh.ts:302`).
+  **The five symbols still appear once each in `AGENTS.md`, and that is now HISTORY rather than a
+  mandate** — the amended bullets name them to say they are dead code pending removal. A future grep
+  finding them there should not read it as a violation signal, which is precisely the trap the first
+  version of this entry would have set.
+- **CODEX'S P2 ON TARGETED REFRESH SCOPE STAYS UNAPPLIED, DELIBERATELY, AND THAT IS NOT A SILENT
+  NON-FIX.** It offered two remedies — "either reject targeted refresh shapes or preserve their
+  partition scope while converging the resulting data" — and **both undo the ruling.** Rejecting
+  targeted shapes breaks `?week=`/`?seasonType=` reads that the projection now serves correctly;
+  preserving partition scope reintroduces the second status target whose removal is the entire point,
+  since a second target is what made a sibling failure able to cross-contaminate. The finding correctly
+  identified a real conflict with `AGENTS.md` as it then stood; the conflict was in the document, and
+  the owner amendment is the resolution. **Recorded as accepted-diagnosis / rejected-remedy rather than
+  as a fix, so a later reader does not see an unaddressed P2.**
 - **FOUR ITEMS STOPPED AND REPORTED RATHER THAN DECIDED.** (1) Naming the remaining four precedences as
   helpers needs `seasonRollover.ts`, `LeagueStatusPanel.tsx`, `draft/page.tsx` and
   `providerDataDiagnostics.ts` — all outside scope — and shipping exported helpers with no callers
   would reproduce #693's "a helper nothing called". (2) `fullSeasonScheduleRefresh.ts:63` still spells
   the aggregate key locally as `scheduleKey(year)`, a fourth copy of the string this slice otherwise
-  centralised; the file is out of scope. (3) **`src/lib/scheduleSeasonFetch.ts` is now orphaned and its
-  docstring asserts the opposite** — it calls itself the _"Single source of truth for the schedule
-  empty-response policy, shared by the authorized `/api/schedule` route and the season-transition cron
-  so the two can never drift"_, while `classifyEmptyScheduleRefresh` and `hasRequiredSeasonTypeFailure`
-  have no production callers and the policy is implemented inline at
-  `fullSeasonScheduleRefresh.ts:151-157`. **The file claiming to prevent drift is the copy nobody
-  calls** — #693's "a helper nothing called", arriving by deletion of the caller rather than by
-  addition. `scheduleRefreshScope` (`providerRefreshScope.ts:232`) is orphaned the same way, and its
-  throw message describes a code path that no longer exists. Both are out of scope and both belong with
-  the `AGENTS.md` amendment, since the document is what still points at them.
-  (4) `schedulePresentationJoin.ts:4` still lists "composed week/all responses, targeted refresh
-  responses" among the paths it enriches; both were deleted here.
-- **ONE FINDING ACCEPTED BUT NOT FULLY FIXABLE IN SCOPE.** Codex P2: when canonical data exists ONLY in
-  a populated legacy `-all-regular` partition, a refresh returning `[]` is classified by the authority
-  against `${year}-all-all` alone, so it resolves as a genuine-absence no-op while the pair still
-  serves rows. Pre-#663 the targeted path consulted those rows and rejected the `[]` as an empty
-  replacement. The round-1 fix narrows the related "cached and empty" state, which removes the
-  200-with-zero-rows symptom, but the classification itself lives in
-  `fullSeasonScheduleRefresh.ts:151-157` — out of scope. **Unreachable in production** (zero pair keys,
-  measured twice), reachable in a legacy or preview-branch store, and recorded as open rather than
-  quietly narrowed to the part I could reach.
+  centralised; the file is out of scope, and the amended 086A bullet is what now carries the "one
+  target" rule that makes a second spelling of the key a drift risk rather than a style point.
+  (3) **The five dead symbols and the two orphaned modules are filed as
+  [#833](https://github.com/znpruitt/cfb-app/issues/833), for after this merges** —
+  `src/lib/scheduleSeasonFetch.ts` (whose docstring calls itself the _"Single source of truth for the
+  schedule empty-response policy, shared by the authorized `/api/schedule` route and the season-transition
+  cron so the two can never drift"_ while `classifyEmptyScheduleRefresh` and
+  `hasRequiredSeasonTypeFailure` have no production callers and the policy lives inline at
+  `fullSeasonScheduleRefresh.ts:151-157`) and `scheduleRefreshScope` (`providerRefreshScope.ts:232`,
+  whose throw message describes a path that no longer exists). **The file claiming to prevent drift is
+  the copy nobody calls** — #693's "a helper nothing called", arriving by deletion of the caller rather
+  than by addition. **Scope was deliberately NOT widened to reach them, including the false docstring**,
+  on owner instruction: a one-line docstring fix looks free and is exactly how a "while I'm here" edit
+  grows past a reviewed boundary, and the whole set is one coherent removal that belongs in its own
+  slice rather than smuggled into this one. (4) `schedulePresentationJoin.ts:4` still lists "composed
+  week/all responses, targeted refresh responses" among the paths it enriches; both were deleted here,
+  and it goes with #833 for the same reason.
+- **ONE FINDING ACCEPTED, DIAGNOSIS AND ALL, AND LEFT OPEN RATHER THAN PARTLY FIXED.** Codex P2: when
+  canonical data exists ONLY in a populated legacy `-all-regular` partition, a refresh returning `[]` is
+  classified by the authority against `${year}-all-all` alone, so it resolves as a genuine-absence no-op
+  while the pair still serves rows. Pre-#663 the targeted path consulted those rows and rejected the `[]`
+  as an unexpected empty replacement. The round-1 fix removes the related 200-with-zero-rows symptom by
+  narrowing "cached and empty", but **the classification itself lives in
+  `fullSeasonScheduleRefresh.ts:151-157`, out of scope.**
+  **Why it was not narrowed to the reachable part:** the reachable part is the SYMPTOM, not the defect.
+  Fixing what the route reports while leaving the classifier saying "genuine absence" about a season the
+  store can still serve would leave the two disagreeing, with the honest-looking half in front — the
+  same shape as the original #663 defect, where the visible surface was fine and the durable truth was
+  not. It is **unreachable in production** (zero pair keys, measured 2026-09-19 and 2026-09-20) and
+  reachable in a legacy or preview-branch store, so it is recorded open, with its reachability stated,
+  rather than half-closed.
+- **TWO FALSE FIGURES WERE CAUGHT BEFORE MERGE, AND THE METHOD IS THE REUSABLE PART.** (1) "1258 -> 421
+  lines" for `route.ts`: measured from the WORKING TREE, then Prettier reformatted the file and the
+  round-1 fix added a comment block. The committed blob is **441**. The Claude review caught it, and its
+  spot-check of every other cited figure is why this one stood out as the outlier. (2) "net -6" on the
+  test delta: I derived it by ARITHMETIC from remembered counts instead of counting, and caught it myself
+  before it shipped — route is 38 -> 21 and the net is **-5**.
+  **The rule both failures point at: measure the ARTIFACT the claim is about, not the working tree
+  mid-flight.** For a committed line count that is `git show <sha>:<path> | wc -l`; for a test count it is
+  `grep -c '^test(' <file>` against the committed file, never a number carried in the head from an
+  earlier run. A figure measured before the last edit is not a measurement of what shipped, and a ledger
+  is read later by someone who cannot tell the difference — which is why an unmeasured number in a
+  durable document is worse than no number.
 - Verification, after review round 1: `npx tsc --noEmit` exit 0; `npm run lint:all` exit 0; `npm test`
   exit 0 at **5454/5454**; `npm run build` exit 0 with `/api/schedule` still registered. Test delta in
   the touched files: route suite 38 -> 21, `canonicalScheduleCache.test.ts` 0 -> 12,
@@ -312,13 +352,20 @@ These consolidate recurring historical observations, not new project-governance 
   not seed presentation"_; re-dropping unknown stamps fails _"an UNKNOWN partition age is stale, not
   absent"_; re-widening the empty state fails _"an EMPTY partition record is a miss, so it cannot become
   a 200 with zero rows"_.
-- **TWO OF MY OWN TESTS WERE WRONG, IN THE TWO DIFFERENT WAYS THAT MATTER.** One DEFENDED a defect: "a
-  window request never seeds presentation or probe state" asserted the probe is NOT written, which is
-  exactly the stale gate Codex found — a test can pin the bug it was written alongside. The other was
-  wrong about its HARNESS: it omitted `ADMIN_API_TOKEN`, and with no token configured
-  `resolvePlatformAdminDecision` AUTHORIZES outside production (`adminAuth.ts:86-90`), so the intended
-  non-admin request ran as admin. A third was wrong about a helper's contract —
-  `deriveFirstGameDate` returns the UTC calendar date, not the kickoff instant.
+- **A TEST OF MINE DEFENDED THE DEFECT IT WAS WRITTEN BESIDE — the recurring class on this project.**
+  "a window request never seeds presentation or probe state" asserted the probe is NOT written. That is
+  the stale gate Codex then found as a P2, and my test made it look deliberate: written in the same
+  commit as the gate, from the same wrong premise, so it converted a defect into a pinned contract.
+  Nothing about it looked weak — it passed, it was specific, and it had a comment explaining itself.
+  **A test written alongside the code it tests inherits that code's premise, so it cannot be the thing
+  that checks the premise.** It was rewritten to seed an OBSOLETE probe and assert it moves, which is a
+  claim about the invariant (the probe follows the aggregate) rather than about the implementation.
+- **A SECOND TEST WAS WRONG ABOUT ITS HARNESS, WHICH IS THE QUIETER FAILURE.** It omitted
+  `ADMIN_API_TOKEN`, and with no token configured `resolvePlatformAdminDecision` AUTHORIZES outside
+  production (`adminAuth.ts:86-90`) — so a test named for the non-admin path ran as admin and exercised
+  the refresh branch instead. It failed loudly here only by luck (the mock fetch threw); a harness error
+  that happens to produce the expected status is a green test measuring nothing. A third was merely wrong
+  about a helper's contract: `deriveFirstGameDate` returns the UTC calendar date, not the kickoff instant.
 - Review round 1 gathered from BOTH reviewers against `b475948a` (Codex `--base e6dc561b`, verified by
   exit code 0, a `git diff` line carrying the `e6dc561b4e72` prefix, and the body — in that order).
   Codex raised 3x P2 + 1x P3; the Claude review raised 6 accuracy/dead-code findings and independently
