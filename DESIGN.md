@@ -448,8 +448,11 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - **Governs Overview only.** Matchups (`1372px`) and Schedule (`1320px`) keep their inherited numbers,
   whose provenance is the same unmeasured prose and whose Schedule arithmetic does not reproduce at
   all; [#726](https://github.com/znpruitt/cfb-app/issues/726) applies this method to them per surface.
-  Whether a long label may ellipsize — which would let the target fall to the common case rather than
-  the 0.3% worst case — is [#821](https://github.com/znpruitt/cfb-app/issues/821), undecided.
+  **[#821](https://github.com/znpruitt/cfb-app/issues/821) was RULED 2026-09-20 and this paragraph's
+  arithmetic is now provisional:** a name is never truncated, so a column no longer has to fit the
+  longest renderable name and the `403px` target is a density choice rather than a constraint. The
+  numbers above stand as what SHIPPED; [#726](https://github.com/znpruitt/cfb-app/issues/726)
+  re-derives them once the abbreviation fallback ships.
 - The weekly recap tile is the one timely-content exception: its full-width dark surface and 8px
   radius bind a collapsed editorial headline to its expand-in-place disclosure. It carries no
   decorative border or accent color, and this exception does not authorize card chrome for ordinary
