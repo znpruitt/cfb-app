@@ -139,8 +139,10 @@ test('recap tile expands its compact week-record grid in normal flow and collaps
   assert.ok(rendered.getByText('Highest Single-Week Score'));
   assert.ok(rendered.getByText('Beat a 7.5-point favorite'));
   assert.match(rendered.getByText('55 PF · 38 PA').className, /text-zinc-400/);
-  assert.match(rendered.getByText('Georgia').className, /text-zinc-400/);
-  assert.doesNotMatch(rendered.getByText('Georgia').closest('article')?.className ?? '', /border/);
+  const georgia = rendered.container.querySelector('[data-scoreboard-team-full="loser"]');
+  assert.ok(georgia);
+  assert.match(georgia.closest('.truncate')?.className ?? '', /text-zinc-400/);
+  assert.doesNotMatch(georgia.closest('article')?.className ?? '', /border/);
   assert.equal(panel.hidden, false);
   const collapse = rendered.getByRole('button', { name: 'Collapse' });
   assert.equal(collapse.getAttribute('aria-expanded'), 'true');
@@ -210,4 +212,61 @@ test('a populated incomplete recap keeps a visible factual headline', () => {
   fireEvent.click(rendered.getByRole('button', { name: 'View full recap' }));
   assert.equal(panel.hidden, false);
   fireEvent.click(rendered.getByRole('button', { name: 'Collapse' }));
+});
+
+test('recap scoreboards use the same per-label accessible fallback and preserve null names', () => {
+  const rendered = render(
+    <RecapTile
+      recap={{
+        ...recap,
+        tileHighlights: [
+          {
+            kind: 'game',
+            id: 'long-name-game',
+            label: 'Odds upset',
+            detail: 'Beat a 7.5-point favorite',
+            winner: { team: 'Southeast Missouri State', owner: 'Alice', score: '31' },
+            loser: { team: 'Ohio State', owner: 'Bob', score: '17' },
+          },
+          {
+            kind: 'game',
+            id: 'null-abbreviation-game',
+            label: 'Close game',
+            detail: 'Won by one',
+            winner: { team: 'Chicago State', owner: null, score: '21' },
+            loser: { team: 'Georgia', owner: 'Bob', score: '20' },
+          },
+        ],
+      }}
+    />
+  );
+  fireEvent.click(rendered.getByRole('button', { name: 'View full recap' }));
+
+  const longName = rendered.container.querySelector('[data-scoreboard-team-label="winner"]');
+  assert.ok(longName);
+  assert.equal(longName.getAttribute('data-scoreboard-team-fallback-max-width'), '403');
+  assert.equal(
+    longName.querySelector('[data-scoreboard-team-accessible="winner"]')?.textContent,
+    'Southeast Missouri State'
+  );
+  assert.equal(
+    longName.querySelector('[data-scoreboard-team-abbreviation="winner"]')?.textContent,
+    'SEMO'
+  );
+  assert.equal(
+    longName.querySelector('[data-scoreboard-team-full="winner"]')?.getAttribute('aria-hidden'),
+    'true'
+  );
+
+  const shortOpponent = rendered.container.querySelector(
+    '[data-scoreboard-team-label="loser"][data-scoreboard-team-fallback="atLeast8Characters"]'
+  );
+  assert.ok(shortOpponent, 'the opposing label must select its rule independently');
+
+  const nullName = Array.from(
+    rendered.container.querySelectorAll('[data-scoreboard-team="winner"]')
+  ).find((element) => element.textContent === 'Chicago State');
+  assert.ok(nullName);
+  assert.equal(nullName.children.length, 0);
+  assert.equal(nullName.parentElement?.querySelector('[data-scoreboard-team-abbreviation]'), null);
 });

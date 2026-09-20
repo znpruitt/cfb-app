@@ -14,6 +14,8 @@ import {
   SCOREBOARD_TEAM_LOGO_SLOT,
   type ScoreboardTeamLogo,
 } from '../lib/teamLogos';
+import { getTeamAbbreviation } from '../lib/teamAbbreviations';
+import ScoreboardTeamName from './ScoreboardTeamName';
 
 export type CompactScoreboardParticipant = {
   teamName: string;
@@ -241,7 +243,7 @@ export default function CompactGameScoreboard({
 
   return (
     <article
-      className="border-b py-3 dark:border-zinc-800/80"
+      className="@container border-b py-3 dark:border-zinc-800/80"
       aria-label={matchupLabel}
       data-game-scoreboard
       data-scoreboard-state={state}
@@ -284,6 +286,7 @@ export default function CompactGameScoreboard({
       {participants.map(({ side, participant }) => {
         const isLeading = leader === side;
         const owner = participant.owner?.trim() || null;
+        const teamAbbreviation = getTeamAbbreviation(participant.teamName);
         const teamRecord = recordLabel(participant.record);
         const rankTitle =
           participant.rank != null && participant.rankSource
@@ -329,7 +332,11 @@ export default function CompactGameScoreboard({
                 </span>
               ) : null}
               <span className="min-w-0 truncate">
-                <span data-scoreboard-team={side}>{participant.teamName}</span>
+                <ScoreboardTeamName
+                  abbreviation={teamAbbreviation}
+                  marker={side}
+                  teamName={participant.teamName}
+                />
                 {showsInlineRecord && teamRecord ? (
                   <span
                     className="ml-1.5 text-[12.5px] font-normal tabular-nums dark:text-zinc-400"

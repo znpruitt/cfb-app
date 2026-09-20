@@ -63,6 +63,7 @@ async function compileFixtureStyles(): Promise<string> {
   )}
     @source '../components/OverviewPanel.tsx';
     @source '../components/CompactGameScoreboard.tsx';
+    @source '../components/ScoreboardTeamName.tsx';
     @source '../lib/teamLogos.ts';
   `;
   const result = await postcss([tailwindcss()]).process(source, { from });
@@ -155,23 +156,33 @@ async function measureWidths(
             width: round(rect.width),
           };
         });
-        const stressTeam = grid.querySelector('[data-scoreboard-team="away"]');
+        const stressTeam = grid.querySelector('[data-scoreboard-team-label="away"]');
+        const visibleStressTeam = Array.from(
+          stressTeam?.querySelectorAll(
+            '[data-scoreboard-team-full="away"], [data-scoreboard-team-abbreviation="away"]'
+          ) ?? []
+        ).find((candidate) => getComputedStyle(candidate).display !== 'none');
         const stressLabel = stressTeam?.parentElement;
         const stressRow = stressTeam?.closest('[data-scoreboard-side="away"]');
         const stressValue = stressRow?.querySelector('[data-scoreboard-value="away"]');
+        const stressContentEnd =
+          stressRow?.querySelector('[data-scoreboard-owner="away"]') ??
+          stressRow?.querySelector('[data-scoreboard-record="away"]') ??
+          visibleStressTeam;
         if (
+          !(visibleStressTeam instanceof HTMLElement) ||
           !(stressLabel instanceof HTMLElement) ||
           !(stressRow instanceof HTMLElement) ||
-          !(stressValue instanceof HTMLElement)
+          !(stressValue instanceof HTMLElement) ||
+          !(stressContentEnd instanceof HTMLElement)
         ) {
           throw new Error('stress row did not render');
         }
-        const stressContentRange = document.createRange();
-        stressContentRange.selectNodeContents(stressLabel);
-        const stressContentRect = stressContentRange.getBoundingClientRect();
+        const visibleStressTeamRect = visibleStressTeam.getBoundingClientRect();
+        const stressContentEndRect = stressContentEnd.getBoundingClientRect();
         const stressLabelRect = stressLabel.getBoundingClientRect();
         const stressValueRect = stressValue.getBoundingClientRect();
-        const stressLabelContentWidth = stressContentRect.width;
+        const stressLabelContentWidth = stressContentEndRect.right - visibleStressTeamRect.left;
         const stressLabelWidth = stressLabelRect.width;
         const firstRowInterCardGap =
           cards.length >= 2 && Math.abs(cards[0].top - cards[1].top) <= 0.1
@@ -201,7 +212,7 @@ async function measureWidths(
           stressLabelWidth: round(stressLabelWidth),
           stressLabelContentWidth: round(stressLabelContentWidth),
           stressLabelSlack: round(stressLabelWidth - stressLabelContentWidth),
-          stressContentToScoreGap: round(stressValueRect.left - stressContentRect.right),
+          stressContentToScoreGap: round(stressValueRect.left - stressContentEndRect.right),
           stressRowPaddingLeft: round(parseFloat(getComputedStyle(stressRow).paddingLeft)),
           computedFontFamily: getComputedStyle(document.body).fontFamily,
         });
