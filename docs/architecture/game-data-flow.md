@@ -100,8 +100,14 @@ season-transition cron and the authorized `/api/schedule` refresh publish a sche
 when it resolves without a fetch/schema failure. A partition that **throws**, returns a
 **non-array**, or normalizes a **nonempty** payload to **zero** rows (schema drift) is uncertainty:
 the cron retains prior-good durable schedule/probe and reports `partialFailure`; `/api/schedule`
-returns `502` (via `hasRequiredSeasonTypeFailure`) before its commit block, leaving the durable
-cache, process cache, and standings invalidation untouched. Neither commits partial/drifted rows as
+returns `502` before its commit block, leaving the durable cache, process cache, and standings
+invalidation untouched. **CORRECTED 2026-09-20:** this sentence named `hasRequiredSeasonTypeFailure`
+as the gate; that symbol has **no production caller** on `main` — PLATFORM-663 retired the
+per-season-type partition machinery it belonged to. The refusal survives, the symbol does not,
+and #833/#837 remove it. _Missed by `f1b08adb`, which corrected the same falsehood four lines below and
+in the sibling document; found by the #833/#813/#794 lane. That is the third time on this campaign
+that a correction pass has fixed one instance and walked past its sibling — the sweep must be the
+SYMBOL across `docs/` and `AGENTS.md`, never the sentence in hand._ Neither commits partial/drifted rows as
 complete fresh state, so downstream standings/Insights/rollover never treat an incomplete schedule
 as authoritative. An **all-empty** refresh (every requested partition validly returned zero rows) is
 classified **before** any durable/process-cache write (PLATFORM-086A 4th review): if a populated
