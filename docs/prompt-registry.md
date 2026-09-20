@@ -121,6 +121,139 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-833-813-794-TRUST-CLEANUP-CLAUDE-v1
+
+- Purpose: three bounded cleanups sharing one root — a reader consuming a value it never validated, or
+  a symbol surviving the thing that used it. Refs
+  [#833](https://github.com/znpruitt/cfb-app/issues/833),
+  [#813](https://github.com/znpruitt/cfb-app/issues/813),
+  [#794](https://github.com/znpruitt/cfb-app/issues/794).
+- **THIS ENTRY COVERS #833 AND #794 ONLY. ALL OF #813 WENT BACK** after two review rounds, by owner
+  ruling, and is reconstructed as `PLATFORM-813-ROW-VALIDATION-CLAUDE-v2`. Nothing of #813 shipped:
+  the four files it touched were reverted to base byte-identically (empty `git diff e54454dd --`) and
+  its two test files deleted.
+- **WHY #813 WENT BACK, AND THE RULING WAS PLANNING'S ERROR RATHER THAN THE LANE'S EXECUTION.** The v1
+  receipt argued for per-field guards at the consumer over row validation at the boundary, on the
+  ground that ~17 call sites converge on one function; planning ruled for it. That argument is sound
+  per FIELD and wrong per CLASS, because there are at least nine unvalidated string fields on the row.
+  **The trace that settles it:** `postseason-classify.ts:216` reads `row.homeTeam.trim()` inside
+  `looksEmptyRow`, which runs on the FIRST line of `classifyScheduleRow` at `:275` — ahead of the
+  `eventKey` guard the slice added. **A guard a sibling read jumps in front of is not a guard**, and a
+  sweep scoped to `\.eventKey` cannot see the reads that jump it.
+- **BOTH HALVES WENT BACK, NOT JUST THE FAILING ONE.** The non-FBS consolidation's logic drew no
+  findings across either round, but two of round 2's six same-class findings were against its SWEEP.
+  Splitting on "the logic was fine" would have split the class and left half of it shipping; the line
+  was drawn at the issue instead.
+- **THE STOP WAS THE DELIVERABLE, AND THE SIGNAL WAS RHYMING.** Round 1: six findings. Round 2: eleven,
+  of which six were the SAME class as all six of round 1 — a verification claiming a population it does
+  not cover. Instances, because the list is the evidence: a sweep rooted at `src/lib` while its name
+  said `src/`; a panel fallback test using the partition the OLD code already handled; the round-1
+  lesson applied to one file and not its sibling; a docstring whose reachability claim was INVERTED for
+  the call site it described; a sweep that flagged the guarded spelling it recommended; a duplicate
+  sweep blind to the generic-annotated form its own control could not exercise. Patching a third round
+  would have been accumulate-don't-reconstruct.
+- **THE FIXTURE HABIT, NAMED because it is the lane's and not the slice's.** Four times the test was
+  correct, passing, about the right function, and sat just to one side of the defect: `CALL SITE 3`
+  passed a string `'SEC'` so it never probed the sibling fields on its own line; the sweep matched two
+  renderings and missed the likeliest third; the fallback test used the partition that needed no fix;
+  the conference fixture set `seasonType: 'postseason'` for a call site reachable only when
+  `seasonType !== 'postseason'`. Each was found by a reviewer rather than by the lane.
+
+#### What shipped — #833
+
+- Deleted with zero production callers, proven by rename PLUS an intra-file call check:
+  `scheduleRefreshScope`, `hasRequiredSeasonTypeFailure`, `classifyEmptyScheduleRefresh`,
+  `EmptyScheduleClassification`, and `ScheduleSeasonTypeParam` (orphaned by the first deletion — it was
+  only that function's parameter type).
+- **`scheduleRefreshScope`'s deletion points at `AGENTS.md`'s amendment (`91aa30a3`) rather than a
+  `@deprecated` marker.** Its `throw` for `week` + `all` was independent evidence that the
+  partition-plus-aggregate model was never coherent — the scope vocabulary could not name that target —
+  and a binding document is a stronger home for that argument than a comment on an uncalled function.
+- **`scheduleSeasonFetch.ts` SURVIVES for `ScheduleSeasonType`** (four live references in two
+  out-of-scope files). Its header claimed to be the single source of truth for a policy it no longer
+  implemented; rewritten to describe what remains, with relocation as
+  [#837](https://github.com/znpruitt/cfb-app/issues/837).
+- **The live defect: `LeagueStatusPanel` asserted health from RECORD presence.** `Boolean(record)` gave
+  a zero-row record a green dot and a freshness age, and the `-all-all` → `-all-regular` fallback keyed
+  on `r ?? …`, so an empty aggregate record blocked the fallback and the panel reported on a key it
+  should have skipped. Both now consume `canonicalScheduleAggregateServes`. `hasRoster`, nine lines
+  above, already derived from content — the correct shape was in the same function as the defect.
+- **THE TWO PANEL DEFECTS COMPENSATED, WHICH IS WHY NEITHER WAS VISIBLE.** Against the fully unfixed
+  panel the fallback test PASSES: the read kept the empty aggregate and the presence flag then called
+  that empty record healthy. It fails only once the flag is content-based and the read is not, verified
+  by reverting the read alone. A test that cannot fail against the original code is usually vacuous;
+  this one is instead evidence that two bugs were cancelling.
+
+#### What shipped — #794
+
+- `computeProtectedActiveYears` reads through `readLeagueRegistry()` and returns `indeterminate` for a
+  malformed or unreadable registry, which the route turns into a `503` with a typed code. `getLeagues()`
+  maps absent AND malformed to `[]`, so a corrupt registry contributed zero protected years and the
+  active-season refusal silently stopped covering them — **and the operator saw an ordinary success,
+  because a narrowed refusal is indistinguishable from a request that was legitimately allowed.**
+  `force=1` never bypassed that guard; a malformed registry effectively did.
+- **UNABLE TO DETERMINE THE SET IS NOT THE SET BEING EMPTY.** `missing` still allows an ordinary
+  historical repair — the discriminating control, since a guard refusing on every non-`ok` registry
+  would pass both malformed tests while breaking the no-registry case. Mirrors the pattern already
+  established in `season-transition`, `schedule-refresh`, `rankings` and `season-rollover`.
+- Mutation evidence: against the pre-fix collapse the malformed tests return `{"success":true,…}` — the
+  repair PROCEEDING on an unverified protected set, which is the shape the fix exists to prevent.
+
+#### Reverted at review, with the reason
+
+- **The panel's freshness age went back to `updatedAt`.** Round 1 switched it to the canonical reader's
+  `at` to inherit the both-partition precedence. The visible cost was a 1970 age beside a green dot for
+  any record lacking `at` — the legacy state that fallback exists for. **The worse cost was silent:**
+  Schedule measured provider-observation time while Scores beside it measured record-write time, two
+  identically formatted ages measuring different quantities, which would have outlived the slice.
+  Reverting the age means reverting to the raw record, so the `-all-postseason`-only gap remains and is
+  recorded in the code rather than left implied.
+- **`canonicalScheduleCache`'s copy list has now been wrong in BOTH directions.** Its first version
+  claimed this module was already the only copy. Round 1 caught it calling `LeagueStatusPanel` live
+  after the same commit fixed it, so the entry was removed. Round 2's revert would have made that
+  removal false in turn. The panel is back on the list with its worse half marked fixed. **A comment
+  enumerating other files' behaviour must be re-read on every change to any of them, because each edit
+  can falsify it from either side.**
+
+#### Open, each with its reason
+
+- **[#838](https://github.com/znpruitt/cfb-app/issues/838)** — `cache-historical-scores/route.ts`
+  protects only the inferred current season and never reads the registry, so a `preseason`/`season`
+  league year can be overwritten by the historical scores repair. The asymmetry #794's own argument
+  predicts. Filed by planning, sequenced after #794 so it reuses this slice's protected-years helper.
+- **[#837](https://github.com/znpruitt/cfb-app/issues/837)** — relocate `ScheduleSeasonType` out of a
+  module named for a fetch policy that no longer exists. Both consumers are outside scope.
+- **The `-all-postseason`-only panel gap**, above. Not closed here because closing it requires the
+  canonical reader, which reintroduces the age regression.
+- **`registry-unreadable` is unpinned.** The suite covers malformed, stored-JSON-null, absent and
+  well-formed, but never makes the store throw, so the one fail-closed path that depends on an
+  exception has no test naming it. Reported rather than added, to keep this branch to what was reviewed.
+- **Two docs claims this merge makes stale**, reported for planning per the src/ ↔ docs/ ownership rule:
+  `storage-and-caching.md:160` contrasts `fetchSeasonType` ("no longer exists in `src/` at all") with
+  `hasRequiredSeasonTypeFailure` ("has no production caller"), and after this merge the second no longer
+  exists either; `game-data-flow.md:120` likewise describes `classifyEmptyScheduleRefresh` as uncalled
+  rather than absent. Both also say "See #833/#837 for their removal", which this merge performs.
+
+#### Verification
+
+- Each gate its own command, real exit codes: `npx tsc --noEmit` 0; `npm run lint:all` 0; `npm test` 0
+  at **5472/5472**; `npm run build` 0.
+- Test delta in the shipping files, counted from the committed blobs
+  (`git show <sha>:<path> | grep -c '^test('`): `LeagueStatusPanel.test.tsx` 0 → 5 (new),
+  `cache-historical-schedule/__tests__/route.test.ts` 5 → 9, `scheduleSeasonFetch.test.ts` 3 → 3
+  (rewritten from testing two deleted functions to pinning the module's shape),
+  `providerRefreshScope.test.ts` 13 → 12. (I first wrote 10 → 9 here from memory and measured it
+  before committing — the count is the one thing in this entry that had no business being recalled.)
+- **Every sweep or coverage claim states its population**, because a clean result from a narrow root is
+  byte-identical to a clean one from the right root: the deletion proofs ran over all of `src/`
+  (`grep -rn` plus a rename plus an intra-file call check, word-boundary matched so
+  `ScheduleSeasonTypeParam` could not mask `ScheduleSeasonType`), and no sweep-style test ships in this
+  branch — both that did went back with #813.
+- Review: two rounds, both reviewers each round, all against the same commit. Codex clean on round 1 and
+  two P2s on round 2; the Claude review raised six then nine. **No finding in either round was against
+  the correctness of what ships here** — #833's deletions drew none across both rounds, and #794's logic
+  drew none. Every finding was against #813 or against the lane's verification.
+
 ### PLATFORM-831-ABBREVIATION-LOOKUP-CODEX-v1
 
 - Purpose: resolve [#831](https://github.com/znpruitt/cfb-app/issues/831) with a client-safe,
