@@ -767,12 +767,34 @@ roots, call patterns, or framework behavior outside the acceptance contract.
 
 **Verification binds to an exact commit.** Report the SHA the gates ran against, and confirm the worktree was clean and `HEAD` unchanged at that moment. Results never carry forward across a commit: after any change to the tree, re-run every required gate against the new commit before reporting.
 
-**NEVER PASS A DOM NODE TO `assert.equal`/`assert.deepEqual`. THE TEST WILL HANG, NOT FAIL.** Found
-2026-09-09 by the Item 204 lane, and found only because it ran the mutation.
-`assert.equal(queryByText(...), null)` against a jsdom element makes node's assertion diff
-`util.inspect` the node, which walks `ownerDocument → defaultView → window` and does not return; the
-test consumes the full timeout instead of failing. **A 30-second timeout reads as flake, so the
-caught regression is reported as infrastructure noise and dismissed.** Compare a boolean or a string
+**NEVER PASS A DOM NODE TO `assert.equal`/`assert.deepEqual`. THE TEST BURNS ITS WHOLE TIMEOUT
+INSTEAD OF FAILING.** Found 2026-09-09 by the Item 204 lane, and found only because it ran the
+mutation. `assert.equal(queryByText(...), null)` against a rendered element makes node's assertion
+build its error message by `util.inspect`-ing the node, and that walk is superlinear in the size of
+the object graph hanging off it. The test consumes the full timeout instead of failing.
+
+**MECHANISM CORRECTED 2026-09-20, because the old wording sent readers to the wrong culprit and
+implied a wrong exemption.** It used to say the walk goes `ownerDocument → defaultView → window` and
+**does not return**. Both halves are wrong:
+
+- **A PURE JSDOM NODE IS FINE.** Measured directly: `new JSDOM(markup).window.document.querySelector(...)`
+  — with a LIVE `defaultView` — passed to `assert.equal` throws in **0-1 ms with a 25-character
+  message**, at 1 row and at 500 rows, with the message explicitly read to defeat lazy construction.
+  There is no window walk and no dump. Suites built on `renderToStaticMarkup` + raw `JSDOM` are not
+  exposed.
+- **IT RETURNS.** The cost is superlinear, not infinite, and the threshold is what makes it lethal:
+  the Item 767/701 probe measured a `@testing-library/react`-rendered tree at ~5 elements failing
+  named in 865 ms, and ~17 elements already exceeding the 30-second budget. Any realistic component
+  render is past it.
+- **THE GRAPH IS REACT'S, NOT THE DOM'S.** The failure dump walks
+  `__reactFiber$… → FiberNode → _debugStack → return → …`. So the trap is specifically a node
+  produced by a React render, and `render()` from `@testing-library/react` is the marker to look for.
+
+**The practical rule is unchanged and is why this correction does not soften it:** compare a boolean
+or a string. **Do not read the exemption as a licence** — a suite that uses raw `JSDOM` today can gain
+a `render()` in one commit, and the failure mode is silent until a regression is actually caught.
+**A 30-second timeout reads as flake, so the caught regression is reported as infrastructure noise
+and dismissed.** Compare a boolean or a string
 — `assert.equal(queryByText(...) === null, true)` — so the failure names its own assertion in
 seconds. This is a general trap in every component test in this repo, not a property of that one
 file.
