@@ -236,7 +236,7 @@ These consolidate recurring historical observations, not new project-governance 
   `detail.failedSeasonTypes: ['postseason']` and no commit, where the old route fetched `regular` alone
   and committed it at `200`. Low impact — the shape is reachable only by a hand-authored admin GET —
   but it is a real loss of partial availability and the original bullet stopped one short of it.
-- Scope held: `src/app/api/schedule/route.ts` (1258 -> 441 lines; the route's entire provider-fetch
+- Scope held: `src/app/api/schedule/route.ts` (1258 -> 460 lines; the route's entire provider-fetch
   machinery went with the targeted path), `canonicalScheduleCache.ts`, `seasonBuild.ts`,
   `scheduleDisappearanceBaseline.ts` and their tests. Nothing outside it was touched.
   **The figure in the first version of this entry was 421 and was WRONG.** I measured the working tree
@@ -324,7 +324,8 @@ These consolidate recurring historical observations, not new project-governance 
   rather than half-closed.
 - **TWO FALSE FIGURES WERE CAUGHT BEFORE MERGE, AND THE METHOD IS THE REUSABLE PART.** (1) "1258 -> 421
   lines" for `route.ts`: measured from the WORKING TREE, then Prettier reformatted the file and the
-  round-1 fix added a comment block. The committed blob is **441**. The Claude review caught it, and its
+  round-1 fix added a comment block. The committed blob is **460** after round 2 (it was 441 when the
+  correction was first written — the figure moves with every commit, which is the point). The Claude review caught it, and its
   spot-check of every other cited figure is why this one stood out as the outlier. (2) "net -6" on the
   test delta: I derived it by ARITHMETIC from remembered counts instead of counting, and caught it myself
   before it shipped — route is 38 -> 21 and the net is **-5**.
@@ -334,10 +335,10 @@ These consolidate recurring historical observations, not new project-governance 
   earlier run. A figure measured before the last edit is not a measurement of what shipped, and a ledger
   is read later by someone who cannot tell the difference — which is why an unmeasured number in a
   durable document is worse than no number.
-- Verification, after review round 1: `npx tsc --noEmit` exit 0; `npm run lint:all` exit 0; `npm test`
-  exit 0 at **5454/5454**; `npm run build` exit 0 with `/api/schedule` still registered. Test delta in
-  the touched files: route suite 38 -> 21, `canonicalScheduleCache.test.ts` 0 -> 12,
-  `routePresentation.test.ts` 8 -> 8 (one rewritten) — net **-5**. The 21 week+all composition tests and
+- Verification, after review round 2: `npx tsc --noEmit` exit 0; `npm run lint:all` exit 0; `npm test`
+  exit 0 at **5455/5455**; `npm run build` exit 0 with `/api/schedule` still registered. Test delta in
+  the touched files: route suite 38 -> 22, `canonicalScheduleCache.test.ts` 0 -> 12,
+  `routePresentation.test.ts` 8 -> 8 (one rewritten) — net **-4**. The 21 week+all composition tests and
   5 targeted-commit tests pinned deleted machinery; the policies they duplicated (schema drift,
   empty-replacement classification, durable-commit-failure resolution, observation ordering) now have
   ONE implementation and are owned by `fullSeasonScheduleRefresh.test.ts`, so removing the route-level
@@ -366,6 +367,46 @@ These consolidate recurring historical observations, not new project-governance 
   the refresh branch instead. It failed loudly here only by luck (the mock fetch threw); a harness error
   that happens to produce the expected status is a green test measuring nothing. A third was merely wrong
   about a helper's contract: `deriveFirstGameDate` returns the UTC calendar date, not the kickoff instant.
+- **REVIEW ROUND 2 — CODEX CLEAN, AND THE CLEAN VERDICT WAS VERIFIED BEFORE IT WAS TRUSTED.** Against
+  `ee890897` with `--base 91aa30a3`: exit code 0, **12** `git diff` invocations carrying the
+  `91aa30a3c032` prefix (including `--unified=80` and per-file diffs), then the body — checked cheapest
+  first, per `CLAUDE.md`. _"No actionable correctness regression was found."_ A clean report is when a
+  clean verdict most needs to be accepted or rejected correctly, so the checks matter most here, not
+  least.
+  The Claude review raised **three mediums and three lows** and re-ran the gates itself. All three
+  mediums confirmed and fixed in `0b153c8d`:
+  - **AN UNPINNED BRANCH THAT ROUND 1 HAD MADE MORE LOAD-BEARING.** `if (!isAdmin)` is the only path
+    reaching the provider without `bypassCache=1`, and round 1 made it the path that re-derives the
+    probe — while its sole test sat among the 26 this slice deleted. **Proven by mutation, not by
+    reading:** the reviewer's mutation was blocked by a sandbox classifier and they said so; mine ran,
+    and disabling the branch left the ENTIRE suite green at 5454/5454. The gap hid because every other
+    refresh-path test passes `bypassCache=1` and both stale tests send no credentials deliberately, so
+    nothing in the file was shaped like the missing case. **Deleting a test and adding load to the branch it
+    covered happened in the same slice, which is the pattern to watch for.**
+  - **A FALSE CLAIM IN THE MODULE WHOSE JOB IS TO BE THE ONLY COPY.** "#663 made this the only copy"
+    was wrong: `providerDataDiagnostics.ts:374-401`, `seasonRollover.ts:17-25` and
+    `LeagueStatusPanel.tsx:77-79` still carry their own precedence and none consumes the exported
+    helpers. The panel is not merely a duplicate — `r ?? getAppState(...)` tests RECORD presence, not
+    ROW presence, so an empty aggregate record shadows a populated partition and `hasSchedule` reads
+    true with zero rows. **That is the exact disagreement `canonicalScheduleAggregateServes`' own doc
+    comment warns about, two files away and still live** — the warning shipped in the same commit as a
+    claim that the problem was solved. Comment corrected to name all three against #833.
+  - **A CENTRAL ASSERTION MEASURING A GUESS.** `scheduleKeysPresent()` probed a hand-written candidate
+    list (weeks 0-3) while claiming every key in the scope, and it backs both convergence assertions —
+    so a commit at week 4+ or another year passed silently. **Worse, round 1's mutation proof used week
+    1, INSIDE the list, so the proof did not generalise the way this ledger claimed.** Replaced with
+    `listAppStateKeys('schedule')` and re-proven with a stray week-7 key the old helper was
+    structurally blind to.
+  Two lows resolved as comments rather than code, both recorded with their reason: the probe gate's
+  trigger surface is genuinely wider than "window refreshes" — any admin GET on a stale aggregate now
+  writes it, including the debug route's sub-request, which forwards admin credentials on purpose — and
+  that is CORRECT, because the same request already committed the aggregate and the probe is derived
+  from it. **The review also named `/api/odds:241`, which forwards no credentials and cannot reach the
+  refresh at all; findings are judged on reachability, not applied wholesale.** Presentation seeding
+  stays whole-season-only: PLATFORM-086E1C1 scoped it there deliberately, the overlay is display-only
+  and self-heals on the next seeding, and widening it would spend provider calls on a path that never
+  did — so the cost (games first committed by a window refresh carry no overlay until then) is written
+  into the comment instead of being silently accepted.
 - Review round 1 gathered from BOTH reviewers against `b475948a` (Codex `--base e6dc561b`, verified by
   exit code 0, a `git diff` line carrying the `e6dc561b4e72` prefix, and the body — in that order).
   Codex raised 3x P2 + 1x P3; the Claude review raised 6 accuracy/dead-code findings and independently
