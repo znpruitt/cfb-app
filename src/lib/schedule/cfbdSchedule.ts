@@ -301,8 +301,28 @@ function hasPlayoffMarker(text: string): boolean {
 /**
  * CFBD classification values that are EXPLICIT negative evidence for CFP
  * inference. CFBD currently emits `fbs`, `fcs`, `ii`, and `iii`.
+ *
+ * THE ONE DEFINITION (PLATFORM-813). `schedule.ts` held a second, separately
+ * spelled copy (`NON_FBS_PROVIDER_CLASSIFICATIONS`) and now imports this one.
+ *
+ * **This is PREVENTIVE, and it is worth being exact about what it does not do.**
+ * The two sets were IDENTICAL when they were merged — `fcs`, `ii`, `iii` — so no
+ * drift was repaired; one copy was removed so the next edit cannot create drift.
+ * It also does NOT stop a new division failing open: this is an allow-list of
+ * known non-FBS values, so a fifth classification CFBD might start emitting would
+ * read as FBS at both call sites until someone adds it here. The robust end state
+ * derives non-FBS as `ProviderClassification` minus `'fbs'`, which requires
+ * exporting the union's own set from `conferenceSubdivision.ts:89-91` — out of
+ * PLATFORM-813's scope, and left for whoever takes that on.
+ *
+ * Asserted by `nonFbsClassifications.test.ts`, which fails if a second set of
+ * these values reappears anywhere in `src/`.
  */
-const NON_FBS_CLASSIFICATIONS: ReadonlySet<ProviderClassification> = new Set(['fcs', 'ii', 'iii']);
+export const NON_FBS_CLASSIFICATIONS: ReadonlySet<ProviderClassification> = new Set([
+  'fcs',
+  'ii',
+  'iii',
+]);
 
 /**
  * Whether the provider EXPLICITLY classifies either participant below FBS.

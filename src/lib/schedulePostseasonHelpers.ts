@@ -97,9 +97,42 @@ export function toPlaceholderDisplay(conference?: string | null): string {
   return conference ? `${conference} Team TBD` : 'Team TBD';
 }
 
+/**
+ * The ONE guarded read of a durable row's `eventKey` (PLATFORM-813).
+ *
+ * A stored schedule row reaches every consumer UNVALIDATED — the durable read
+ * casts straight to `ScheduleWireItem[]` — so `eventKey` can be any JSON value.
+ * `?.trim()` and `(x ?? '').trim()` both guard only null/undefined: a JSON
+ * **number** passes straight through and throws `x.trim is not a function`.
+ *
+ * WHAT THAT COSTS, stated precisely because the trigger is narrower than the
+ * blast radius. Only a POSTSEASON row can reach these reads
+ * (`schedule.ts` gates on `item.gamePhase === 'postseason'`, and
+ * `classifyScheduleRow` returns early otherwise), so a malformed regular-season
+ * row is harmless here. But the throw happens INSIDE the per-row loop of
+ * `buildScheduleFromApi`, so one bad postseason row takes down the WHOLE build —
+ * standings, Insights, the draft board, odds, live scores, archives — not one row.
+ *
+ * A NON-STRING IS TREATED AS ABSENT, matching how the sibling `id` read has been
+ * guarded since #708 (`typeof item.id === 'string' ? item.id.trim() : ''`). The
+ * caller then falls back to its derived key, which is the existing safe path for a
+ * missing `eventKey`. Treating it as absent rather than stringifying it is
+ * deliberate: a number that became a key would spell a DIFFERENT event than the
+ * same game read as a string, which is the identity-splitting failure
+ * `postseasonEventKey`'s round-trip check already exists to prevent.
+ *
+ * Asserted by `eventKeyGuard.test.ts` — a numeric, object, boolean and null
+ * `eventKey` each keep the derived key at all three call sites, and the
+ * three-call-site coverage is itself pinned so a fourth unguarded read cannot be
+ * added silently.
+ */
+export function normalizedEventKey(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 export function buildConferenceChampionshipEventKey(item: ScheduleWireItem): string {
-  const normalizedEventKey = item.eventKey?.trim();
-  if (normalizedEventKey) return normalizedEventKey;
+  const normalizedKey = normalizedEventKey(item.eventKey);
+  if (normalizedKey) return normalizedKey;
 
   const normalizedConference = (item.conferenceChampionshipConference ?? '').trim().toLowerCase();
   if (normalizedConference) {

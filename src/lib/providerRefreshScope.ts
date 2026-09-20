@@ -213,39 +213,26 @@ export function scopeMatchesKey(
 export type ScheduleSeasonTypeParam = CanonicalSeasonType | 'all';
 
 /**
- * Canonical status scope for a SINGLE-TARGET SCHEDULE refresh operation, selected
- * from the normalized request target (review remediation finding 1). The year
- * rollup is reserved for the ONE operation that genuinely covers the whole year
- * (`week === null && seasonType === 'all'`); a season- or week-targeted repair
- * records against its own partition and can never clear/advance the full-year
- * status.
+ * PLATFORM-833: `scheduleRefreshScope` WAS HERE, AND ITS DELETION IS THE RECORD.
  *
- * A specific week with `seasonType === 'all'` spans TWO week partitions (regular
- * AND postseason) and therefore has NO single canonical scope — coercing it to
- * the regular week partition would misattribute a postseason-only failure to
- * regular and collide combined rows with a later regular-only refresh
- * (SCOPED-STATUS review v2 #2). It is a programming error to ask this helper for
- * that combination's scope: the caller must resolve each applicable child
- * independently via {@link weekPartitionScope}. This throws so the misuse is
- * loud rather than silently coerced.
+ * It selected a per-target status scope for a single-target schedule refresh —
+ * `year` only for the whole-year operation, `season-partition` for a targeted
+ * season type, `week-partition` for a targeted week — and it THREW for a specific
+ * week with `seasonType: 'all'`, because that combination spans two week
+ * partitions and has no single canonical scope.
+ *
+ * **That throw was independent evidence that the partition-plus-aggregate model
+ * was never coherent**: the scope vocabulary could not name "one week across both
+ * season types" as a target, which is exactly the shape PLATFORM-663 went on to
+ * remove. Schedule now records the `year` scope and nothing else, so the function
+ * had no production caller left.
+ *
+ * The argument is preserved where it binds rather than in a comment on an uncalled
+ * function: `AGENTS.md`'s amended PLATFORM-086A bullet (`91aa30a3`) records it, and
+ * states that reintroducing a second schedule target is a new decision with this
+ * history attached. Deleted rather than `@deprecated` because a kept symbol needs a
+ * named future consumer and there is none.
  */
-export function scheduleRefreshScope(
-  year: number,
-  week: number | null,
-  seasonType: ScheduleSeasonTypeParam
-): ProviderRefreshScope {
-  if (seasonType === 'all') {
-    if (week != null) {
-      throw new Error(
-        'scheduleRefreshScope: a specific week with seasonType "all" spans two week partitions and has no single scope — resolve each child via weekPartitionScope'
-      );
-    }
-    return yearScope(year);
-  }
-  return week == null
-    ? seasonPartitionScope(year, seasonType)
-    : weekPartitionScope(year, week, seasonType);
-}
 
 /**
  * Canonical status scope for a DIRECT single-partition score refresh (review

@@ -162,3 +162,100 @@ test('an already-cached historical year short-circuits without force (no provide
   assert.equal(json.alreadyCached, true);
   assert.equal(fetchCalls, 0, 'no provider call when already cached and not forced');
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-794 — a malformed registry must make the refusal FIRE, not relax.
+//
+// `computeProtectedActiveYears` read through `getLeagues()`, which maps an absent
+// registry AND a malformed one to `[]`. A corrupt registry therefore contributed
+// zero protected years and the active-season refusal silently stopped covering
+// them — and the operator saw an ordinary success, because a narrowed refusal is
+// indistinguishable from a request that was legitimately allowed.
+//
+// The distinction these tests turn on: MISSING is a genuine absence (a registry
+// never written has no active leagues), MALFORMED means the container holding
+// them is corrupt and nothing about active years is known.
+// ---------------------------------------------------------------------------
+
+/** A year that is neither the inferred current season nor a league year. */
+const HISTORICAL_YEAR = 2018;
+
+test('a MALFORMED registry refuses the historical repair', async () => {
+  // A record that EXISTS but is not a league array. `readLeagueRegistry` classifies
+  // this `malformed`; `getLeagues()` would have returned [].
+  await setAppState('leagues', 'registry', { notAnArray: true });
+
+  let providerCalled = false;
+  globalThis.fetch = (async () => {
+    providerCalled = true;
+    return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+
+  const res = await runCapturingTags(() => POST(post({ year: HISTORICAL_YEAR })));
+  const json = await res.json();
+
+  assert.equal(res.status, 503, JSON.stringify(json));
+  assert.equal(json.code, 'registry-malformed');
+  assert.match(String(json.error ?? ''), /cannot be determined/i);
+  assert.equal(providerCalled, false, 'a refused repair must spend no provider call');
+  assert.equal(
+    await getAppState('schedule', `${HISTORICAL_YEAR}-all-all`),
+    null,
+    'nothing is committed when the protected set is unknown'
+  );
+});
+
+test('a stored JSON null registry is malformed, not absent', async () => {
+  // The edge `readLeagueRegistry`'s docblock calls out: a present record holding
+  // null is corruption, not emptiness. Without this the guard would pass for the
+  // one shape most likely to appear from a bad write.
+  await setAppState('leagues', 'registry', null);
+
+  const res = await runCapturingTags(() => POST(post({ year: HISTORICAL_YEAR })));
+  const json = await res.json();
+  assert.equal(res.status, 503, JSON.stringify(json));
+  assert.equal(json.code, 'registry-malformed');
+});
+
+test('an ABSENT registry still allows a historical year — missing is not malformed', async () => {
+  // THE DISCRIMINATING CONTROL. A guard that refused on every non-`ok` registry
+  // would pass both tests above while breaking the ordinary no-registry case, so
+  // this is what proves the fix distinguishes the two rather than failing closed on
+  // everything. No registry is written at all here.
+  stubFetchBySeasonType(
+    JSON.stringify([
+      { id: 1, week: 1, home_team: 'Texas', away_team: 'Rice', start_date: '2018-09-01T00:00:00Z' },
+    ]),
+    '[]'
+  );
+
+  const res = await runCapturingTags(() => POST(post({ year: HISTORICAL_YEAR })));
+  const json = await res.json();
+
+  assert.equal(res.status, 200, JSON.stringify(json));
+  assert.equal(json.success, true);
+  assert.ok(
+    await getAppState('schedule', `${HISTORICAL_YEAR}-all-all`),
+    'an absent registry must not block an ordinary historical repair'
+  );
+});
+
+test('a WELL-FORMED registry still protects its active years', async () => {
+  // The other control: the fix must not have broken the protection it guards. Same
+  // shape as the force=1 test above, re-asserted here so a regression in the typed
+  // read cannot pass by making everything either refused or allowed.
+  const leagueYear = seasonYearForToday() + 4;
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'alpha',
+      displayName: 'Alpha',
+      year: leagueYear,
+      createdAt: '2031-01-01T00:00:00.000Z',
+      status: { state: 'preseason', year: leagueYear },
+    },
+  ]);
+
+  const res = await runCapturingTags(() => POST(post({ year: leagueYear, force: true })));
+  assert.equal(res.status, 400);
+  assert.match(String((await res.json()).error ?? ''), /active season/i);
+});

@@ -7,7 +7,6 @@ import {
   normalizeCanonicalSeasonType,
   oddsTargetScope,
   providerRefreshScopeKey,
-  scheduleRefreshScope,
   scopeMatchesKey,
   scoresAggregateScope,
   scoresPartitionScope,
@@ -104,29 +103,15 @@ test('scopeMatchesKey validates self-describing agreement', () => {
 
 // --- Operation → scope selection (review remediation findings 1–3) --------------
 
-test('scheduleRefreshScope reserves the year rollup for the full-year refresh only', () => {
-  assert.deepEqual(scheduleRefreshScope(2026, null, 'all'), { kind: 'year', year: 2026 });
-  assert.deepEqual(scheduleRefreshScope(2026, null, 'regular'), {
-    kind: 'season-partition',
-    year: 2026,
-    seasonType: 'regular',
-  });
-  assert.deepEqual(scheduleRefreshScope(2026, null, 'postseason'), {
-    kind: 'season-partition',
-    year: 2026,
-    seasonType: 'postseason',
-  });
-  assert.deepEqual(scheduleRefreshScope(2026, 3, 'regular'), {
-    kind: 'week-partition',
-    year: 2026,
-    week: 3,
-    seasonType: 'regular',
-  });
-  // A specific week with `all` spans two week partitions and has NO single scope:
-  // the helper throws so the caller resolves each child via weekPartitionScope
-  // instead of coercing the combined outcome to regular (SCOPED-STATUS review v2 #2).
-  assert.throws(() => scheduleRefreshScope(2026, 3, 'all'), /spans two week partitions/);
-});
+/**
+ * PLATFORM-833: the `scheduleRefreshScope` tests were removed with the function.
+ * They asserted per-target schedule status scoping — `season-partition` for a
+ * targeted season type, `week-partition` for a targeted week, and a THROW for a
+ * week with `seasonType: 'all'` — and every one of those targets was removed by
+ * PLATFORM-663. Schedule now records the `year` scope and nothing else, which
+ * `scopeMatchesKey` above and the schedule route's own suite cover. Keeping them
+ * would have pinned a vocabulary no caller can reach.
+ */
 
 test('scoresPartitionScope uses a week scope only when a week is present', () => {
   assert.deepEqual(scoresPartitionScope(2026, null, 'regular'), {

@@ -4,6 +4,7 @@ import {
   matchConferenceChampionshipSlotByText,
 } from './conferenceChampionships.ts';
 import type { ScheduleWireItem, GameStage } from './schedule.ts';
+import { normalizedEventKey } from './schedulePostseasonHelpers.ts';
 import { comparableVenueText } from './venue.ts';
 
 type RowClassification =
@@ -40,7 +41,10 @@ function classifyFromNormalizedMetadata(
 
   if (row.gamePhase !== 'postseason') return null;
 
-  const eventKey = (row.eventKey ?? '').trim();
+  // PLATFORM-813: guarded through the ONE shared normalizer. `(x ?? '').trim()`
+  // caught null and undefined but not a JSON number, which threw and took down the
+  // whole build from inside `buildScheduleFromApi`'s per-row loop.
+  const eventKey = normalizedEventKey(row.eventKey);
   const stableEventKey = eventKey || slugify(`${row.id}-${row.week}`);
   const eventId = `${season}-${stableEventKey}`;
   const stage: Exclude<GameStage, 'regular'> =
