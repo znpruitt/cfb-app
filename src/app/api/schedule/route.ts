@@ -377,16 +377,25 @@ export async function GET(req: Request) {
   // season is strictly more coverage and lands on the key every reader reads.
   const result = await refreshFullSeasonSchedule({ year, now });
 
-  // Probe + presentation seeding stay bound to the AUTHORIZED WHOLE-SEASON
-  // `bypassCache=1` refresh, exactly as before #663 — a window request must not
-  // acquire side effects the narrow path never had, even though it now drives the
-  // same authority underneath.
-  if (
-    bypassCache &&
-    isWholeSeasonRequest &&
-    result.status === 'success' &&
-    result.items.length > 0
-  ) {
+  // THE PROBE FOLLOWS THE AGGREGATE, NOT THE REQUEST SHAPE (PLATFORM-663 review).
+  //
+  // This gate was originally `bypassCache && isWholeSeasonRequest`, on the reasoning
+  // that a window request must not acquire side effects the narrow path never had.
+  // That reasoning was stale the moment this slice landed: the narrow path never had
+  // them because it never COMMITTED THE AGGREGATE, and now it does. Keeping the gate
+  // meant a window refresh could move the season's earliest kickoff while
+  // `schedule-probe` kept the old date — and the season-transition cron gates
+  // `shouldFetch` on exactly that date (`cron/season-transition/route.ts:411-414`),
+  // so an obsolete probe defers the next lifecycle-critical refresh until the stale
+  // date's seven-day window. A guard kept past its reason is as much a defect as one
+  // removed with it.
+  //
+  // So: any successful populated commit re-derives the probe, whatever the request
+  // shape that caused it. Presentation seeding stays bound to the authorized
+  // whole-season `bypassCache=1` request, because that IS a request-shape concern —
+  // it seeds a presentation cache an operator asked to seed, and nothing downstream
+  // reads it as lifecycle input.
+  if (result.status === 'success' && result.items.length > 0) {
     try {
       const existingProbe = await getScheduleProbeState(year);
       const firstGameDate = await deriveFirstGameDate(year, result.items);
@@ -407,10 +416,12 @@ export async function GET(req: Request) {
     // defensive catch is belt-and-suspenders. Runs AFTER the probe update so it
     // can never block it, and BEFORE the response join so the response serves
     // whatever presentation cache won after the attempt.
-    try {
-      await refreshSchedulePresentation({ year, trigger: 'manual' });
-    } catch {
-      // Never let presentation seeding disturb the canonical schedule response.
+    if (bypassCache && isWholeSeasonRequest) {
+      try {
+        await refreshSchedulePresentation({ year, trigger: 'manual' });
+      } catch {
+        // Never let presentation seeding disturb the canonical schedule response.
+      }
     }
   }
 

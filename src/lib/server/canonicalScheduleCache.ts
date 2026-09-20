@@ -137,13 +137,20 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
     (value): value is StoredScheduleEntry<T> => canonicalScheduleAggregateServes(value)
   );
   if (contributing.length > 0) {
-    const stamps = contributing
-      .map((value) => value.at)
-      .filter((at): at is number => typeof at === 'number' && Number.isFinite(at));
+    // An UNKNOWN age is not a missing contribution. A contributing partition whose
+    // `at` is absent or non-finite normalizes to 0 (stale) rather than dropping out
+    // of the comparison: `StoredScheduleEntry.at` is optional precisely because the
+    // store may hold older records, and skipping those stamps let a fresh sibling
+    // report the combined view fresh while half of it had unknown age. `0` is
+    // stale-but-comparable, which is the honest answer and matches what
+    // `normalizeEntry` already does for the single-record paths.
+    const stamps = contributing.map((value) =>
+      typeof value.at === 'number' && Number.isFinite(value.at) ? value.at : 0
+    );
     return {
       // Oldest contributing partition wins, so the pair can never read fresher
       // than its stalest half.
-      at: stamps.length > 0 ? Math.min(...stamps) : 0,
+      at: Math.min(...stamps),
       items: contributing.flatMap((value) => value.items ?? []),
       partialFailure: contributing.some((value) => value.partialFailure === true),
       failedSeasonTypes: contributing.flatMap((value) =>
@@ -155,9 +162,19 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
 
   // Nothing contributes rows. Distinguish "a record exists and is empty" from
   // "no record at all" — the route's stale-empty and hard-miss paths differ.
-  const existing = aggregate?.value ?? regular?.value ?? postseason?.value;
-  if (existing) {
-    return normalizeEntry<T>(existing, aggregate?.value ? 'aggregate' : 'partition-pair');
+  //
+  // ONLY THE AGGREGATE establishes "cached and empty". An empty partition record
+  // must NOT, and this is a correctness point rather than a tidiness one: the route
+  // turns an entry into HTTP 200, and `fetchSeasonSchedule` only throws on a
+  // non-OK status, so a 200 carrying zero rows is accepted by the client and
+  // rendered as an empty season. Before #663 a public whole-season request read
+  // only `${year}-all-all`, missed, and returned 503 — a visible failure. Widening
+  // this to the legacy pair would have converted that failure into a silent empty
+  // season for any store holding an empty `-all-regular` and no aggregate. The pair
+  // is a fallback for SERVING ROWS; with no rows it has nothing to say, so it stays
+  // a miss.
+  if (aggregate?.value) {
+    return normalizeEntry<T>(aggregate.value, 'aggregate');
   }
   return null;
 }

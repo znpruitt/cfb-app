@@ -814,9 +814,17 @@ test('a window refresh and a whole-season read agree about the same game', async
   assert.equal(stored?.value?.items?.[0]?.startDate, repaired);
 });
 
-test('a window request never seeds presentation or probe state', async () => {
+test('a window refresh re-derives the probe but does not seed presentation', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
   process.env.ADMIN_API_TOKEN = 'admin-token';
+
+  // An OBSOLETE probe, from an earlier season shape whose earliest kickoff was
+  // later than the one this refresh commits.
+  await setAppState('schedule-probe', String(P663_YEAR), {
+    year: P663_YEAR,
+    baseCachedAt: `${P663_YEAR}-01-01T00:00:00.000Z`,
+    firstGameDate: `${P663_YEAR}-10-01T00:00:00.000Z`,
+  });
 
   setMockFetch(async (input: URL | string) => {
     const seasonType = new URL(String(input)).searchParams.get('seasonType');
@@ -824,7 +832,15 @@ test('a window request never seeds presentation or probe state', async () => {
       JSON.stringify(
         seasonType === 'postseason'
           ? []
-          : [{ week: 1, home_team: 'Texas', away_team: 'Rice', id: 9002 }]
+          : [
+              {
+                week: 1,
+                home_team: 'Texas',
+                away_team: 'Rice',
+                id: 9002,
+                start_date: `${P663_YEAR}-08-30T23:00:00.000Z`,
+              },
+            ]
       ),
       { status: 200, headers: { 'content-type': 'application/json' } }
     );
@@ -838,10 +854,27 @@ test('a window request never seeds presentation or probe state', async () => {
     )
   );
 
-  // The narrow shape drives the same authority now, but it must NOT inherit the
-  // whole-season shape's side effects — a window request never had them.
-  const probe = await getAppState<unknown>('schedule-probe', String(P663_YEAR));
-  assert.equal(probe?.value ?? null, null, 'a window refresh must not write probe state');
+  // THE PROBE FOLLOWS THE AGGREGATE. This window refresh committed the whole
+  // season, so the probe must be re-derived from what was committed. Leaving the
+  // obsolete date in place would defer the season-transition cron's next refresh
+  // until the stale date's seven-day window (`cron/season-transition` gates
+  // `shouldFetch` on `firstGameDate`).
+  const probe = await getAppState<{ firstGameDate: string | null }>(
+    'schedule-probe',
+    String(P663_YEAR)
+  );
+  // `deriveFirstGameDate` normalizes to the UTC calendar date, not the kickoff
+  // instant. What matters is that it moved OFF the obsolete 10-01 the test seeded.
+  assert.equal(
+    probe?.value?.firstGameDate,
+    `${P663_YEAR}-08-30T00:00:00.000Z`,
+    'a window refresh that commits the aggregate must re-derive the probe'
+  );
+
+  // Presentation seeding IS still request-shaped: it seeds a cache an operator
+  // asked to seed, and nothing downstream reads it as lifecycle input.
+  const media = await getAppState<unknown>('schedule-media', `${P663_YEAR}-all`);
+  assert.equal(media?.value ?? null, null, 'a window refresh must not seed the presentation cache');
 });
 
 test('a non-admin window request on an uncached season is a 503, not a provider call', async () => {

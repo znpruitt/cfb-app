@@ -217,3 +217,66 @@ test('week-partition keys are NOT part of the canonical precedence', async () =>
   );
   assert.deepEqual(await loadCachedScheduleItems(YEAR), []);
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-663 review round 1 — two findings on this module, both about a state
+// that reads as more trustworthy than it is.
+// ---------------------------------------------------------------------------
+
+test('an UNKNOWN partition age is stale, not absent', async () => {
+  // A populated legacy partition with NO `at` (the store may hold older records —
+  // `StoredScheduleEntry.at` is optional for exactly that reason) paired with a
+  // freshly stamped sibling. Skipping the unknown stamp would let the fresh half
+  // report the combined view fresh while half of it had unknown age.
+  await setAppState('schedule', '2031-all-regular', {
+    items: [row('no-stamp', 1)],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  await setAppState('schedule', '2031-all-postseason', {
+    at: Date.now(),
+    items: [row('fresh', 15)],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+
+  const entry = await loadCanonicalScheduleEntry(YEAR);
+  assert.equal(entry?.source, 'partition-pair');
+  assert.equal(entry?.at, 0, 'an unknown contributing age normalizes to 0, not dropped');
+  assert.deepEqual(
+    entry?.items.map((i) => (i as { id: string }).id),
+    ['no-stamp', 'fresh'],
+    'both partitions still contribute their rows'
+  );
+});
+
+test('an EMPTY partition record is a miss, so it cannot become a 200 with zero rows', async () => {
+  // Only the AGGREGATE may establish "cached and empty". The route turns an entry
+  // into HTTP 200, and `fetchSeasonSchedule` throws only on a non-OK status — so a
+  // 200 carrying zero rows is accepted by the client and rendered as an empty
+  // season. Before #663 this store shape returned 503, a visible failure.
+  await setAppState('schedule', '2031-all-regular', {
+    at: Date.now(),
+    items: [],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+
+  assert.equal(
+    await loadCanonicalScheduleEntry(YEAR),
+    null,
+    'an empty partition record has no rows to serve, so it stays a miss'
+  );
+
+  // The aggregate keeps its own empty-vs-absent distinction, which the route needs.
+  await setAppState('schedule', '2031-all-all', {
+    at: 77,
+    items: [],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  const entry = await loadCanonicalScheduleEntry(YEAR);
+  assert.notEqual(entry, null, 'an empty AGGREGATE is still "cached and empty"');
+  assert.equal(entry?.source, 'aggregate');
+  assert.equal(entry?.at, 77);
+});
