@@ -146,7 +146,7 @@ These consolidate recurring historical observations, not new project-governance 
   nine dependent cancellations; all 25 affected tests across four files passed with Chrome/loopback
   permission. Two CFBD calls were used total (receipt measurement and generation); approximately
   4,421 remaining is arithmetic from the supplied 4,423 baseline, not an observed response header.
-- Status: **Implemented and reviewed clean — pre-PR;** no renderer shipped.
+- Status: **Merged `41f688c5` ([PR #834](https://github.com/znpruitt/cfb-app/pull/834)), 2026-09-20;** merged tree `91835e97` identical to the gated tip, 5,468 pass / 0 fail. NOT promoted; no renderer shipped. Leaves [#832](https://github.com/znpruitt/cfb-app/issues/832), [#726](https://github.com/znpruitt/cfb-app/issues/726) and [#821](https://github.com/znpruitt/cfb-app/issues/821) open.
 
 ### PLATFORM-750-OVERVIEW-COLUMN-BREAKPOINT-CODEX-v2
 
