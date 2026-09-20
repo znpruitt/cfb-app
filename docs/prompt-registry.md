@@ -121,6 +121,33 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-831-ABBREVIATION-LOOKUP-CODEX-v1
+
+- Purpose: resolve [#831](https://github.com/znpruitt/cfb-app/issues/831) with a client-safe,
+  build-time CFBD abbreviation lookup for every team name the app can render.
+- Scope: a dedicated generator shares `parseSeasonArg`, requires `--year`, makes exactly one request,
+  and stamps its season plus generated source URL. The pinned 2026 artifact preserves all 682
+  provider rows and explicit nulls; `getTeamAbbreviation` performs exact lookup only. No catalog,
+  `/api/teams`, draft, identity, owner-validation or renderer production path depends on it; #832 owns
+  rendering and is unblocked.
+- Outcome: the read-only schedule/roster observer found 888 games, 1,776 labels and 238 distinct
+  rendered schools, all 238 covered. CFBD supplied 679 abbreviations and three explicit nulls:
+  Chicago State (FCS), Ohio Dominican (Division II) and Schreiner (Division III); Chicago State
+  therefore returns null. `odds-team-mascots.ts` already contains all 128 FCS abbreviations, but
+  merges them into a sorted alias array and discards provenance, so it cannot power this fallback.
+- Review / verification: the real `selectDraftTeamInsights` / `getFBSTeams` observer stayed aligned,
+  while appending Southeast Missouri State made the named boundary assertion fire. Corrected consumer
+  count: **15 direct, 1 indirect, 3 tests**; planning's 41 and 19 were both grep artifacts. The three
+  draft consumers differ: the commissioner and spectator boards would widen through
+  `selectDraftTeamInsights`; summary uses the database rows only for its display-name map; owner
+  validation filters back to FBS through `getFBSTeams`. Both independent reviews found no actionable
+  issue and confirmed the mutation's specific mismatch, not the artifact row count. TypeScript,
+  ESLint and focused tests passed. Full suite had 5,456 passes plus three sandbox-blocked failures /
+  nine dependent cancellations; all 25 affected tests across four files passed with Chrome/loopback
+  permission. Two CFBD calls were used total (receipt measurement and generation); approximately
+  4,421 remaining is arithmetic from the supplied 4,423 baseline, not an observed response header.
+- Status: **Merged `41f688c5` ([PR #834](https://github.com/znpruitt/cfb-app/pull/834)), 2026-09-20;** merged tree `91835e97` identical to the gated tip, 5,468 pass / 0 fail. NOT promoted; no renderer shipped. Leaves [#832](https://github.com/znpruitt/cfb-app/issues/832), [#726](https://github.com/znpruitt/cfb-app/issues/726) and [#821](https://github.com/znpruitt/cfb-app/issues/821) open.
+
 ### PLATFORM-750-OVERVIEW-COLUMN-BREAKPOINT-CODEX-v2
 
 - Purpose: resolve [#750](https://github.com/znpruitt/cfb-app/issues/750) by replacing Overview's
