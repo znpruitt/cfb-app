@@ -24,6 +24,7 @@
     "lint:quick": "npm run lint:eslint",
     "format": "prettier --write .",
     "format:check": "npm run lint:all:format",
+    "fetch:team-abbreviations": "tsx scripts/fetch-cfbd-team-abbreviations.ts",
     "fetch:teams": "tsx scripts/fetch-cfbd-teams.ts",
     "cleanup:legacy-aliases": "tsx scripts/cleanup-legacy-league-aliases.ts",
     "init:writer-control": "tsx scripts/init-game-stats-writer-control.ts",
