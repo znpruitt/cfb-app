@@ -321,7 +321,36 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   characters. Implementation is [#832](https://github.com/znpruitt/cfb-app/issues/832) (the fallback)
   and [#831](https://github.com/znpruitt/cfb-app/issues/831) (the lookup, which must NOT widen the
   138-team draft catalog); [#726](https://github.com/znpruitt/cfb-app/issues/726) re-derives the
-  column thresholds once it ships. A team outside the catalog and a TBD placeholder go
+  column thresholds once it ships.
+
+  **HOW THE SWAP DECIDES — owner ruling 2026-09-20, after #832 failed three review rounds on one
+  class. THE CLIENT MEASURES; THE SERVER ABBREVIATES CONSERVATIVELY.** The server renders the
+  abbreviation for any name long enough to be at risk at that tier; the client then measures the
+  name's own span against its own box, in the font actually rendering, and **upgrades to the full
+  name when it fits.** With no JavaScript the row stays abbreviated, which is safe and permanent.
+
+  **The rule is therefore never violated at any instant** — the only visible transition is
+  abbreviation → full name, which is an upgrade rather than the correction of a broken frame. A
+  mechanism that renders the full name first and swaps on overflow would show truncation for one
+  frame, and the rule above admits no frames.
+
+  **Why no server-side threshold table is acceptable here, stated so it is not re-proposed:** the
+  shipped font is the viewer's system UI stack. Verified in the built output 2026-09-20 — neither
+  built stylesheet consumes `var(--font-geist…)` even once, and `body` resolves to
+  `ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, …` — so a name renders in SF Pro on
+  macOS, Segoe UI on Windows and Roboto on Android, **at different advance widths.** The server
+  cannot know which. Every one of #832's three failed rounds was a CORRECT measurement of one
+  platform, one font weight and one box, stated as a claim about all viewers: a row-overflow table,
+  then a name-box table, then a never-wider guard in which `Berry` (34.922px) is narrower than
+  `BERR` (35.234px) at `font-normal`/14px. **The numbers were right and the population was wrong,
+  three times. An absolute invariant cannot be enforced by an approximate predicate.**
+
+  **Two consequences that bind any implementation.** The name needs **its own box**: while record and
+  owner suffixes share the name's container and that container owns the ellipsis, sibling content
+  decides whether the name truncates — which is the original defect, and it reappeared at 206px
+  against a 205px threshold. And **the never-wider check is per viewer, not per table**: whether an
+  abbreviation is narrower than its name depends on the rendering font, so it is measured where the
+  swap is measured. A team outside the catalog and a TBD placeholder go
   through that same field. **CLARIFIED 2026-09-20, because this sentence predates the #821 fallback
   and read two ways:** it governs the name SOURCE — no surface takes a name from a different field —
   and says nothing about the width fallback. **The fallback is PER LABEL: a row may show one team
