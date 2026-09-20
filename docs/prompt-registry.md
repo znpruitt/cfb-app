@@ -434,6 +434,38 @@ These consolidate recurring historical observations, not new project-governance 
   and self-heals on the next seeding, and widening it would spend provider calls on a path that never
   did — so the cost (games first committed by a window refresh carry no overlay until then) is written
   into the comment instead of being silently accepted.
+- **PROCESS DEVIATION, RECORDED BECAUSE THE SEQUENCE IS THE POINT.** Round 2's remediation
+  (`0b153c8d`) was applied **before planning approved the findings**. `AGENTS.md` step 6 puts that
+  approval first, and it did not happen here: both reports were gathered, I adjudicated them myself and
+  went straight to fixing. **The findings were right and approval would have been given — which is
+  exactly why this is worth writing down rather than waiving.** A deviation that turns out fine is the
+  only kind that establishes a habit, because nothing pushes back on it. The approval step exists so
+  that "I judged these correct" is not the same act as "these are correct", and on this branch those
+  two were the same act. No finding was misjudged; the ordering was.
+- **OPEN ITEMS AT MERGE, EACH WITH THE REASON IT IS NOT CLOSED.** None of these is a silent carry:
+  - **Four out-of-scope precedence call sites** — `providerDataDiagnostics.ts:374-401` (inlines the
+    predicate, hardcodes `${year}-all-regular`, and asserts it mirrors the canonical reader),
+    `LeagueStatusPanel.tsx:77-79`, `seasonRollover.ts:17-25`, and `draft/page.tsx:105-107`'s prior-year
+    read. Not fixed because naming them as helpers needs four files outside the ruled scope, and
+    shipping exported helpers with no callers reproduces #693's "a helper nothing called". **#833 now
+    also carries the `LeagueStatusPanel` RECORD-versus-ROW defect, verified by planning** — `r ??
+    getAppState(...)` tests record presence, so an empty aggregate record shadows a populated partition
+    and `hasSchedule` reads true with zero rows. That one is a live defect, not a duplication.
+  - **`fullSeasonScheduleRefresh.ts:63`** still spells the aggregate key locally as `scheduleKey(year)`
+    — a fourth copy of the string this slice centralised, in the one file that WRITES it. Out of scope.
+    #833.
+  - **Two orphaned modules and a stale docstring** — `scheduleSeasonFetch.ts` (whose docstring still
+    calls it the single source of truth for a policy it no longer implements), `scheduleRefreshScope`
+    (`providerRefreshScope.ts:232`), and `schedulePresentationJoin.ts:4`. Scope was deliberately NOT
+    widened to reach even the one-line docstring: a free-looking edit is how a "while I'm here" change
+    grows past a reviewed boundary, and the set is one coherent removal. #833.
+  - **Codex round-1 P2, accepted and unreachable** — empty-response classification against a populated
+    legacy partition pair. Not narrowed to the reachable part because **the reachable part is the
+    symptom**: fixing what the route reports while the classifier still calls it a genuine absence
+    leaves the honest-looking half in front of a durable disagreement, which is the shape of the
+    original #663 defect. Unreachable in production (zero pair keys, measured 2026-09-19 and
+    2026-09-20); reachable in a legacy or preview-branch store. Lives in
+    `fullSeasonScheduleRefresh.ts:151-157`, out of scope.
 - Review round 1 gathered from BOTH reviewers against `b475948a` (Codex `--base e6dc561b`, verified by
   exit code 0, a `git diff` line carrying the `e6dc561b4e72` prefix, and the body — in that order).
   Codex raised 3x P2 + 1x P3; the Claude review raised 6 accuracy/dead-code findings and independently
