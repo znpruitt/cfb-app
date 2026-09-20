@@ -100,23 +100,30 @@ export function canonicalScheduleAggregateServes(value: unknown): boolean {
  *     exists to prevent, asserted rather than enforced.
  *   - `seasonRollover.ts:17-25` — a third shape: aggregate, else `-all-postseason`
  *     only.
+ *   - `LeagueStatusPanel.tsx:80-98` — aggregate, else `-all-regular` ONLY, so a store
+ *     whose sole populated partition is `-all-postseason` reads as uncached there
+ *     while every canonical reader serves the season. **Its worse half is FIXED
+ *     (PLATFORM-833): `r ?? getAppState(...)` tested RECORD presence, so an empty
+ *     aggregate record shadowed a populated partition and `hasSchedule` read true
+ *     with zero rows. It consumes {@link canonicalScheduleAggregateServes} now.** The
+ *     narrower fallback remains, deliberately: routing it through
+ *     {@link loadCanonicalScheduleEntry} would fix the precedence but the entry
+ *     carries `at` and no `updatedAt`, which made the panel's freshness age measure a
+ *     different quantity from the row beside it and render 1970 for a record lacking
+ *     `at`. Closing the gap without that regression is its own item.
  * Those are why the key builders and the predicate are EXPORTED rather than private:
  * the convergence is available to them, and until they consume it this module is the
  * canonical copy, not the only one.
  *
- * **`LeagueStatusPanel` WAS ON THIS LIST AND IS NOT ANY MORE (PLATFORM-833).** It
- * held the one entry that was actively WRONG rather than merely duplicated —
- * `r ?? getAppState(...)` tested RECORD presence, so an empty aggregate record
- * shadowed a populated partition and `hasSchedule` read true with zero rows. It now
- * calls {@link loadCanonicalScheduleEntry} directly, so it inherits the precedence
- * rather than imitating it.
- *
- * The entry is removed rather than left as history because PLATFORM-833's own diff
- * is what made it false: a comment that was true when written became a false claim
- * the moment that commit fixed the thing it described. A diff that falsifies a
- * comment owns that comment — which is the same rule this module's header applies to
- * `scheduleSeasonFetch.ts`, and it would be absurd to cite it there and dodge it
- * here.
+ * **THIS LIST HAS NOW BEEN WRONG IN BOTH DIRECTIONS, WHICH IS THE THING TO NOTICE.**
+ * Its first version claimed this was already the only copy — false. Round 1 of
+ * PLATFORM-833's review then caught that the list still called `LeagueStatusPanel`
+ * live after that same commit fixed it, so the entry was removed. Round 2 reverted
+ * the fix that justified removing it, which would have made the removal false in
+ * turn. A comment that enumerates other files' behaviour has to be re-read on every
+ * change to any of them, because each edit can falsify it from either side — and a
+ * diff that falsifies a comment owns that comment, which is the rule this module's
+ * header applies to `scheduleSeasonFetch.ts` and could not coherently dodge here.
  */
 export async function loadCachedScheduleItems(year: number): Promise<ScheduleWireItem[]> {
   const entry = await loadCanonicalScheduleEntry<ScheduleWireItem>(year);

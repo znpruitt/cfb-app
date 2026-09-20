@@ -1,7 +1,6 @@
 import { createTeamIdentityResolver } from './teamIdentity.ts';
 import { isLikelyInvalidTeamLabel } from './teamNormalization.ts';
 import type { AppGame, ParticipantSlot, ScheduleWireItem } from './schedule.ts';
-import { normalizedDurableString } from './schedule/cfbdSchedule.ts';
 
 function participantCsvValue(participant: ParticipantSlot): string {
   if (participant.kind === 'team') return participant.rawName;
@@ -98,68 +97,17 @@ export function toPlaceholderDisplay(conference?: string | null): string {
   return conference ? `${conference} Team TBD` : 'Team TBD';
 }
 
-/**
- * The ONE guarded read of a durable row's `eventKey` (PLATFORM-813).
- *
- * A stored schedule row reaches every consumer UNVALIDATED — the durable read
- * casts straight to `ScheduleWireItem[]` — so `eventKey` can be any JSON value.
- * `?.trim()` and `(x ?? '').trim()` both guard only null/undefined: a JSON
- * **number** passes straight through and throws `x.trim is not a function`.
- *
- * WHAT THAT COSTS, stated precisely because the trigger is narrower than the
- * blast radius. Only a POSTSEASON row can reach these reads
- * (`schedule.ts` gates on `item.gamePhase === 'postseason'`, and
- * `classifyScheduleRow` returns early otherwise), so a malformed regular-season
- * row is harmless here. But the throw happens INSIDE the per-row loop of
- * `buildScheduleFromApi`, so one bad postseason row takes down the WHOLE build —
- * standings, Insights, the draft board, odds, live scores, archives — not one row.
- *
- * A NON-STRING IS TREATED AS ABSENT, matching how the sibling `id` read has been
- * guarded since #708 (`typeof item.id === 'string' ? item.id.trim() : ''`). The
- * caller then falls back to its derived key, which is the existing safe path for a
- * missing `eventKey`. Treating it as absent rather than stringifying it is
- * deliberate: a number that became a key would spell a DIFFERENT event than the
- * same game read as a string, which is the identity-splitting failure
- * `postseasonEventKey`'s round-trip check already exists to prevent.
- *
- * Asserted by `eventKeyGuard.test.ts` — a numeric, object, boolean and null
- * `eventKey` each keep the derived key at all three call sites, and the coverage
- * sweep is itself pinned so a fourth unguarded read cannot be added silently.
- *
- * A SEMANTIC ALIAS, not a second implementation (review round 1). The first pass
- * spelled this guard out again here, byte-identical to `normalizedDurableString` —
- * a duplicate created in the very commit that removed a duplicate `Set`. It now
- * delegates, so there is one guard with a name that says which field it protects.
- */
-export function normalizedEventKey(value: unknown): string {
-  return normalizedDurableString(value);
-}
-
 export function buildConferenceChampionshipEventKey(item: ScheduleWireItem): string {
-  const normalizedKey = normalizedEventKey(item.eventKey);
-  if (normalizedKey) return normalizedKey;
+  const normalizedEventKey = item.eventKey?.trim();
+  if (normalizedEventKey) return normalizedEventKey;
 
-  // PLATFORM-813 review round 1: these two reads had the IDENTICAL defect, two and
-  // eight lines below the one the first pass fixed, in the same function and on the
-  // same unvalidated row. `(x ?? '').trim()` and `(x ?? '').slice()` both admit a
-  // JSON number, and this function runs inside `buildScheduleFromApi`'s per-row loop
-  // — so a stored row whose `conferenceChampionshipConference` or `startDate` is a
-  // number took down the whole build exactly as a numeric `eventKey` did.
-  //
-  // Fixing one field of a row and leaving its neighbours is the false safety this
-  // slice is named after, and the first pass did it. `:137` was the ONLY
-  // throw-capable reader of `conferenceChampionshipConference` in `src/`.
-  const normalizedConference = normalizedDurableString(
-    item.conferenceChampionshipConference
-  ).toLowerCase();
+  const normalizedConference = (item.conferenceChampionshipConference ?? '').trim().toLowerCase();
   if (normalizedConference) {
     const confSlug = normalizedConference.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     if (confSlug) return `${confSlug}-championship`;
   }
 
-  const dateKey = normalizedDurableString(item.startDate)
-    .slice(0, 10)
-    .replace(/[^0-9-]/g, '');
+  const dateKey = (item.startDate ?? '').slice(0, 10).replace(/[^0-9-]/g, '');
   return [
     'conference-championship',
     `week-${item.week}`,

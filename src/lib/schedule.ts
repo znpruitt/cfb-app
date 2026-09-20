@@ -17,7 +17,6 @@ import {
   buildAuthoritativeGameCollection,
   buildConferenceChampionshipEventKey,
   buildPlaceholderParticipant,
-  normalizedEventKey,
   toPlaceholderDisplay,
 } from './schedulePostseasonHelpers.ts';
 import { buildByes, isTrackedGame, resolveRegularSeasonRow } from './scheduleTracking.ts';
@@ -25,7 +24,7 @@ import { isFbsTeam } from './scheduleEligibility.ts';
 import { isFbsRelevantScheduleRow } from './scheduleRelevance.ts';
 import { deriveConferenceOptionsFromTrackedGames } from './selectors/conferences.ts';
 import { deriveCanonicalRegularSeasonWeek } from './regularSeasonWeekCalendar.ts';
-import { NON_FBS_CLASSIFICATIONS, type VenueInfo } from './schedule/cfbdSchedule.ts';
+import type { VenueInfo } from './schedule/cfbdSchedule.ts';
 import type { ScheduleMediaItem } from './schedule/schedulePresentation.ts';
 import { requireAdminAuthHeaders } from './adminAuth.ts';
 
@@ -352,6 +351,11 @@ function retainedScheduleMetadata(item: ScheduleWireItem): Partial<AppGame> {
 }
 
 const SHARED_FIRST_ROUND_EVENT_KEY = 'cfp-first-round';
+const NON_FBS_PROVIDER_CLASSIFICATIONS: ReadonlySet<ProviderClassification> = new Set([
+  'fcs',
+  'ii',
+  'iii',
+]);
 
 /**
  * The event key a `gamePhase: 'postseason'` row is built under (PLATFORM-708).
@@ -377,15 +381,10 @@ const SHARED_FIRST_ROUND_EVENT_KEY = 'cfp-first-round';
  * accepts — not the same set, which this comment claimed twice before a review
  * caught it: the sibling reads `'0401779840'` as pid 401779840 and this function
  * rejects it outright.
- *   - `typeof === 'string'`: a durable row reaches this function UNVALIDATED, so a
- *     JSON-number `id` would throw on `.trim()` and take down the WHOLE build, not
- *     one row. The sibling guards the same way. **The boundary this used to name
- *     (`seasonBuild.ts:97`) no longer exists** — PLATFORM-663 replaced that inline
- *     cast with `loadCachedScheduleItems`, so the unvalidated cast now lives in
- *     `canonicalScheduleCache.ts` and reaches ~17 consumers through
- *     `buildScheduleFromApi`. The guard is here rather than at the cast because the
- *     readers converge on this CONSUMER while arriving through three separate cast
- *     sites; PLATFORM-813 made the same call for the sibling `eventKey` read.
+ *   - `typeof === 'string'`: a durable row reaches this function UNVALIDATED
+ *     (`seasonBuild.ts:97` casts stored items straight to `ScheduleWireItem[]`),
+ *     so a JSON-number `id` would throw on `.trim()` and take down the WHOLE
+ *     build, not one row. The sibling guards the same way.
  *   - all digits AND safe-integer: a beyond-safe decimal collapses under
  *     `Number`, which is why the sibling treats it as id-less.
  *   - canonical round-trip: `'0401779840'` is digits and safe, but the sibling
@@ -411,14 +410,15 @@ const SHARED_FIRST_ROUND_EVENT_KEY = 'cfp-first-round';
  * and "a TBD row and its resolved row share one eventId".
  */
 function postseasonEventKey(item: ScheduleWireItem): string {
-  const eventKey = normalizedEventKey(item.eventKey) || `${item.week}-${item.id}`;
+  const eventKey = item.eventKey?.trim() || `${item.week}-${item.id}`;
   if (eventKey !== SHARED_FIRST_ROUND_EVENT_KEY) return eventKey;
   const providerId = typeof item.id === 'string' ? item.id.trim() : '';
   if (!/^\d+$/.test(providerId)) return eventKey;
   const numericId = Number(providerId);
   if (!Number.isSafeInteger(numericId) || String(numericId) !== providerId) return eventKey;
   const explicitNonFbs = [item.homeClassification, item.awayClassification].some(
-    (classification) => classification !== undefined && NON_FBS_CLASSIFICATIONS.has(classification)
+    (classification) =>
+      classification !== undefined && NON_FBS_PROVIDER_CLASSIFICATIONS.has(classification)
   );
   // Returning the SHARED key here leaves explicitly non-FBS rows colliding with
   // each other exactly as they do today — #811 owns that residue, along with the

@@ -189,29 +189,15 @@ export type ScheduleMapResult =
   | { ok: true; item: ScheduleItem }
   | { ok: false; reason: ScheduleDropReason; raw: unknown };
 
-/**
- * Trim a value that is TYPED as a string but arrives unvalidated, treating any
- * non-string as absent.
- *
- * THE ONE DEFINITION (PLATFORM-813 review round 1). This was private, and the
- * first pass of PLATFORM-813 added a byte-identical `normalizedEventKey` in
- * `schedulePostseasonHelpers.ts` — a second copy created in the same commit that
- * deleted a duplicate `Set` so "the next edit cannot create drift". Exported here
- * and consumed there instead, because the argument against two copies of a
- * vocabulary is the argument against two copies of a guard.
- *
- * Every caller's reason is the same: a durable row is cast to its wire type with no
- * runtime validation, so a JSON number reaches a `.trim()` and throws.
- */
-export function normalizedDurableString(value: unknown): string {
+function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
 function extractVenueInfo(game: CfbdScheduleGame): VenueInfo | string | null {
-  const stadium = normalizedDurableString(game.venue) || null;
-  const city = normalizedDurableString(game.venue_city ?? game.venueCity) || null;
-  const state = normalizedDurableString(game.venue_state ?? game.venueState) || null;
-  const country = normalizedDurableString(game.venue_country ?? game.venueCountry) || null;
+  const stadium = normalizeString(game.venue) || null;
+  const city = normalizeString(game.venue_city ?? game.venueCity) || null;
+  const state = normalizeString(game.venue_state ?? game.venueState) || null;
+  const country = normalizeString(game.venue_country ?? game.venueCountry) || null;
 
   if (!stadium && !city && !state && !country) return null;
   if (!city && !state && !country) return stadium;
@@ -315,28 +301,8 @@ function hasPlayoffMarker(text: string): boolean {
 /**
  * CFBD classification values that are EXPLICIT negative evidence for CFP
  * inference. CFBD currently emits `fbs`, `fcs`, `ii`, and `iii`.
- *
- * THE ONE DEFINITION (PLATFORM-813). `schedule.ts` held a second, separately
- * spelled copy (`NON_FBS_PROVIDER_CLASSIFICATIONS`) and now imports this one.
- *
- * **This is PREVENTIVE, and it is worth being exact about what it does not do.**
- * The two sets were IDENTICAL when they were merged — `fcs`, `ii`, `iii` — so no
- * drift was repaired; one copy was removed so the next edit cannot create drift.
- * It also does NOT stop a new division failing open: this is an allow-list of
- * known non-FBS values, so a fifth classification CFBD might start emitting would
- * read as FBS at both call sites until someone adds it here. The robust end state
- * derives non-FBS as `ProviderClassification` minus `'fbs'`, which requires
- * exporting the union's own set from `conferenceSubdivision.ts:89-91` — out of
- * PLATFORM-813's scope, and left for whoever takes that on.
- *
- * Asserted by `nonFbsClassifications.test.ts`, which fails if a second set of
- * these values reappears anywhere in `src/`.
  */
-export const NON_FBS_CLASSIFICATIONS: ReadonlySet<ProviderClassification> = new Set([
-  'fcs',
-  'ii',
-  'iii',
-]);
+const NON_FBS_CLASSIFICATIONS: ReadonlySet<ProviderClassification> = new Set(['fcs', 'ii', 'iii']);
 
 /**
  * Whether the provider EXPLICITLY classifies either participant below FBS.
@@ -371,7 +337,7 @@ function slugify(value: string): string {
 
 function extractBowlName(game: CfbdScheduleGame): string | null {
   const candidates = [game.name, game.notes, game.venue, game.home_team, game.away_team]
-    .map((value) => normalizedDurableString(value))
+    .map((value) => normalizeString(value))
     .filter(Boolean);
 
   for (const source of candidates) {
@@ -450,16 +416,12 @@ function derivePlayoffProvenance(params: {
     game.playoff && typeof game.playoff === 'object' && !Array.isArray(game.playoff)
       ? game.playoff
       : null;
-  const structuredRound = parseProviderPlayoffRound(
-    normalizedDurableString(structuredPlayoff?.round)
-  );
+  const structuredRound = parseProviderPlayoffRound(normalizeString(structuredPlayoff?.round));
   const flatRound = parseProviderPlayoffRound(
-    normalizedDurableString(game.playoff_round ?? game.playoffRound)
+    normalizeString(game.playoff_round ?? game.playoffRound)
   );
-  const structuredCompetition = normalizedDurableString(structuredPlayoff?.competition);
-  const flatCompetition = normalizedDurableString(
-    game.playoff_competition ?? game.playoffCompetition
-  );
+  const structuredCompetition = normalizeString(structuredPlayoff?.competition);
+  const flatCompetition = normalizeString(game.playoff_competition ?? game.playoffCompetition);
   const competition = structuredCompetition || flatCompetition;
 
   // cfbd-structured: the round AND competition BOTH come from the nested object.
@@ -514,23 +476,21 @@ function deriveEventMetadata(params: {
 > {
   const { game, seasonType, neutralSite, homeConference, awayConference } = params;
 
-  const normalizedGamePhase = normalizedDurableString(
-    game.game_phase ?? game.gamePhase
-  ).toLowerCase();
-  const normalizedRegularSubtype = normalizedDurableString(
+  const normalizedGamePhase = normalizeString(game.game_phase ?? game.gamePhase).toLowerCase();
+  const normalizedRegularSubtype = normalizeString(
     game.regular_subtype ?? game.regularSubtype
   ).toLowerCase();
-  const normalizedPostseasonSubtype = normalizedDurableString(
+  const normalizedPostseasonSubtype = normalizeString(
     game.postseason_subtype ?? game.postseasonSubtype
   ).toLowerCase();
   // Playoff round/competition/provenance are resolved by `derivePlayoffProvenance`
   // (PLATFORM-086E1A) so nested-structured, flat, and text evidence are classified
   // identically in both postseason branches below.
-  const normalizedEventKey = normalizedDurableString(game.event_key ?? game.eventKey);
-  const normalizedConference = normalizedDurableString(
+  const normalizedEventKey = normalizeString(game.event_key ?? game.eventKey);
+  const normalizedConference = normalizeString(
     game.conference_championship_conference ?? game.conferenceChampionshipConference
   );
-  const normalizedBowlName = normalizedDurableString(game.bowl_name ?? game.bowlName);
+  const normalizedBowlName = normalizeString(game.bowl_name ?? game.bowlName);
   const slotOrderRaw = game.slot_order ?? game.slotOrder;
   const normalizedSlotOrder =
     typeof slotOrderRaw === 'number'
@@ -538,7 +498,7 @@ function deriveEventMetadata(params: {
       : typeof slotOrderRaw === 'string' && /^\d+$/.test(slotOrderRaw)
         ? Number.parseInt(slotOrderRaw, 10)
         : null;
-  const normalizedNeutralDisplay = normalizedDurableString(
+  const normalizedNeutralDisplay = normalizeString(
     game.neutral_site_display ?? game.neutralSiteDisplay
   ).toLowerCase();
 
@@ -730,19 +690,19 @@ export function mapCfbdScheduleGame(
     return { ok: false, reason: 'missing_week', raw: game };
   }
 
-  const homeTeam = normalizedDurableString(game.home_team ?? game.homeTeam);
+  const homeTeam = normalizeString(game.home_team ?? game.homeTeam);
   if (!homeTeam) {
     return { ok: false, reason: 'missing_home_team', raw: game };
   }
 
-  const awayTeam = normalizedDurableString(game.away_team ?? game.awayTeam);
+  const awayTeam = normalizeString(game.away_team ?? game.awayTeam);
   if (!awayTeam) {
     return { ok: false, reason: 'missing_away_team', raw: game };
   }
 
   const neutralSite = Boolean(game.neutral_site ?? game.neutralSite);
-  const homeConference = normalizedDurableString(game.home_conference ?? game.homeConference);
-  const awayConference = normalizedDurableString(game.away_conference ?? game.awayConference);
+  const homeConference = normalizeString(game.home_conference ?? game.homeConference);
+  const awayConference = normalizeString(game.away_conference ?? game.awayConference);
   const eventMetadata = deriveEventMetadata({
     game,
     seasonType,
@@ -780,13 +740,13 @@ export function mapCfbdScheduleGame(
       awayConference,
       ...(homeClassification !== undefined ? { homeClassification } : {}),
       ...(awayClassification !== undefined ? { awayClassification } : {}),
-      status: normalizedDurableString(game.status) || 'scheduled',
+      status: normalizeString(game.status) || 'scheduled',
       ...(completed !== undefined ? { completed } : {}),
       ...(startTimeTBD !== undefined ? { startTimeTBD } : {}),
       venue: extractVenueInfo(game),
       ...(venueId !== undefined ? { venueId } : {}),
-      label: normalizedDurableString(game.name) || null,
-      notes: normalizedDurableString(game.notes) || null,
+      label: normalizeString(game.name) || null,
+      notes: normalizeString(game.notes) || null,
       seasonType,
       ...eventMetadata,
     },
