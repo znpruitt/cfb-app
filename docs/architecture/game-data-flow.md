@@ -42,12 +42,45 @@ Only an **authorized refresh** spends quota. Both routes gate on `refresh=1` beh
 
 **Odds display (cache hydration) is separate from Odds polling (provider fetch) — PLATFORM-086C3.** Two independent concerns must not be conflated:
 
-- **Cache hydration = what the client DISPLAYS.** The browser reads whatever canonical Odds already exist and shows them on every matching game card **regardless of kickoff time** — far-future, live, completed, and postseason games alike. This is a cache-only read per selected season (`useOddsHydration` → `GET /api/odds?year=<season>`, **no `refresh=1`, no auth header**, provider-free), decoupled from live-score refresh; it re-arms on a season change or a **schedule rebuild** — a monotonic `scheduleGeneration` counter is bumped on every full schedule (re)build (`loadScheduleFromApi` success), so a with-games in-place reload (which leaves `scheduleLoaded`/has-games unchanged) still re-hydrates against the rebuilt, identity-recomputed games rather than leaving odds keyed to stale schedule data. Week/tab/subview navigation, focus, visibility, and the live-score timer never re-trigger it. A successful empty response installs empty state; a failure preserves prior-good client Odds and surfaces one generic, body-free issue; an AbortController drops a stale prior-season response so it can never overwrite the current season.
+- **Cache hydration = what the client DISPLAYS.** The browser reads whatever canonical Odds already
+  exist and shows them on every matching game card **regardless of kickoff time** — far-future,
+  live, completed, and postseason games alike. This is a cache-only read per selected season
+  (`useOddsHydration` → `GET /api/odds?year=<season>`, **no `refresh=1`, no auth header**,
+  provider-free), decoupled from live-score refresh; it re-arms on a season change or a **schedule
+  rebuild** — a monotonic `scheduleGeneration` counter is bumped on every full schedule (re)build
+  (`loadScheduleFromApi` success), so a with-games in-place reload (which leaves
+  `scheduleLoaded`/has-games unchanged) still re-hydrates against the rebuilt, identity-recomputed
+  games rather than leaving odds keyed to stale schedule data. Week/tab/subview navigation, focus,
+  visibility, and the live-score timer never re-trigger it. A successful empty response installs
+  empty state; a failure preserves prior-good client Odds and surfaces one generic, body-free issue;
+  an AbortController drops a stale prior-season response so it can never overwrite the current
+  season.
 - **Provider polling = when NEW Odds are FETCHED.** That is entirely server-side (the PLATFORM-086C2 hourly cron's seven-day eligibility, 6h/2h cadence, lease, quota probe, and reserve — **active in production**; current controls are in runbook §8g and activation evidence is in the operations archive). The client never drives it.
 
 The retired `refreshPolicy` `[-12h, +3d]` window conflated the two — it suppressed the _display_ of already-cached lines for games outside three days even though the durable cache held them. Retiring that window (its already-dead score sub-plan too) restores the invariant that **cached canonical Odds always reach their card**, while server polling continues to govern quota-spending fetches unchanged.
 
-**CFBD is the sole normal production score provider (PLATFORM-086A rereview).** ESPN was removed as an automatic score fallback and as a durable score source — it introduced a parallel provider contract and could mask CFBD failures instead of surfacing them. The reliability mechanism is now prior-good CFBD cache retention, not a second provider. On an authorized `/api/scores` refresh: valid CFBD rows commit durably and record success; a **valid empty CFBD partition** (postseason before bowls, a future week — the request succeeded and validated but had no rows) is a **no-op / valid absence** that writes nothing, preserves any prior-good rows, and returns a successful empty response (never a 502); a CFBD **failure** (missing key, fetch/validation/persistence error) preserves the prior-good durable cache, records a failed refresh attempt, and returns a failure. No ESPN substitution occurs on any of these paths. (The `CacheEntry`/`ScoresMeta` `source` union still carries `'espn'` solely to read/label durable entries written before the removal; nothing writes it now.) The admin manual score refresh runs as **one aggregate action** (PLATFORM-086A 6th review): the panel issues a single `refresh=1&aggregate=1` request that fans out over the applicable partitions under ONE `scores` attempt (`handleAggregateScoreRefresh`), so a partition's success or valid no-op can never erase another partition's failure — the attempt resolves exactly once from the combined outcomes (all-succeed → success, any-fail → failure with `failedPartitions`, all-no-op → no-op). A direct single-partition `refresh=1` still records its own truthful attempt for targeted repair. Applicability is **server-authoritative** (7th review): the endpoint derives the applicable partitions cache-only from the requested year's schedule (`getApplicableScoreSeasonTypes`), so an ordinary refresh never spends a doomed postseason request before bowls exist and a client cannot force an unnecessary partition by omitting/mis-sending the list; a nonempty `seasonTypes` query is an explicit targeted repair only.
+**CFBD is the sole normal production score provider (PLATFORM-086A rereview).** ESPN was removed as
+an automatic score fallback and as a durable score source — it introduced a parallel provider
+contract and could mask CFBD failures instead of surfacing them. The reliability mechanism is now
+prior-good CFBD cache retention, not a second provider. On an authorized `/api/scores` refresh:
+valid CFBD rows commit durably and record success; a **valid empty CFBD partition** (postseason
+before bowls, a future week — the request succeeded and validated but had no rows) is a **no-op /
+valid absence** that writes nothing, preserves any prior-good rows, and returns a successful empty
+response (never a 502); a CFBD **failure** (missing key, fetch/validation/persistence error)
+preserves the prior-good durable cache, records a failed refresh attempt, and returns a failure. No
+ESPN substitution occurs on any of these paths. (The `CacheEntry`/`ScoresMeta` `source` union still
+carries `'espn'` solely to read/label durable entries written before the removal; nothing writes it
+now.) The admin manual score refresh runs as **one aggregate action** (PLATFORM-086A 6th review):
+the panel issues a single `refresh=1&aggregate=1` request that fans out over the applicable
+partitions under ONE `scores` attempt (`handleAggregateScoreRefresh`), so a partition's success or
+valid no-op can never erase another partition's failure — the attempt resolves exactly once from the
+combined outcomes (all-succeed → success, any-fail → failure with `failedPartitions`, all-no-op →
+no-op). A direct single-partition `refresh=1` still records its own truthful attempt for targeted
+repair. Applicability is **server-authoritative** (7th review): the endpoint derives the applicable
+partitions cache-only from the requested year's schedule (`getApplicableScoreSeasonTypes`), so an
+ordinary refresh never spends a doomed postseason request before bowls exist and a client cannot
+force an unnecessary partition by omitting/mis-sending the list; a nonempty `seasonTypes` query is
+an explicit targeted repair only.
 
 **Completed-score diagnostics are game-granular (PLATFORM-112).** Within a completed provider
 `(week, seasonType)` partition, System Health checks every addressable expected canonical game
@@ -62,19 +95,160 @@ sanitized, bounded game identities before routing to the existing score-recovery
 
 **Provider refreshes publish durable cache before process memory (PLATFORM-085A).** On an authorized refresh, each provider route/store persists the durable app-state snapshot first, then updates its process-local cache, then invalidates dependent standings — never memory-first. A failed durable write therefore surfaces as an error and leaves the process cache untouched, so it can never make one instance report "fresh" schedule/scores/odds that durable storage (and other instances) don't have. See [storage-and-caching.md](storage-and-caching.md) → "Durable-first commit order".
 
-**Schedule publication requires a complete validated schedule (PLATFORM-085B / 085C).** Both the season-transition cron and the authorized `/api/schedule` refresh publish a schedule partition only when it resolves without a fetch/schema failure. A partition that **throws**, returns a **non-array**, or normalizes a **nonempty** payload to **zero** rows (schema drift) is uncertainty: the cron retains prior-good durable schedule/probe and reports `partialFailure`; `/api/schedule` returns `502` (via `hasRequiredSeasonTypeFailure`) before its commit block, leaving the durable cache, process cache, and standings invalidation untouched. Neither commits partial/drifted rows as complete fresh state, so downstream standings/Insights/rollover never treat an incomplete schedule as authoritative. An **all-empty** refresh (every requested partition validly returned zero rows) is classified **before** any durable/process-cache write (PLATFORM-086A 4th review): if a populated schedule is already cached the empty result is **rejected** as an unexpected replacement (prior-good retained, refresh recorded as failed, `502`); only a genuinely inapplicable/unpublished empty (postseason before bowls, a future season not yet published) resolves as a **no-op** that writes nothing and preserves prior-good success metadata. An empty schedule is never committed-then-labelled-a-no-op (which would empty the cache while claiming old rows are still served). Both paths share ONE empty-response classifier (`classifyEmptyScheduleRefresh` in `scheduleSeasonFetch.ts`, PLATFORM-086A 6th review) so they cannot drift: the season-transition cron applies the same rule, so an empty probe over a populated prior-good schedule is a rejected failure (prior-good retained, and the league does **not** flip off the empty probe that run) rather than a silent no-op. See [storage-and-caching.md](storage-and-caching.md) → "Schedule refresh completeness".
+**Schedule publication requires a complete validated schedule (PLATFORM-085B / 085C).** Both the
+season-transition cron and the authorized `/api/schedule` refresh publish a schedule partition only
+when it resolves without a fetch/schema failure. A partition that **throws**, returns a
+**non-array**, or normalizes a **nonempty** payload to **zero** rows (schema drift) is uncertainty:
+the cron retains prior-good durable schedule/probe and reports `partialFailure`; `/api/schedule`
+returns `502` (via `hasRequiredSeasonTypeFailure`) before its commit block, leaving the durable
+cache, process cache, and standings invalidation untouched. Neither commits partial/drifted rows as
+complete fresh state, so downstream standings/Insights/rollover never treat an incomplete schedule
+as authoritative. An **all-empty** refresh (every requested partition validly returned zero rows) is
+classified **before** any durable/process-cache write (PLATFORM-086A 4th review): if a populated
+schedule is already cached the empty result is **rejected** as an unexpected replacement (prior-good
+retained, refresh recorded as failed, `502`); only a genuinely inapplicable/unpublished empty
+(postseason before bowls, a future season not yet published) resolves as a **no-op** that writes
+nothing and preserves prior-good success metadata. An empty schedule is never
+committed-then-labelled-a-no-op (which would empty the cache while claiming old rows are still
+served). Both paths share ONE empty-response classifier (`classifyEmptyScheduleRefresh` in
+`scheduleSeasonFetch.ts`, PLATFORM-086A 6th review) so they cannot drift: the season-transition cron
+applies the same rule, so an empty probe over a populated prior-good schedule is a rejected failure
+(prior-good retained, and the league does **not** flip off the empty probe that run) rather than a
+silent no-op. See [storage-and-caching.md](storage-and-caching.md) → "Schedule refresh
+completeness".
 
-**Every production full-season schedule writer converges onto ONE refresh authority (PLATFORM-086E1A).** The authorized full-year `/api/schedule?bypassCache=1` refresh, the season-transition cron, and the historical schedule repair all drive `refreshFullSeasonSchedule` (`src/lib/schedule/fullSeasonScheduleRefresh.ts`), which owns a durable token-safe **per-year lease** (`schedule-refresh-control/<year>`), the regular+postseason fetch with the shared complete-before-commit gate above, and an **observation-ordered** commit on `schedule/<year>-all-all` inside `withAppStateKeyTransaction` (a prior entry observed at/after the refresh wins; unchanged content commits only newer observation metadata without invalidating standings; standings invalidate only when committed content changes). A concurrent full-year refresh returns `409 / refresh-in-progress` with **no** provider request; callers read a typed closed-vocabulary result rather than re-deriving truth from HTTP. Targeted child-key writers (a single `seasonType`, or a single week) are unchanged. The authority retains no-extra-call schedule metadata provider → cache → canonical `AppGame` (`startTimeTBD`, `venueId`, `completed`, `playoffCompetition`, `playoffRound`, `playoffRoundSource`); the raw provider `playoff` object/row is never persisted.
+**Every production full-season schedule writer converges onto ONE refresh authority
+(PLATFORM-086E1A).** The authorized full-year `/api/schedule?bypassCache=1` refresh, the
+season-transition cron, and the historical schedule repair all drive `refreshFullSeasonSchedule`
+(`src/lib/schedule/fullSeasonScheduleRefresh.ts`), which owns a durable token-safe **per-year
+lease** (`schedule-refresh-control/<year>`), the regular+postseason fetch with the shared
+complete-before-commit gate above, and an **observation-ordered** commit on
+`schedule/<year>-all-all` inside `withAppStateKeyTransaction` (a prior entry observed at/after the
+refresh wins; unchanged content commits only newer observation metadata without invalidating
+standings; standings invalidate only when committed content changes). A concurrent full-year refresh
+returns `409 / refresh-in-progress` with **no** provider request; callers read a typed
+closed-vocabulary result rather than re-deriving truth from HTTP. Targeted child-key writers (a
+single `seasonType`, or a single week) are unchanged. The authority retains no-extra-call schedule
+metadata provider → cache → canonical `AppGame` (`startTimeTBD`, `venueId`, `completed`,
+`playoffCompetition`, `playoffRound`, `playoffRoundSource`); the raw provider `playoff` object/row
+is never persisted.
 
-**The weekly maintenance caller is operation-aware (PLATFORM-086E1B, corrected by E1B1).** `GET /api/cron/schedule-refresh` (external QStash trigger `turfwar-schedule-weekly`, Tuesdays 12:00 UTC — provisioned and ACTIVE per runbook §8h, 2026-07-29) targets every distinct `season` AND `preseason` year cache-only (league registry `status.year`, ascending; any `season` league owns a mixed year — one execution under the active-season policy; `offseason` excluded; automatic ownership is resolved from PRODUCTION leagues only — the demo league is filtered out per league before ownership is resolved, so it can neither contribute a year nor change which policy a shared year runs under, and a demo-only active registry reports `skipped / no-automatic-maintenance-target`, PLATFORM-086F2H1T3) and delegates each allowed year ONCE to the authority. Preseason ownership (E1B1) mirrors the season-transition cron's exact `shouldFetch` boundary so the two jobs neither gap nor compete: an unarmed probe or a first kickoff within 7 days defers the year to the DAILY transition cron (`skipped / season-transition-owner`, provider-free); a cache-armed early-preseason year (armed probe, first game more than 7 days away, usable canonical schedule) classifies `preseason-maintenance` — an ordinary/noncritical weekly refresh that never reads or writes the postseason latch. Gating is decided per year by the pure classifier (`src/lib/schedule/weeklyRefreshOperation.ts`) from the invocation time + the prior-good canonical schedule + a durable boundary latch: **ordinary-maintenance** (before `latestRegularKickoff − 7d`) honors `isAutoRefreshAllowed('schedule')` (global pause + the Schedule toggle), while **postseason-boundary** maintenance (at/after that boundary) is **lifecycle-critical and exempt** — it never consults settings, so an operator pause can never starve the season-rollover boundary of the postseason/championship slate it needs. Criticality is STICKY: the route durably latches a year (`schedule-weekly-control/<year>`) the first time it classifies critical and feeds the latch back into the classifier, so a reschedule that moves the latest regular kickoff later can never revert an already-critical year to operator-gated ordinary maintenance; a row with a present-but-unrecognized `seasonType` is malformed context (refusal), never a boundary-extending regular row. Unavailable/malformed schedule context never triggers provider work. `isAutoRefreshAllowed` itself is now a STRICT settings evaluation (no dataset-level lifecycle bypass); lifecycle routes stay exempt by not calling it. The E1A result carries `providerCallAttempted` (false for every pre-provider exit; true from the fetch pair onward) so callers never re-derive spend from status codes. One secret-safe `schedule-refresh-cron` event per invocation (see `docs/operations/diagnostics.md`). Duplicate/overlapping deliveries are safe under E1A's per-year lease + observation ordering.
+**The weekly maintenance caller is operation-aware (PLATFORM-086E1B, corrected by E1B1).** `GET
+/api/cron/schedule-refresh` (external QStash trigger `turfwar-schedule-weekly`, Tuesdays 12:00 UTC —
+provisioned and ACTIVE per runbook §8h, 2026-07-29) targets every distinct `season` AND `preseason`
+year cache-only (league registry `status.year`, ascending; any `season` league owns a mixed year —
+one execution under the active-season policy; `offseason` excluded; automatic ownership is resolved
+from PRODUCTION leagues only — the demo league is filtered out per league before ownership is
+resolved, so it can neither contribute a year nor change which policy a shared year runs under, and
+a demo-only active registry reports `skipped / no-automatic-maintenance-target`, PLATFORM-086F2H1T3)
+and delegates each allowed year ONCE to the authority. Preseason ownership (E1B1) mirrors the
+season-transition cron's exact `shouldFetch` boundary so the two jobs neither gap nor compete: an
+unarmed probe or a first kickoff within 7 days defers the year to the DAILY transition cron
+(`skipped / season-transition-owner`, provider-free); a cache-armed early-preseason year (armed
+probe, first game more than 7 days away, usable canonical schedule) classifies
+`preseason-maintenance` — an ordinary/noncritical weekly refresh that never reads or writes the
+postseason latch. Gating is decided per year by the pure classifier
+(`src/lib/schedule/weeklyRefreshOperation.ts`) from the invocation time + the prior-good canonical
+schedule + a durable boundary latch: **ordinary-maintenance** (before `latestRegularKickoff − 7d`)
+honors `isAutoRefreshAllowed('schedule')` (global pause + the Schedule toggle), while
+**postseason-boundary** maintenance (at/after that boundary) is **lifecycle-critical and exempt** —
+it never consults settings, so an operator pause can never starve the season-rollover boundary of
+the postseason/championship slate it needs. Criticality is STICKY: the route durably latches a year
+(`schedule-weekly-control/<year>`) the first time it classifies critical and feeds the latch back
+into the classifier, so a reschedule that moves the latest regular kickoff later can never revert an
+already-critical year to operator-gated ordinary maintenance; a row with a present-but-unrecognized
+`seasonType` is malformed context (refusal), never a boundary-extending regular row.
+Unavailable/malformed schedule context never triggers provider work. `isAutoRefreshAllowed` itself
+is now a STRICT settings evaluation (no dataset-level lifecycle bypass); lifecycle routes stay
+exempt by not calling it. The E1A result carries `providerCallAttempted` (false for every
+pre-provider exit; true from the fetch pair onward) so callers never re-derive spend from status
+codes. One secret-safe `schedule-refresh-cron` event per invocation (see
+`docs/operations/diagnostics.md`). Duplicate/overlapping deliveries are safe under E1A's per-year
+lease + observation ordering.
 
-**Broadcast/venue presentation enrichment is a cache-only overlay (PLATFORM-086E1C1, automated by E1C2).** Two normalized presentation caches — `schedule-media/<year>-all` (game media) and `venue-catalog/current` (the global venue catalog, 30-day TTL) — are refreshed by `refreshSchedulePresentation` through exactly THREE callers: the authorized full-year `/api/schedule?bypassCache=1` refresh (trigger `manual`), the weekly schedule cron (trigger `weekly`), and the daily season-transition cron (trigger `season-transition`). The two automatic callers (PLATFORM-086E1C2) invoke it at most ONCE per year and ONLY after a POPULATED canonical E1A success (`written-clean` OR `unchanged-clean` — broadcast assignments change independently of canonical rows), strictly AFTER canonical result recording, the probe update, and (season-transition) any lifecycle flips/standings invalidation/year sync; every skip, deferral, gate, failure, no-op, and contention path invokes nothing, and a presentation fault can never alter canonical cron results, HTTP behavior, probe state, lifecycle mutation, or canonical provider status. The rollover and historical-repair callers never invoke it. There is NO separate presentation scheduler — presentation piggybacks the existing canonical owners (including a lifecycle-critical postseason-boundary success with the operator gates closed — a deliberate, test-pinned semantic: the gates gate ordinary CANONICAL work; presentation follows canonical success). Every successful `/api/schedule` response then joins them CACHE-ONLY through a bounded ~120 s memo: media attaches by the EXACT canonical provider game id (`item.id`), venue display fields (name/city/state/country code) fill by the EXACT numeric `venueId` — never team labels, kickoff, venue names, or fuzzy identity — and the full venue catalog is never sent to the browser. The wire/application model gains an optional `media` field (`ScheduleWireItem`/`AppGame`); the durable canonical `ScheduleItem` records never carry it, and the join never mutates them. Browser traffic still performs one provider-free `/api/schedule` request; a presentation-cache fault serves base schedule rows and can never fail the route, block the probe update, or affect standings/lifecycle/rollover. On game cards the shared TBD-aware kickoff formatter renders `startTimeTBD` games as date + "Time TBD" (the provider's placeholder clock is never displayed as confirmed), and one primary broadcast outlet is chosen deterministically (`tv → web → ppv → mobile → radio`; streaming/radio get explicit labels) while ALL normalized media rows remain on the wire model.
+**Broadcast/venue presentation enrichment is a cache-only overlay (PLATFORM-086E1C1, automated by
+E1C2).** Two normalized presentation caches — `schedule-media/<year>-all` (game media) and
+`venue-catalog/current` (the global venue catalog, 30-day TTL) — are refreshed by
+`refreshSchedulePresentation` through exactly THREE callers: the authorized full-year
+`/api/schedule?bypassCache=1` refresh (trigger `manual`), the weekly schedule cron (trigger
+`weekly`), and the daily season-transition cron (trigger `season-transition`). The two automatic
+callers (PLATFORM-086E1C2) invoke it at most ONCE per year and ONLY after a POPULATED canonical E1A
+success (`written-clean` OR `unchanged-clean` — broadcast assignments change independently of
+canonical rows), strictly AFTER canonical result recording, the probe update, and
+(season-transition) any lifecycle flips/standings invalidation/year sync; every skip, deferral,
+gate, failure, no-op, and contention path invokes nothing, and a presentation fault can never alter
+canonical cron results, HTTP behavior, probe state, lifecycle mutation, or canonical provider
+status. The rollover and historical-repair callers never invoke it. There is NO separate
+presentation scheduler — presentation piggybacks the existing canonical owners (including a
+lifecycle-critical postseason-boundary success with the operator gates closed — a deliberate,
+test-pinned semantic: the gates gate ordinary CANONICAL work; presentation follows canonical
+success). Every successful `/api/schedule` response then joins them CACHE-ONLY through a bounded
+~120 s memo: media attaches by the EXACT canonical provider game id (`item.id`), venue display
+fields (name/city/state/country code) fill by the EXACT numeric `venueId` — never team labels,
+kickoff, venue names, or fuzzy identity — and the full venue catalog is never sent to the browser.
+The wire/application model gains an optional `media` field (`ScheduleWireItem`/`AppGame`); the
+durable canonical `ScheduleItem` records never carry it, and the join never mutates them. Browser
+traffic still performs one provider-free `/api/schedule` request; a presentation-cache fault serves
+base schedule rows and can never fail the route, block the probe update, or affect
+standings/lifecycle/rollover. On game cards the shared TBD-aware kickoff formatter renders
+`startTimeTBD` games as date + "Time TBD" (the provider's placeholder clock is never displayed as
+confirmed), and one primary broadcast outlet is chosen deterministically (`tv → web → ppv → mobile →
+radio`; streaming/radio get explicit labels) while ALL normalized media rows remain on the wire
+model.
 
-**Automatic season rollover requires an authoritative championship boundary (PLATFORM-086E1A).** The season-rollover cron consults `resolveNationalChampionshipRollover` (`src/lib/schedule/nationalChampionshipRollover.ts`) per season year (leagues grouped by year, each evaluated independently). Rollover fires ONLY off a **structured** CFP national championship — `playoffRoundSource === 'cfbd-structured'` (round AND competition both from CFBD's nested `playoff` object; text/name inference and flat provider fields never qualify), a real numeric provider game id, and a valid kickoff — whose attached score (read cache-only via `loadReconciledSeasonScoresByType` and matched through the centralized schedule/score identity helpers) is a **complete final** (both scores present, not disrupted), plus the existing seven-day post-kickoff gate. The "latest postseason game" fallback is removed; a missing/ambiguous/not-final/disrupted/text-inferred championship SKIPS without mutation, and a genuine durable read failure surfaces as a failure (never ordinary absence). The retired `findNationalChampionshipGameDate` helper has no production caller, `isSeasonComplete` no longer exists, and no manual admin rollover surface remains; do not restore any of them as a parallel boundary.
+**Automatic season rollover requires an authoritative championship boundary (PLATFORM-086E1A).** The
+season-rollover cron consults `resolveNationalChampionshipRollover`
+(`src/lib/schedule/nationalChampionshipRollover.ts`) per season year (leagues grouped by year, each
+evaluated independently). Rollover fires ONLY off a **structured** CFP national championship —
+`playoffRoundSource === 'cfbd-structured'` (round AND competition both from CFBD's nested `playoff`
+object; text/name inference and flat provider fields never qualify), a real numeric provider game
+id, and a valid kickoff — whose attached score (read cache-only via
+`loadReconciledSeasonScoresByType` and matched through the centralized schedule/score identity
+helpers) is a **complete final** (both scores present, not disrupted), plus the existing seven-day
+post-kickoff gate. The "latest postseason game" fallback is removed; a
+missing/ambiguous/not-final/disrupted/text-inferred championship SKIPS without mutation, and a
+genuine durable read failure surfaces as a failure (never ordinary absence). The retired
+`findNationalChampionshipGameDate` helper has no production caller, `isSeasonComplete` no longer
+exists, and no manual admin rollover surface remains; do not restore any of them as a parallel
+boundary.
 
-**Public scores and canonical consumers share ONE cache-only season score reconciliation (PLATFORM-084B).** Scores cache under a season-wide key (`${year}-all-${seasonType}`) and per-week keys (`${year}-<week>-${seasonType}`). The shared reader `loadReconciledSeasonScores` (`src/lib/server/scoreCacheReader.ts`) merges the season-wide and per-week entries — deduped by canonical game identity (through `teamIdentity.ts`), newest cache entry winning — and is used by the public `/api/scores` season read, canonical standings, and the season-rollover archive build alike. So a week-specific refresh visible on `/api/scores` is now equally visible to standings, Insights, and archives. The reader is cache-only (no provider call); see [storage-and-caching.md](storage-and-caching.md) for the reconciliation mechanics. A browser live-score poll of one week uses the week-scoped analogue `loadReconciledWeekScores` (the same reconciliation, restricted to the requested provider week), so a `live=1` read matches the season/standings view rather than serving a raw week child.
+**Public scores and canonical consumers share ONE cache-only season score reconciliation
+(PLATFORM-084B).** Scores cache under a season-wide key (`${year}-all-${seasonType}`) and per-week
+keys (`${year}-<week>-${seasonType}`). The shared reader `loadReconciledSeasonScores`
+(`src/lib/server/scoreCacheReader.ts`) merges the season-wide and per-week entries — deduped by
+canonical game identity (through `teamIdentity.ts`), newest cache entry winning — and is used by the
+public `/api/scores` season read, canonical standings, and the season-rollover archive build alike.
+So a week-specific refresh visible on `/api/scores` is now equally visible to standings, Insights,
+and archives. The reader is cache-only (no provider call); see
+[storage-and-caching.md](storage-and-caching.md) for the reconciliation mechanics. A browser
+live-score poll of one week uses the week-scoped analogue `loadReconciledWeekScores` (the same
+reconciliation, restricted to the requested provider week), so a `live=1` read matches the
+season/standings view rather than serving a raw week child.
 
-**Automated live-score polling is ACTIVE (PLATFORM-086B2B, activated in production 2026-07-28).** The steady-state flow is: **QStash every three minutes → `GET /api/cron/live-scores` → settings + schedule-window gates → at most one billed CFBD score request when eligible → locked durable score partitions → cache-only browser reads.** Distinctions that hold: QStash **deliveries** happen every three minutes, but **CFBD quota is spent only** when the route selects a legitimate polling target (a game inside the `[kickoff − 15 min, kickoff + 24 h]` window, unresolved) **and** passes quota policy (the 1,000-call monthly reserve) — a delivery with either automation gate closed (`isAutoRefreshAllowed('scores')`: global pause off + `scores` enabled) or no in-window target makes no provider call and opens no attempt. The durable merge writes only the exact `scores/<year>-<providerWeek>-<seasonType>` partition under the same per-key advisory lock the manual refresh uses (PLATFORM-086B2A), and QStash at-least-once duplicates are tolerated (idempotent poll + locked merge) without a durable lease. **Browser/member traffic never calls CFBD and never uses `refresh=1`** — visible tabs re-read the full eligible cache-only partition set every 90 seconds while at least one eligible game is inside its fixed `[kickoff − 15 min, kickoff + 8 h]` window without positive final score evidence, and every three minutes otherwise. Missing or ambiguous score evidence keeps the fast tier; positive finality can end it early, and eight hours after kickoff is the hard ceiling. The cadence tier changes **when** full-partition reads happen, never **what** they read. Because the cron remains the only writer on a three-minute cadence, the fast tier improves expected end-to-end display staleness from about 180 seconds to 135 seconds — roughly 45 seconds or 25%, not 2× — while allowing positive finality to end doubled reads before the hard ceiling rather than carrying them through the full 24-hour eligibility tail. These reads are provider-free, not cost-free: each still invokes the dynamic scores route and durable reconciliation. `vercel.json` is unchanged and does **not** own this schedule (external QStash `turfwar-live-scores-3m`); active Odds automation is a separate QStash schedule described next.
+**Automated live-score polling is ACTIVE (PLATFORM-086B2B, activated in production 2026-07-28).**
+The steady-state flow is: **QStash every three minutes → `GET /api/cron/live-scores` → settings +
+schedule-window gates → at most one billed CFBD score request when eligible → locked durable score
+partitions → cache-only browser reads.** Distinctions that hold: QStash **deliveries** happen every
+three minutes, but **CFBD quota is spent only** when the route selects a legitimate polling target
+(a game inside the `[kickoff − 15 min, kickoff + 24 h]` window, unresolved) **and** passes quota
+policy (the 1,000-call monthly reserve) — a delivery with either automation gate closed
+(`isAutoRefreshAllowed('scores')`: global pause off + `scores` enabled) or no in-window target makes
+no provider call and opens no attempt. The durable merge writes only the exact
+`scores/<year>-<providerWeek>-<seasonType>` partition under the same per-key advisory lock the
+manual refresh uses (PLATFORM-086B2A), and QStash at-least-once duplicates are tolerated (idempotent
+poll + locked merge) without a durable lease. **Browser/member traffic never calls CFBD and never
+uses `refresh=1`** — visible tabs re-read the full eligible cache-only partition set every 90
+seconds while at least one eligible game is inside its fixed `[kickoff − 15 min, kickoff + 8 h]`
+window without positive final score evidence, and every three minutes otherwise. Missing or
+ambiguous score evidence keeps the fast tier; positive finality can end it early, and eight hours
+after kickoff is the hard ceiling. The cadence tier changes **when** full-partition reads happen,
+never **what** they read. Because the cron remains the only writer on a three-minute cadence, the
+fast tier improves expected end-to-end display staleness from about 180 seconds to 135 seconds —
+roughly 45 seconds or 25%, not 2× — while allowing positive finality to end doubled reads before the
+hard ceiling rather than carrying them through the full 24-hour eligibility tail. These reads are
+provider-free, not cost-free: each still invokes the dynamic scores route and durable
+reconciliation. `vercel.json` is unchanged and does **not** own this schedule (external QStash
+`turfwar-live-scores-3m`); active Odds automation is a separate QStash schedule described next.
 
 **Team records use one freshness authority with two triggers (PLATFORM-118).** When the
 live-scores merge durably commits at least one new transition to final, the route first invalidates
@@ -96,11 +270,72 @@ already-committed scores attempt unhealthy. Public reads remain cache-only; ther
 in this slice. The reader excludes rows whose W+L+T does not equal games while returning their team
 IDs as present-but-uncreditable, never deriving an outcome from app score data.
 
-**Automatic Odds polling is ACTIVE in production (PLATFORM-086C2; current controls are in deployment-runbook §8g and activation evidence is archived).** Both the authorized manual `GET /api/odds?refresh=1` and the automatic `GET /api/cron/odds` drive provider transport, payload interpretation, durable commit, and provider-refresh completion through ONE shared server-side execution authority (`executeOddsRefresh` in `src/lib/odds/oddsRefreshExecutor.ts`), so the two callers can never diverge on what a provider payload means or how it commits. Via the hourly QStash schedule `turfwar-odds-hourly`, the automatic flow is: **QStash hourly → `GET /api/cron/odds` → CRON_SECRET auth → settings gate (`isAutoRefreshAllowed('odds')`) → cache-only canonical context + cache-only closing-line maintenance → pure cadence decision → (only when a refresh is DUE) durable per-target lease + post-acquisition cadence re-check → quota-free `/sports` probe + the 50-credit automation reserve → at most ONE billed `/odds` request → atomic durable commit through the PLATFORM-086C1 refresh authority (per-target lease + observation ordering).** The hourly delivery is a cadence CEILING, not the request rate (baseline 6 h; 2 h inside the 6 h before a slate's first kickoff), so most deliveries are provider-free skips. **Public/member `/api/odds` is a strict durable-cache-only reader** — it never self-fetches, never spends quota, and (unlike before) never writes the durable store even for closing-line freezes (that maintenance runs only on the authorized manual path and the cron); cross-instance cron commits become visible within a bounded 120 s memo. The `ODDS_API_KEY` credential is redacted from every diagnostic/error surface (upstream URL + message sanitization) so it can never leak through a provider-error detail or debug log. `vercel.json` does **not** own this schedule (external QStash `turfwar-odds-hourly`); score automation (live-scores) and game-stats ingestion are separate schedules that share the same `CRON_SECRET`.
+**Automatic Odds polling is ACTIVE in production (PLATFORM-086C2; current controls are in
+deployment-runbook §8g and activation evidence is archived).** Both the authorized manual `GET
+/api/odds?refresh=1` and the automatic `GET /api/cron/odds` drive provider transport, payload
+interpretation, durable commit, and provider-refresh completion through ONE shared server-side
+execution authority (`executeOddsRefresh` in `src/lib/odds/oddsRefreshExecutor.ts`), so the two
+callers can never diverge on what a provider payload means or how it commits. Via the hourly QStash
+schedule `turfwar-odds-hourly`, the automatic flow is: **QStash hourly → `GET /api/cron/odds` →
+CRON_SECRET auth → settings gate (`isAutoRefreshAllowed('odds')`) → cache-only canonical context +
+cache-only closing-line maintenance → pure cadence decision → (only when a refresh is DUE) durable
+per-target lease + post-acquisition cadence re-check → quota-free `/sports` probe + the 50-credit
+automation reserve → at most ONE billed `/odds` request → atomic durable commit through the
+PLATFORM-086C1 refresh authority (per-target lease + observation ordering).** The hourly delivery is
+a cadence CEILING, not the request rate (baseline 6 h; 2 h inside the 6 h before a slate's first
+kickoff), so most deliveries are provider-free skips. **Public/member `/api/odds` is a strict
+durable-cache-only reader** — it never self-fetches, never spends quota, and (unlike before) never
+writes the durable store even for closing-line freezes (that maintenance runs only on the authorized
+manual path and the cron); cross-instance cron commits become visible within a bounded 120 s memo.
+The `ODDS_API_KEY` credential is redacted from every diagnostic/error surface (upstream URL +
+message sanitization) so it can never leak through a provider-error detail or debug log.
+`vercel.json` does **not** own this schedule (external QStash `turfwar-odds-hourly`); score
+automation (live-scores) and game-stats ingestion are separate schedules that share the same
+`CRON_SECRET`.
 
 **Refresh freshness metadata is observability-only (PLATFORM-086A).** Each authorized refresh records a per-dataset status (last attempt/success/error/rows) under the `provider-refresh-status` scope, and provider responses carry `generatedAt`/`capturedAt`/`source` meta. These describe _how fresh the cache is_ and are surfaced to operators in System Health and to users through subtle `FreshnessLabel` chips. They are **not** a source of canonical game data — identity, scores, odds, and standings still derive only from the schedule-attached canonical model, never from a freshness timestamp. See [storage-and-caching.md](storage-and-caching.md) → "Provider-refresh status, settings, and writer control".
 
-**Empty provider results are classified before commit across datasets (PLATFORM-086A 4th/5th/6th review).** The same no-op / reject-empty discipline applied to the schedule refresh extends to rankings: a genuinely empty CFBD response is a **no-op** (nothing written, prior-good preserved, last-success not advanced), a **nonempty** payload that normalizes to zero usable content is a **failure** (prior-good retained), and only usable content commits. **Game-stats ingestion is no longer a standalone empty/usable classifier** (the retired classifier was deleted when the live legacy route/cron write path was cut over; the fenced legacy writer itself is NOT deleted — it remains in `src/lib/gameStats/cache.ts`, refused under writer control `active`) — it flows through the ONE ingestion coordinator (`ingestGameStatsPartitionResponse`) and the ONE outcome interpreter (`interpretGameStatsRefreshOutcome`): an exact empty CFBD array is an `empty-response` no-op, a non-array top-level payload an `invalid-payload` failure, and a nonempty payload with no persistable observations a `no-persistable-observations` failure — prior-good evidence always retained (see [Game stats](#game-stats-platform-086h3e) below). Rankings validate each partition (regular/postseason) **independently before combining** (6th review): a nonempty partition that normalizes to zero usable weeks is schema drift (`rankings-partition-schema-drift`, prior-good retained) — one healthy partition can never mask a drifted one — while a raw-empty rankings response is a pre-poll no-op (no prior-good) or a rejected empty replacement (prior-good exists). **Since PLATFORM-086E2A the rankings write path is one shared authority, split from the reader:** `loadSeasonRankings` is strictly cache-only (process memo ≤120 s → durable snapshot; NEVER CFBD), and every refresh — the authorized manual route and the active E2B automatic caller — drives `refreshSeasonRankings` (`src/lib/rankings/refreshAuthority.ts`): per-year durable lease, forced durable prior read, independent partition validation plus a cross-year guard (weeks labeled with a different season are never usable for the requested year), a prior-relative completeness gate (an incoming aggregate may not lose previously cached weeks or previously populated poll sources), and an observation-ordered transaction commit; callers consume the typed closed-vocabulary `RankingsRefreshResult` instead of reparsing responses or exceptions, and each attempt resolves exactly once from that typed outcome (the pre-E2A thrown-marker mechanism is retired). **PLATFORM-086E2B adds the publication-aware automatic caller**: `GET /api/cron/rankings` (external QStash heartbeat 04:00/22:00 UTC — ACTIVE, provisioned per runbook §8j, 2026-07-30) resolves registry-selected years cache-only from PRODUCTION leagues only (PLATFORM-086F2H1T4 — the demo league is manual-only for automatic publication and is filtered per league before it can contribute a year), lets the E2A publication classifier decide whether a window is due, claims each due window durably exactly once (`rankings-publication-window/<key>` — completed windows are immutable and provider-free forever), gates on a fresh `/info` probe ≥ 1,007, and invokes the SAME authority with `trigger: 'automatic'` — public reads stay cache-only and the manual refresh stays ungated throughout. See [storage-and-caching.md](storage-and-caching.md) → "Rankings refresh authority + cache-only reader". Status classification itself is separator-agnostic: `src/lib/gameStatus.ts` normalizes provider/cache enum labels (`STATUS_CANCELED`, `STATUS_POSTPONED`, hyphen/space variants) to tokens before matching, so an underscore-delimited enum is never silently misbucketed by the score-terminal or game-stats-applicability logic that consumes it. See [storage-and-caching.md](storage-and-caching.md) → "Schedule refresh completeness".
+**Empty provider results are classified before commit across datasets (PLATFORM-086A 4th/5th/6th
+review).** The same no-op / reject-empty discipline applied to the schedule refresh extends to
+rankings: a genuinely empty CFBD response is a **no-op** (nothing written, prior-good preserved,
+last-success not advanced), a **nonempty** payload that normalizes to zero usable content is a
+**failure** (prior-good retained), and only usable content commits. **Game-stats ingestion is no
+longer a standalone empty/usable classifier** (the retired classifier was deleted when the live
+legacy route/cron write path was cut over; the fenced legacy writer itself is NOT deleted — it
+remains in `src/lib/gameStats/cache.ts`, refused under writer control `active`) — it flows through
+the ONE ingestion coordinator (`ingestGameStatsPartitionResponse`) and the ONE outcome interpreter
+(`interpretGameStatsRefreshOutcome`): an exact empty CFBD array is an `empty-response` no-op, a
+non-array top-level payload an `invalid-payload` failure, and a nonempty payload with no persistable
+observations a `no-persistable-observations` failure — prior-good evidence always retained (see
+[Game stats](#game-stats-platform-086h3e) below). Rankings validate each partition
+(regular/postseason) **independently before combining** (6th review): a nonempty partition that
+normalizes to zero usable weeks is schema drift (`rankings-partition-schema-drift`, prior-good
+retained) — one healthy partition can never mask a drifted one — while a raw-empty rankings response
+is a pre-poll no-op (no prior-good) or a rejected empty replacement (prior-good exists). **Since
+PLATFORM-086E2A the rankings write path is one shared authority, split from the reader:**
+`loadSeasonRankings` is strictly cache-only (process memo ≤120 s → durable snapshot; NEVER CFBD),
+and every refresh — the authorized manual route and the active E2B automatic caller — drives
+`refreshSeasonRankings` (`src/lib/rankings/refreshAuthority.ts`): per-year durable lease, forced
+durable prior read, independent partition validation plus a cross-year guard (weeks labeled with a
+different season are never usable for the requested year), a prior-relative completeness gate (an
+incoming aggregate may not lose previously cached weeks or previously populated poll sources), and
+an observation-ordered transaction commit; callers consume the typed closed-vocabulary
+`RankingsRefreshResult` instead of reparsing responses or exceptions, and each attempt resolves
+exactly once from that typed outcome (the pre-E2A thrown-marker mechanism is retired).
+**PLATFORM-086E2B adds the publication-aware automatic caller**: `GET /api/cron/rankings` (external
+QStash heartbeat 04:00/22:00 UTC — ACTIVE, provisioned per runbook §8j, 2026-07-30) resolves
+registry-selected years cache-only from PRODUCTION leagues only (PLATFORM-086F2H1T4 — the demo
+league is manual-only for automatic publication and is filtered per league before it can contribute
+a year), lets the E2A publication classifier decide whether a window is due, claims each due window
+durably exactly once (`rankings-publication-window/<key>` — completed windows are immutable and
+provider-free forever), gates on a fresh `/info` probe ≥ 1,007, and invokes the SAME authority with
+`trigger: 'automatic'` — public reads stay cache-only and the manual refresh stays ungated
+throughout. See [storage-and-caching.md](storage-and-caching.md) → "Rankings refresh authority +
+cache-only reader". Status classification itself is separator-agnostic: `src/lib/gameStatus.ts`
+normalizes provider/cache enum labels (`STATUS_CANCELED`, `STATUS_POSTPONED`, hyphen/space variants)
+to tokens before matching, so an underscore-delimited enum is never silently misbucketed by the
+score-terminal or game-stats-applicability logic that consumes it. See
+[storage-and-caching.md](storage-and-caching.md) → "Schedule refresh completeness".
 
 ## Game stats (PLATFORM-086H3E)
 
