@@ -8,7 +8,18 @@ Supersedes: (none)
 
 This is the **source-of-truth map** for the project's documentation. Start here to find which document owns a given concern, rather than searching across files. Each doc owns one thing; when two docs disagree, the authority hierarchy below decides.
 
-> Scope note: this index was established by **DOCS-002A** (governance + documentation index); **DOCS-002B** completed the planning/history cleanup; **DOCS-002C** added the dedicated architecture/operations doc layer; **DOCS-004** reconciled the known `DESIGN.md` contradictions; **DOCS-005** rolled lifecycle metadata onto the active/canonical docs; **DOCS-006** implemented the `archive/` path decision (standalone historical audits/design-specs/prompts moved under `docs/archive/**`); **DOCS-007** finished root-doc hygiene (moved the remaining historical/superseded root docs under `docs/archive/{governance,history}/`). **The DOCS-002x documentation-consolidation sequence is complete** — its planned follow-ups are all done. That does not freeze the docs: later drift-remediation passes still occur as the code changes (e.g. **DOCS-010**, the post-PLATFORM-086H3E-activation reconciliation), tracked in `docs/prompt-registry.md` and `docs/next-tasks.md`. See [Planned documentation work](#planned-documentation-work) at the bottom for the finished consolidation record.
+> Scope note: this index was established by **DOCS-002A** (governance + documentation index);
+**DOCS-002B** completed the planning/history cleanup; **DOCS-002C** added the dedicated
+architecture/operations doc layer; **DOCS-004** reconciled the known `DESIGN.md` contradictions;
+**DOCS-005** rolled lifecycle metadata onto the active/canonical docs; **DOCS-006** implemented the
+`archive/` path decision (standalone historical audits/design-specs/prompts moved under
+`docs/archive/**`); **DOCS-007** finished root-doc hygiene (moved the remaining
+historical/superseded root docs under `docs/archive/{governance,history}/`). **The DOCS-002x
+documentation-consolidation sequence is complete** — its planned follow-ups are all done. That does
+not freeze the docs: later drift-remediation passes still occur as the code changes (e.g.
+**DOCS-010**, the post-PLATFORM-086H3E-activation reconciliation), tracked in
+`docs/prompt-registry.md` and `docs/next-tasks.md`. See [Planned documentation
+work](#planned-documentation-work) at the bottom for the finished consolidation record.
 
 ## Source-of-truth map
 

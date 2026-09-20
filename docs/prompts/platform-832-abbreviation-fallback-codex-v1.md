@@ -66,15 +66,38 @@ container-query tier the row sits in, plus a per-name marker such as the label's
 will abbreviate slightly before they had to, and some may still not fit at the narrowest tier. **Write
 that limitation into the code**, next to the mechanism, rather than leaving it for a reviewer to find.
 
+**AMENDED 2026-09-20, after round 1's reviews — and the ambiguity was planning's.** The paragraph
+above specifies the trigger's SHAPE and never said WHAT IT MEASURES, so the first implementation
+calibrated its thresholds against TOTAL ROW content. That produced four findings across two reviewers
+which are one defect seen from four directions: abbreviating early on the compact scoreboard (a
+~169px name inside a ~293px box at the 390px fixture), ~50-60px earlier again on the recap row, which
+has no `pl-8` gutter, badge or record; a 404-459px DEAD BAND where a 27-character name clips without
+abbreviating, which is the truncation `DESIGN.md` forbids outright; and `Iowa` → `IOWA`, an
+abbreviation 19% WIDER than the name it replaces.
+
+**So the predicate's input is named here rather than left to inference: the question is whether the
+full name overflows ITS OWN BOX at this tier — never whether the row overflows.** The row's other
+content (record, owner, score, badge) varies per surface and per state, so a table calibrated on it is
+early in one layout, late in another, and backwards for a short name. Calibrate per surface with the
+browser harness; the recap gets its own numbers.
+
+**And a rule the shape above does not imply: never swap to an abbreviation that is not NARROWER than
+the name.** Measure it — four uppercase characters can exceed four mixed-case ones, so a character
+count cannot answer this. Swapping in that case makes the fit worse while destroying information,
+which is the opposite of the rule's purpose.
+
 ## Decisions this slice owns
 
 1. **Per name or per row.** If `Southeast Missouri State` becomes `SEMO`, does `Ohio State` opposite it
    stay full? **Planning recommends per name** — the rule is about what fits, and a row is two
    independent labels — but a mixed row is visible, so pin the choice with a test and put a screenshot
    in the closeout.
-2. **The length threshold per tier**, derived with the browser harness PLATFORM-750 used
-   (`src/test/browserFixture.ts`), not picked. Measured population, all 1,776 rendered labels:
-   median 9 characters, p90 16, p95 18, max 24.
+2. **The threshold per tier AND per surface**, derived with the browser harness PLATFORM-750 used
+   (`src/test/browserFixture.ts`), not picked, and measured against the NAME'S OWN BOX per the
+   amendment above. Measured population, all 1,776 rendered labels: median 9 characters, p90 16,
+   p95 18, max 24. **A character count is the marker, not the quantity** — derive the count at which
+   the name span exceeds its box, per surface, and state the font assumption that makes the mapping
+   hold.
 3. **What the accessible name is.** The full school name must remain available when the abbreviation
    renders. Say which mechanism carries it and what a screen reader announces.
 4. **What happens when the lookup returns `null`.** The full name renders and today's overflow

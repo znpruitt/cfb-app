@@ -50,7 +50,19 @@ PR references: #562, #563, #564, #744.
 
 Documentation: `docs/campaigns/item-87-followon-section-ordering-resolutions.md`, `docs/campaigns/item-87-followon-section-ordering.md`.
 
-Item 134 (#678, PR #751, merged `4cfae75a`, 2026-09-12) added the three-column tier: one column through 760.01px, two above it, three at 1348px and wider. The breakpoint is `3 × 416 + 2 × 40 + 20` headroom, and **416px carries a recorded provenance rather than a bare equation** — `400` is mockup prose describing a comfortable width and was never measured in production, `16` is that mockup's row padding, and only the `32` logo slot reproduces from shipped code. The repo's first required-browser layout gate verifies it at 760/761, 1347/1348 and a 1392px reference container; ordinary test runs show a visible skip when Chrome is absent while the required script fails, so a green suite cannot conceal an unrun pixel gate. Remainders stay left-aligned with the gap on the right, caps stay count-based and deliberately ragged, and Featured keeps its four-item cap rendering `3 + 1`. **A first attempt (PR #747) was stopped and closed unmerged**: it ran without a prompt, so neither Item 134 campaign obligation reached it. Measured under a realistic worst case — rank, record, three-digit score — the row retained 52.766px, so whether the tier should begin below 1348px is a knowable margin rather than a guess, and is open as #750.
+Item 134 (#678, PR #751, merged `4cfae75a`, 2026-09-12) added the three-column tier: one column
+through 760.01px, two above it, three at 1348px and wider. The breakpoint is `3 × 416 + 2 × 40 + 20`
+headroom, and **416px carries a recorded provenance rather than a bare equation** — `400` is mockup
+prose describing a comfortable width and was never measured in production, `16` is that mockup's row
+padding, and only the `32` logo slot reproduces from shipped code. The repo's first required-browser
+layout gate verifies it at 760/761, 1347/1348 and a 1392px reference container; ordinary test runs
+show a visible skip when Chrome is absent while the required script fails, so a green suite cannot
+conceal an unrun pixel gate. Remainders stay left-aligned with the gap on the right, caps stay
+count-based and deliberately ragged, and Featured keeps its four-item cap rendering `3 + 1`. **A
+first attempt (PR #747) was stopped and closed unmerged**: it ran without a prompt, so neither Item
+134 campaign obligation reached it. Measured under a realistic worst case — rank, record,
+three-digit score — the row retained 52.766px, so whether the tier should begin below 1348px is a
+knowable margin rather than a guess, and is open as #750.
 
 ### 03. NoClaim presentation and distinct-game counting
 
@@ -175,7 +187,20 @@ The duplicated Founded Year records introduced `Est. <year>` and removed hardcod
 
 PR references: #270.
 
-Item 713 (#713, PR #754, merged `42c73536`, 2026-09-12) resolved the reserved `NoClaim` sentinel where owners ENTER the matchup model rather than at each reader: `deriveWeekMatchupSections` routes both sides through `displayOwner`, so a bucket never carries it and sixteen truthiness reads became correct at once. The live member-visible defect was an unfiltered `opponentOwners.join(', ')` on the owner panel, which stranded the `'Unowned / non-league only'` fallback the code already defined for that case; two undrafted teams also produced a card reported as playing itself and claiming `1W / 1L`. **Three of the filing issue's own claims were refuted by measurement** — the two named booleans had no reader outside their file, the `vs NoClaim` string was suppressed before render, and its headline call site sat behind a function with no caller. A downstream Featured filter was deleted only after measuring both directions, the reverted run serving as its positive control since the filter itself had no coverage. A review finding against the change was confirmed in mechanism and ruled unreachable on production rosters — the live league carries 3 unclaimed teams of 138, and the fault needs every postseason game unclaimed; the underlying conflation of season phase with owner relevance is filed as #752, and a second sentinel source as #753.
+Item 713 (#713, PR #754, merged `42c73536`, 2026-09-12) resolved the reserved `NoClaim` sentinel
+where owners ENTER the matchup model rather than at each reader: `deriveWeekMatchupSections` routes
+both sides through `displayOwner`, so a bucket never carries it and sixteen truthiness reads became
+correct at once. The live member-visible defect was an unfiltered `opponentOwners.join(', ')` on the
+owner panel, which stranded the `'Unowned / non-league only'` fallback the code already defined for
+that case; two undrafted teams also produced a card reported as playing itself and claiming `1W /
+1L`. **Three of the filing issue's own claims were refuted by measurement** — the two named booleans
+had no reader outside their file, the `vs NoClaim` string was suppressed before render, and its
+headline call site sat behind a function with no caller. A downstream Featured filter was deleted
+only after measuring both directions, the reverted run serving as its positive control since the
+filter itself had no coverage. A review finding against the change was confirmed in mechanism and
+ruled unreachable on production rosters — the live league carries 3 unclaimed teams of 138, and the
+fault needs every postseason game unclaimed; the underlying conflation of season phase with owner
+relevance is filed as #752, and a second sentinel source as #753.
 
 ### 14. Clerk integration and independent authorization boundaries
 
@@ -281,9 +306,34 @@ Receipt data is latest-only, not execution history. Mixed-year reason detail and
 
 PR references: #413, #414, #435, #436, #437, #438, #439, #460, #470, #516, #518.
 
-Item 732 (#732, PR #748, merged `8208c7d9`, 2026-09-12) gave a HELD planner run a durable trace. The planner's `continue` branch previously reached no writer at all, so whether a settings-unreadable hold had ever occurred in production was unanswerable rather than answered "no" — the latest-only receipt carried `reason` and `jobsHeld` for one day and was overwritten. Held runs are recorded under a separate `held:<job>` series rather than as a variant row, because the applied series is the input to delivery health's cron timeline: a row without `dense`/`slow` would convert confident spans into `unknown` on a live surface. Separation keeps that timeline byte-identical **by construction**. Two shapes were rejected on measurement, not preference — a nullable `slow` collides with the dead-day encoding (#746), which needs the same field to mean the opposite, and a variant row inside `runs[]` is refused permanently by a deploy rollback alone. **Bound, stated precisely: the write cannot block PLANNING** — every schedule is derived, sent and confirmed first — but an unbounded transaction there still costs the response and the `finally` receipt, a pre-existing class this adds one more point to. Nothing in `src/` consumes the series yet.
+Item 732 (#732, PR #748, merged `8208c7d9`, 2026-09-12) gave a HELD planner run a durable trace. The
+planner's `continue` branch previously reached no writer at all, so whether a settings-unreadable
+hold had ever occurred in production was unanswerable rather than answered "no" — the latest-only
+receipt carried `reason` and `jobsHeld` for one day and was overwritten. Held runs are recorded
+under a separate `held:<job>` series rather than as a variant row, because the applied series is the
+input to delivery health's cron timeline: a row without `dense`/`slow` would convert confident spans
+into `unknown` on a live surface. Separation keeps that timeline byte-identical **by construction**.
+Two shapes were rejected on measurement, not preference — a nullable `slow` collides with the
+dead-day encoding (#746), which needs the same field to mean the opposite, and a variant row inside
+`runs[]` is refused permanently by a deploy rollback alone. **Bound, stated precisely: the write
+cannot block PLANNING** — every schedule is derived, sent and confirmed first — but an unbounded
+transaction there still costs the response and the `finally` receipt, a pre-existing class this adds
+one more point to. Nothing in `src/` consumes the series yet.
 
-Item 733 (#733, PR #749, merged `717fb842`, 2026-09-12) replaced the flat `JOBS_WITHOUT_EXECUTION_REPAIR` set with a total `EXECUTION_REPAIR_POLICY` record, because the property it encodes is per FAULT rather than per job and the planner is the first job whose faults split. Four planner reasons — a QStash credential or outage, an unreadable settings record, a partial apply that self-corrects on the next daily re-plan, and an unexpected error — route nowhere System Health can act, and previously all four rendered a repair link to Data Maintenance & Recovery, a page with no planner action of any kind. `schedule-unreadable` is the exception: its remediation is a full-year schedule refresh on that exact page, and **the first draft of this change removed that link by mistake, caught at review.** The explanation now names the season the failed day falls in and warns that it is not necessarily the season the page is showing — the planner resolves its year from the calendar while System Health resolves its from the league registry, so from 1 July until a new season's schedule cache is first populated the two differ by one and the planner's row is the only one that fires. The record is total so an eleventh job is a compile error rather than a silent inheritance, which is how the planner acquired a link nobody chose for it.
+Item 733 (#733, PR #749, merged `717fb842`, 2026-09-12) replaced the flat
+`JOBS_WITHOUT_EXECUTION_REPAIR` set with a total `EXECUTION_REPAIR_POLICY` record, because the
+property it encodes is per FAULT rather than per job and the planner is the first job whose faults
+split. Four planner reasons — a QStash credential or outage, an unreadable settings record, a
+partial apply that self-corrects on the next daily re-plan, and an unexpected error — route nowhere
+System Health can act, and previously all four rendered a repair link to Data Maintenance &
+Recovery, a page with no planner action of any kind. `schedule-unreadable` is the exception: its
+remediation is a full-year schedule refresh on that exact page, and **the first draft of this change
+removed that link by mistake, caught at review.** The explanation now names the season the failed
+day falls in and warns that it is not necessarily the season the page is showing — the planner
+resolves its year from the calendar while System Health resolves its from the league registry, so
+from 1 July until a new season's schedule cache is first populated the two differ by one and the
+planner's row is the only one that fires. The record is total so an eleventh job is a compile error
+rather than a silent inheritance, which is how the planner acquired a link nobody chose for it.
 
 ### 21. Provider refresh outcomes, empty payloads, and quota truth
 
@@ -356,7 +406,17 @@ Manual repair joins the same lock protocol but retains its own authoritative rep
 
 Public/browser reads remain cache-only and reconcile child, aggregate, and canonical-week alias shapes. Durable snapshot time and clean client observation time are separate; final→final score corrections trigger server refresh. Per-game stale overlays were not delivered by B2B. Later browser cadence is recorded under live display.
 
-Item 140 (#692, PR #743, merged `65cf8fb3`, 2026-09-11) added `CacheEntry.firstFinalObservedAtById` — the first observation at which a game's score read final, written once and never moved. It is an instrument, not a change in behaviour: nothing reads it yet, and the reconciliation tail it exists to size is deliberately untouched. **The distribution requires live weekends to accumulate and cannot be backfilled** — CFBD publishes no end time on `/games` or `/scoreboard`, verified against the live API, so the value exists only for games played after deploy. Three limits are recorded with it: FBS-only, because the stamp is opt-in from the two `live-scores` call sites while the weekly sweep reaches the same shared merge unfiltered; provisional, because a `/scoreboard` `completed` row is stamped before `/games` confirms it; and biased short, because the route captures `now` before the quota probe, the context load, and a provider request that can run to 40s. The straggler half needs no new field — it is `itemUpdatedAtById` minus this stamp.
+Item 140 (#692, PR #743, merged `65cf8fb3`, 2026-09-11) added `CacheEntry.firstFinalObservedAtById`
+— the first observation at which a game's score read final, written once and never moved. It is an
+instrument, not a change in behaviour: nothing reads it yet, and the reconciliation tail it exists
+to size is deliberately untouched. **The distribution requires live weekends to accumulate and
+cannot be backfilled** — CFBD publishes no end time on `/games` or `/scoreboard`, verified against
+the live API, so the value exists only for games played after deploy. Three limits are recorded with
+it: FBS-only, because the stamp is opt-in from the two `live-scores` call sites while the weekly
+sweep reaches the same shared merge unfiltered; provisional, because a `/scoreboard` `completed` row
+is stamped before `/games` confirms it; and biased short, because the route captures `now` before
+the quota probe, the context load, and a provider request that can run to 40s. The straggler half
+needs no new field — it is `itemUpdatedAtById` minus this stamp.
 
 PLATFORM-107's weekly schedule-refresh sweeper fills finals missing beyond the live window by exact provider id, filtering covered games **before** the writer. It does not rewrite an existing final; differing scores are logged. Missing/duplicate ids fail closed, and repair/failure counts reach event/receipt. Thus this is a missing-final backstop, not a general final-score correction or game-stat reconciliation pass.
 
@@ -430,7 +490,18 @@ PRE-LAUNCH-TIDYUP introduced the shared test entry point and removed `papaparse`
 
 Recurring lessons are retained once: establish the real consumer/authority before editing; test the behavior actually claimed; prove negative observers with positive controls; mutate one compiling property at a time; and do not infer runtime use from a near-name grep match. An unused second model can contradict its consumer unnoticed, and an extra remediation can introduce defects of its own. Later POLISH-024 explicitly bound read-use claims to mutation evidence.
 
-PLATFORM-108 removes provider pacing only when both the explicit disable flag and Node test-child signal are present; production timing and all eleven intervals remain unchanged. Injected clocks verify serialization without sleeps. It did not solve JSDOM startup. PLATFORM-121 replaced calendar-expiring Odds route fixtures with execution-relative timing while preserving same-pair separation; the later September closeouts still recorded two separate standing Item 137 odds failures, so this ledger does not turn those runs into an all-green claim. Item 137 (#696, PR #742, merged `a8593d9f`) finished that work on 2026-09-11: `writer-convergence.test.ts` and one further `odds-quota-guard.test.ts` fixture now derive kickoffs from execution time, clearing both standing failures, so the suite carries no known-failure baseline and is verified against zero. PLATFORM-121's reach was overstated — a third fixture pinned to 2026-12-01 was still live, measured green three days before it and red three days after. `npm run test:clock-shift -- <days>` now detects the class, which no bisect can find because an older commit is not an older clock.
+PLATFORM-108 removes provider pacing only when both the explicit disable flag and Node test-child
+signal are present; production timing and all eleven intervals remain unchanged. Injected clocks
+verify serialization without sleeps. It did not solve JSDOM startup. PLATFORM-121 replaced
+calendar-expiring Odds route fixtures with execution-relative timing while preserving same-pair
+separation; the later September closeouts still recorded two separate standing Item 137 odds
+failures, so this ledger does not turn those runs into an all-green claim. Item 137 (#696, PR #742,
+merged `a8593d9f`) finished that work on 2026-09-11: `writer-convergence.test.ts` and one further
+`odds-quota-guard.test.ts` fixture now derive kickoffs from execution time, clearing both standing
+failures, so the suite carries no known-failure baseline and is verified against zero.
+PLATFORM-121's reach was overstated — a third fixture pinned to 2026-12-01 was still live, measured
+green three days before it and red three days after. `npm run test:clock-shift -- <days>` now
+detects the class, which no bisect can find because an older commit is not an older clock.
 
 Preview received an isolated database on 2026-08-13. The build-gate correction identifies `vercel.json`'s `ignoreCommand` as the effective docs-only gate and distinguishes a branch ref advance from a deployment; dashboard allowlisting was present but overridden. This documents isolation, not automated branch/database cleanup.
 

@@ -49,19 +49,61 @@ The stored global map lives at `aliases:global`/`map`; the year layer at `aliase
 
 `getCanonicalStandings` layers `React.cache` (per-request dedup) over `unstable_cache` (cross-request, tag-only — no time expiry). Snapshots are tagged `standings:all`, `standings:${slug}`, and `standings:${slug}:${year}`; the cache key bakes in `slug + resolved year` and a seed-alias hash. Invalidation is tag-based (`invalidateStandings`, `invalidateAllLeaguesStandings`, `invalidateStandingsForYear`) — see [standings.md](standings.md) for which mutation paths call which.
 
-**Cache valid absence, never cache uncertainty** (PLATFORM-084A). Because the standings cache is tag-only (`revalidate: false`), a snapshot persists until a mutation busts its tag — so a snapshot computed from a _failed_ read would stick indefinitely. Every app-state read in the compute path therefore distinguishes genuine absence (cacheable) from a store-read failure (must reject): `getAppState` returns `null` only when the row is absent and throws on a real failure. `getLeague`, the owners-CSV read, `listSeasonArchives`/`getSeasonArchive`, `getScopedAliasMap`, `loadManualOverrides`, `loadNormalizedScoreRows`, `getScheduleProbeState`, `getTeamDatabaseItems`, and `getPreseasonOwners` all let a failure propagate; only genuine absence degrades to a valid default (empty roster / 0-0 rows / bundled team catalog / awaiting-kickoff). Two gaps were closed here: `getPreseasonOwners` no longer swallows a store failure to `null` (which would cache "no preseason owners"), and `liveDeriveStandings` no longer catches a `getTeamDatabaseItems` failure into an empty catalog or a `buildScheduleFromApi` failure into a roster-only 0-0 snapshot — both were indistinguishable from valid absence and would be persisted. A rejected compute is never stored by `unstable_cache`, so the failure surfaces and the next request recomputes. (The still-legitimate absence path is preserved: an empty _cached schedule_ — schedule not fetched yet — still yields a roster-only snapshot; only a build failure over a _non-empty_ schedule now rejects.)
+**Cache valid absence, never cache uncertainty** (PLATFORM-084A). Because the standings cache is
+tag-only (`revalidate: false`), a snapshot persists until a mutation busts its tag — so a snapshot
+computed from a _failed_ read would stick indefinitely. Every app-state read in the compute path
+therefore distinguishes genuine absence (cacheable) from a store-read failure (must reject):
+`getAppState` returns `null` only when the row is absent and throws on a real failure. `getLeague`,
+the owners-CSV read, `listSeasonArchives`/`getSeasonArchive`, `getScopedAliasMap`,
+`loadManualOverrides`, `loadNormalizedScoreRows`, `getScheduleProbeState`, `getTeamDatabaseItems`,
+and `getPreseasonOwners` all let a failure propagate; only genuine absence degrades to a valid
+default (empty roster / 0-0 rows / bundled team catalog / awaiting-kickoff). Two gaps were closed
+here: `getPreseasonOwners` no longer swallows a store failure to `null` (which would cache "no
+preseason owners"), and `liveDeriveStandings` no longer catches a `getTeamDatabaseItems` failure
+into an empty catalog or a `buildScheduleFromApi` failure into a roster-only 0-0 snapshot — both
+were indistinguishable from valid absence and would be persisted. A rejected compute is never stored
+by `unstable_cache`, so the failure surfaces and the next request recomputes. (The still-legitimate
+absence path is preserved: an empty _cached schedule_ — schedule not fetched yet — still yields a
+roster-only snapshot; only a build failure over a _non-empty_ schedule now rejects.)
 
 ## Season archive read cache
 
 `getSeasonArchive(slug, year)` and `listSeasonArchives(slug)` (`src/lib/seasonArchive.ts`) layer `React.cache` (per-request dedup) over `unstable_cache` (cross-request, tag-only — no time expiry), mirroring the standings cache. Season archives are persisted, effectively-immutable snapshots (written at rollover/backfill, only overwritten by a deliberate re-backfill of the same year), so the read output depends solely on `(slug, year)` — the alias/roster/owner-label state is baked into the snapshot at write time and is **not** part of the cache key. This removes repeated Postgres reads on the hot history/insights paths (Insights career context reads every archived year; the standings selector reads the offseason/final archive) without a self-fetch or provider call.
 
-Cache keys: `['season-archive', slug, year]` for a single archive, `['season-archive-years', slug]` for the year list. Tags: a per-year read carries `archive:${slug}` and `archive:${slug}:${year}`; the year list carries `archive:${slug}`. Invalidation is centralized in `saveSeasonArchive` — it calls `invalidateSeasonArchive(slug, year)` (busts both tags, so the slug tag alone refreshes the year list plus every per-year entry) after the write. The season-rollover cron is the sole production caller, and it goes through `saveSeasonArchive`; any future writer must do the same so no per-call-site invalidation wiring is required and a stale archive cannot poison a recomputed standings snapshot. Outside Next's RSC runtime (`node:test`) `unstable_cache` throws `incrementalCache missing`; both readers fall back to a direct store read. `saveSeasonArchive` ignores ONLY the out-of-request-context `revalidateTag` Invariant (`static generation store missing`, NEXT code `E263` — scripts/tests, no cache to bust); any other invalidation failure propagates, because the TTL-less cache would otherwise serve the previous archive indefinitely while the write reported success — surfacing it lets the cron writer be retried.
+Cache keys: `['season-archive', slug, year]` for a single archive, `['season-archive-years', slug]`
+for the year list. Tags: a per-year read carries `archive:${slug}` and `archive:${slug}:${year}`;
+the year list carries `archive:${slug}`. Invalidation is centralized in `saveSeasonArchive` — it
+calls `invalidateSeasonArchive(slug, year)` (busts both tags, so the slug tag alone refreshes the
+year list plus every per-year entry) after the write. The season-rollover cron is the sole
+production caller, and it goes through `saveSeasonArchive`; any future writer must do the same so no
+per-call-site invalidation wiring is required and a stale archive cannot poison a recomputed
+standings snapshot. Outside Next's RSC runtime (`node:test`) `unstable_cache` throws
+`incrementalCache missing`; both readers fall back to a direct store read. `saveSeasonArchive`
+ignores ONLY the out-of-request-context `revalidateTag` Invariant (`static generation store
+missing`, NEXT code `E263` — scripts/tests, no cache to bust); any other invalidation failure
+propagates, because the TTL-less cache would otherwise serve the previous archive indefinitely while
+the write reported success — surfacing it lets the cron writer be retried.
 
 **Failures are never cached.** The `unstable_cache` callbacks return `null` / `[]` only for a genuine miss (`getAppState`/`listAppStateKeys` distinguish "row/scope absent" from "read failed"); a transient store/database error is allowed to reject out of the callback, so `unstable_cache` never persists a bogus `null`/`[]` under `revalidate: false`. Otherwise history could remain falsely absent until the next write or deploy. No current admin route writes or previews rollover archives: the automatic season-rollover cron is the sole production writer through `saveSeasonArchive`, while admin/preseason/history consumers read archives for display, setup context, or diagnostics. A failed read therefore surfaces instead of fabricating absence in any of those consumers.
 
 ## Insights output cache
 
-`loadInsightsForLeague` (`src/lib/insights/loadInsights.ts`) caches the **expensive half** of Insights — loading every input, building the `InsightContext`, and running the 26 generators to a raw (pre-suppression) insight set — via `React.cache` over `unstable_cache`. The engine is split (`src/lib/insights/engine.ts`) into `generateRawInsights` (pure, deterministic in `context` → cacheable) and the serving step applied per request against the cached raw set. **INSIGHTS-029 replaced that serving step.** It was `applySuppression` (stateful: read + write the suppression store, output depending on how many times it had run, preserving "fire once, then fade"); it is now `selectServedInsights`, a pure sort-by-priority and cap at `MAX_INSIGHTS`. Suppression was per insight TYPE, and 21 of the 32 types carried a `TYPE_THRESHOLDS` rule — almost all `{ kind: 'unchanged' }`, suppress while the stat value is identical — so out of season, when no stat value can move, each of those fired once and was hidden for the rest of the preseason. The survivors were the three `NEVER_SUPPRESS_TYPES` PLUS the 8 types present in neither table, for which `isSuppressed` returns false outright (11 of 32 unaffected). Because the new step is pure, it no longer needs its per-request escape from the cache for correctness, only for the cap. `bypassSuppression` (admin/diagnostic) runs a different GENERATOR set and writes no records, so it is computed directly and not cached.
+`loadInsightsForLeague` (`src/lib/insights/loadInsights.ts`) caches the **expensive half** of
+Insights — loading every input, building the `InsightContext`, and running the 26 generators to a
+raw (pre-suppression) insight set — via `React.cache` over `unstable_cache`. The engine is split
+(`src/lib/insights/engine.ts`) into `generateRawInsights` (pure, deterministic in `context` →
+cacheable) and the serving step applied per request against the cached raw set. **INSIGHTS-029
+replaced that serving step.** It was `applySuppression` (stateful: read + write the suppression
+store, output depending on how many times it had run, preserving "fire once, then fade"); it is now
+`selectServedInsights`, a pure sort-by-priority and cap at `MAX_INSIGHTS`. Suppression was per
+insight TYPE, and 21 of the 32 types carried a `TYPE_THRESHOLDS` rule — almost all `{ kind:
+'unchanged' }`, suppress while the stat value is identical — so out of season, when no stat value
+can move, each of those fired once and was hidden for the rest of the preseason. The survivors were
+the three `NEVER_SUPPRESS_TYPES` PLUS the 8 types present in neither table, for which `isSuppressed`
+returns false outright (11 of 32 unaffected). Because the new step is pure, it no longer needs its
+per-request escape from the cache for correctness, only for the cap. `bypassSuppression`
+(admin/diagnostic) runs a different GENERATOR set and writes no records, so it is computed directly
+and not cached.
 
 Cache key: `['insights', slug, resolvedYear, seeds:<SEED_ALIASES_HASH>]` (distinct leagues/years/seed-sets never share an entry; the seed hash mirrors the standings cache because identity resolution feeds context). Freshness is **tag-first with a TTL backstop**:
 
@@ -115,26 +157,206 @@ Both schedule refresh paths — the season-transition cron (`/api/cron/season-tr
 On uncertainty the two routes surface it in their own style but with the same effect — no durable write, no process-cache update, no standings invalidation, prior-good state retained:
 
 - the **cron** (PLATFORM-085B) requests regular + postseason, retains prior-good durable schedule/probe, and reports `partialFailure` on that year's result (the next run retries). Its lifecycle status flip is a separate write that runs off the validated probe, so a partial fetch never advances the probe and the transition only ever acts on complete/prior-good schedule data.
-- the **`/api/schedule` route** (PLATFORM-085C) makes `fetchSeasonType` throw on a non-array or nonempty→zero-rows partition, so it lands in `failedSeasonTypes`; the existing completeness gate (`hasRequiredSeasonTypeFailure`) then returns `502` (with `failedSeasonTypes` for an `all` request) before the durable-first commit block runs — so `SCHEDULE_ROUTE_CACHE`, the durable `${cacheKey}`, and standings invalidation are all left untouched. A legitimately empty partition (empty upstream array) still commits normally.
-- an **all-empty** result — every requested partition validly returned zero rows — is classified **before** the durable/process-cache write (PLATFORM-086A 4th review): if a populated schedule is already cached under `${cacheKey}`, the empty result is **rejected** as an unexpected replacement (recorded a failed refresh, `502`, prior-good durable schedule + process cache untouched); only a genuinely inapplicable/unpublished empty (postseason before bowls, a future season) resolves as a **no-op** that writes nothing and preserves prior-good success metadata. An empty schedule is never written durably and then reported as a no-op (which would empty the authoritative cache while status claimed the old rows were still served). Both the `/api/schedule` route and the season-transition cron call the **same** `classifyEmptyScheduleRefresh(...)` helper (`scheduleSeasonFetch.ts`, PLATFORM-086A 6th review) — `not-empty` | `unexpected-empty-replacement` | `valid-noop` from the mapped-row count and the prior-good durable row count — so the cron's empty-probe handling can never drift from the route's: an empty cron probe over a populated prior-good schedule is a rejected failure (`schedule-empty-replacement-rejected`, prior-good retained) and the league does **not** transition off that empty probe, while a genuinely unpublished empty probe is a no-op.
+- the **`/api/schedule` route** (PLATFORM-085C) refuses to commit an incomplete season, returning `502` before the durable-first commit block runs — so `SCHEDULE_ROUTE_CACHE`, the durable `${cacheKey}`, and standings invalidation are all left untouched. A legitimately empty partition (empty upstream array) still commits normally. **CORRECTED 2026-09-20:** this bullet used to name `fetchSeasonType` and `hasRequiredSeasonTypeFailure` as the mechanism. **`fetchSeasonType` no longer exists in `src/` at all, and `hasRequiredSeasonTypeFailure` has no production caller** — PLATFORM-663 retired the per-season-type partition machinery those two implemented. The refusal survives; the symbols do not. See #833/#837 for their removal.
+- an **all-empty** result — every requested partition validly returned zero rows — is classified
+  **before** the durable/process-cache write (PLATFORM-086A 4th review): if a populated schedule is
+  already cached under `${cacheKey}`, the empty result is **rejected** as an unexpected replacement
+  (recorded a failed refresh, `502`, prior-good durable schedule + process cache untouched); only a
+  genuinely inapplicable/unpublished empty (postseason before bowls, a future season) resolves as a
+  **no-op** that writes nothing and preserves prior-good success metadata. An empty schedule is
+  never written durably and then reported as a no-op (which would empty the authoritative cache
+  while status claimed the old rows were still served). **CORRECTED 2026-09-20:** this used to say the route and the
+  season-transition cron call the **same** `classifyEmptyScheduleRefresh(...)` helper
+  (`scheduleSeasonFetch.ts`, PLATFORM-086A 6th review). **Neither calls it** — on `main` today the
+  helper has no production caller, only its own test. PLATFORM-663 made the whole-year aggregate the
+  single writer, and the decision moved into `commitFullSeasonSchedule`, which classifies all-empty
+  inside the advisory-locked transaction against a prior entry re-read transaction-fresh
+  (`fullSeasonScheduleRefresh.ts:151-157`). **The behaviour is identical and the drift the shared
+  helper existed to prevent is now structurally impossible:** an empty commit over a populated
+  prior-good schedule is a rejected failure (`schedule-empty-replacement-rejected`, prior-good
+  retained) and the league does **not** transition off that empty probe, while a genuinely
+  unpublished empty is a no-op that writes nothing.
 
 This composes with the durable-first rule above: on a **complete** refresh the schedule is persisted durably first, then the process cache, then invalidation.
 
-**One shared full-season refresh authority + per-year lease (PLATFORM-086E1A).** The full-year `/api/schedule?bypassCache=1` refresh, the season-transition cron, and the historical schedule repair all drive `refreshFullSeasonSchedule` (`src/lib/schedule/fullSeasonScheduleRefresh.ts`) rather than duplicating the fetch/commit. It acquires a durable token-safe lease under `schedule-refresh-control/<year>` (`crypto.randomUUID` token, 5-minute duration, reclaimable only when missing/malformed/expired, token-checked release, no backoff) **before** any provider or status work — a concurrent full-year refresh gets `refresh-in-progress` (HTTP `409`) and makes no provider request; a lease-store outage fails safe (no provider work). The commit runs inside `withAppStateKeyTransaction` on `schedule/<year>-all-all` with **observation ordering**: a prior entry whose `at` is ≥ the refresh's observation wins (a stale refresh writes nothing, `stale-observation` no-op — it only forwards the newer durable entry into the process cache when newer than the local one, never regressing); unchanged item content commits only newer observation metadata (`unchanged-clean`, no standings invalidation); changed content replaces the season's items (`written-clean`). Post-commit order is durable commit → same-instance process-cache publish → standings invalidation **only** when content changed → provider-refresh status. The completeness/empty rules above are enforced inside this authority (a partition failure records `schedule-partition-fetch-failed`/`-invalid-payload`/`-schema-drift`; an empty replacement records `schedule-empty-replacement-rejected`; a commit-store failure records `schedule-durable-commit-failed`). Callers consume a typed closed-vocabulary result — including the E1B instrumentation field `providerCallAttempted` (false for every pre-provider exit: prior-state read failure, lease contention/store failure, missing credentials; true immediately before the regular/postseason fetch pair and through every later transport/payload/completeness/commit failure). Targeted child-key writers (single `seasonType`/week) are unchanged.
+**One shared full-season refresh authority + per-year lease (PLATFORM-086E1A).** The full-year
+`/api/schedule?bypassCache=1` refresh, the season-transition cron, and the historical schedule
+repair all drive `refreshFullSeasonSchedule` (`src/lib/schedule/fullSeasonScheduleRefresh.ts`)
+rather than duplicating the fetch/commit. It acquires a durable token-safe lease under
+`schedule-refresh-control/<year>` (`crypto.randomUUID` token, 5-minute duration, reclaimable only
+when missing/malformed/expired, token-checked release, no backoff) **before** any provider or status
+work — a concurrent full-year refresh gets `refresh-in-progress` (HTTP `409`) and makes no provider
+request; a lease-store outage fails safe (no provider work). The commit runs inside
+`withAppStateKeyTransaction` on `schedule/<year>-all-all` with **observation ordering**: a prior
+entry whose `at` is ≥ the refresh's observation wins (a stale refresh writes nothing,
+`stale-observation` no-op — it only forwards the newer durable entry into the process cache when
+newer than the local one, never regressing); unchanged item content commits only newer observation
+metadata (`unchanged-clean`, no standings invalidation); changed content replaces the season's items
+(`written-clean`). Post-commit order is durable commit → same-instance process-cache publish →
+standings invalidation **only** when content changed → provider-refresh status. The
+completeness/empty rules above are enforced inside this authority (a partition failure records
+`schedule-partition-fetch-failed`/`-invalid-payload`/`-schema-drift`; an empty replacement records
+`schedule-empty-replacement-rejected`; a commit-store failure records
+`schedule-durable-commit-failed`). Callers consume a typed closed-vocabulary result — including the
+E1B instrumentation field `providerCallAttempted` (false for every pre-provider exit: prior-state
+read failure, lease contention/store failure, missing credentials; true immediately before the
+regular/postseason fetch pair and through every later transport/payload/completeness/commit
+failure). Targeted child-key writers (single `seasonType`/week) are unchanged.
 
-**The weekly caller (PLATFORM-086E1B, corrected by E1B1)** — `GET /api/cron/schedule-refresh`, externally triggered by QStash (`turfwar-schedule-weekly`, provisioned and active per runbook §8h, 2026-07-29; `vercel.json` keeps only the lifecycle crons) — delegates each targeted year (`season` AND `preseason`; any `season` league owns a mixed year, one execution; `offseason` excluded; automatic ownership is resolved from PRODUCTION leagues only — the demo league is filtered out per league before ownership is resolved and is maintained manually, PLATFORM-086F2H1T3) to this authority once per delivery, gated **operation-aware**: the ordinary operations — active-season `ordinary-maintenance` and E1B1's cache-armed early-preseason `preseason-maintenance` (armed `schedule-probe/<year>` with the UTC season-start date anchor MORE than 7 days away) — honor the `provider-refresh-settings` global pause + Schedule toggle via `isAutoRefreshAllowed` (a STRICT settings evaluation with no dataset-level lifecycle bypass), while postseason-boundary maintenance (from 7 days before the year's latest regular-season kickoff) is lifecycle-critical and never consults settings. An unarmed/final-seven-day preseason probe defers the year to the daily season-transition cron (`season-transition-owner` — mirroring transition's exact `shouldFetch` comparison; provider-free, no settings, no latch). A successful `preseason-maintenance` refresh re-derives the probe's `firstGameDate` from the committed schedule (preserving `baseCachedAt`, best-effort — mirroring the manual full-year refresh), so the transition handoff tracks the freshest committed eligible start-date anchor. A settings-store read failure blocks only the ordinary operations (`settings-unavailable`); preseason years never read or write the `schedule-weekly-control` postseason latch; duplicate/overlapping QStash deliveries are made safe by this authority's lease + observation ordering (a redelivery is a truthful `refresh-in-progress`/`stale-observation` no-op, never duplicate provider spend).
+**The weekly caller (PLATFORM-086E1B, corrected by E1B1)** — `GET /api/cron/schedule-refresh`,
+externally triggered by QStash (`turfwar-schedule-weekly`, provisioned and active per runbook §8h,
+2026-07-29; `vercel.json` keeps only the lifecycle crons) — delegates each targeted year (`season`
+AND `preseason`; any `season` league owns a mixed year, one execution; `offseason` excluded;
+automatic ownership is resolved from PRODUCTION leagues only — the demo league is filtered out per
+league before ownership is resolved and is maintained manually, PLATFORM-086F2H1T3) to this
+authority once per delivery, gated **operation-aware**: the ordinary operations — active-season
+`ordinary-maintenance` and E1B1's cache-armed early-preseason `preseason-maintenance` (armed
+`schedule-probe/<year>` with the UTC season-start date anchor MORE than 7 days away) — honor the
+`provider-refresh-settings` global pause + Schedule toggle via `isAutoRefreshAllowed` (a STRICT
+settings evaluation with no dataset-level lifecycle bypass), while postseason-boundary maintenance
+(from 7 days before the year's latest regular-season kickoff) is lifecycle-critical and never
+consults settings. An unarmed/final-seven-day preseason probe defers the year to the daily
+season-transition cron (`season-transition-owner` — mirroring transition's exact `shouldFetch`
+comparison; provider-free, no settings, no latch). A successful `preseason-maintenance` refresh
+re-derives the probe's `firstGameDate` from the committed schedule (preserving `baseCachedAt`,
+best-effort — mirroring the manual full-year refresh), so the transition handoff tracks the freshest
+committed eligible start-date anchor. A settings-store read failure blocks only the ordinary
+operations (`settings-unavailable`); preseason years never read or write the
+`schedule-weekly-control` postseason latch; duplicate/overlapping QStash deliveries are made safe by
+this authority's lease + observation ordering (a redelivery is a truthful
+`refresh-in-progress`/`stale-observation` no-op, never duplicate provider spend).
 
 ### Rankings refresh authority + cache-only reader (PLATFORM-086E2A)
 
-**One shared season-rankings refresh authority, mirroring the schedule authority's shape.** `refreshSeasonRankings({year, trigger})` (`src/lib/rankings/refreshAuthority.ts`) is the ONLY rankings writer — driven by the authorized manual `/api/rankings?bypassCache=1` refresh (`trigger: 'manual'`) and by the PLATFORM-086E2B publication-aware cron (`trigger: 'automatic'` — see the E2B paragraph below; ACTIVE since the §8j activation, 2026-07-30). It owns the full lifecycle: a durable token-safe lease under `rankings-refresh-control/<year>` (`crypto.randomUUID` token, 5-minute duration, reclaimable only when missing/malformed/expired, token-checked release, no backoff) acquired **before** any provider or status work — a concurrent same-year refresh gets `refresh-in-progress` (HTTP `409 {"error":"rankings-refresh-in-progress"}`) with no provider request and **no fabricated provider-refresh attempt**; a lease-store outage fails closed (`store-unavailable`). After the lease: one year-scoped attempt begins (before credential validation), the prior durable entry is read **forced-durable** (a read outage fails closed before provider work), `CFBD_API_KEY` is validated, the observation instant is captured immediately before the regular+postseason fetch pair, and both partitions are fetched OUTSIDE the commit transaction with the pre-E2A retry/pacing policies. Partition validation is independent per partition (thrown fetch → `provider-fetch-failed`; non-array → `invalid-provider-payload`; nonempty-normalizing-to-zero-usable-weeks → `rankings-partition-schema-drift`), and weeks labeled with a **different season than requested are not usable** (an entirely-mislabeled payload is schema drift; a partially-mislabeled one loses its foreign weeks and must then survive the completeness gate) — any uncertain partition rejects the whole aggregate; a partial regular/postseason mix is never published. The commit runs inside `withAppStateKeyTransaction('rankings', <year>)` against the transaction-fresh prior entry, in order: **observation ordering** (a prior entry observed at/after this refresh wins — `stale-observation` no-op, nothing written); **empty handling** (all-empty over populated prior-good → `rankings-empty-replacement-rejected`; all-empty with no prior-good → `empty-response` no-op); **prior-relative completeness** (the candidate may not lose a previously cached week or a previously populated `ap`/`coaches`/`cfp` poll source in a matching week → `rankings-partition-incomplete`; new weeks, new sources, corrected ranks, and changed team membership are allowed — coverage may only grow); **content comparison** (identical canonical weeks → `unchanged-clean`, a metadata-only freshness bump reporting `rowsCommitted: 0`; changed content → `written-clean` full replacement). The process memo publishes ONLY after a confirmed commit; provider-refresh status resolves from the typed result exactly once (`written-clean`/`unchanged-clean` → success recorded only after the durable commit; `empty-response`/`stale-observation` → no-op that never advances last-success; every failure retains prior-good success metadata); the lease releases token-checked in `finally`. Callers consume the typed closed-vocabulary `RankingsRefreshResult` (`src/lib/rankings/refreshResult.ts`) — never reparse an HTTP response or a thrown error; `attemptedSeasonTypes` and `providerCallAttempted` flip together exactly when the fetch pair begins, so pre-fetch exits never fabricate attempted partitions. One honest caveat is documented in the contract: a commit whose acknowledgment was lost reports `durable-commit-failed` (never a fabricated success) though it may have durably applied — the next refresh reconciles via observation ordering.
+**One shared season-rankings refresh authority, mirroring the schedule authority's shape.**
+`refreshSeasonRankings({year, trigger})` (`src/lib/rankings/refreshAuthority.ts`) is the ONLY
+rankings writer — driven by the authorized manual `/api/rankings?bypassCache=1` refresh (`trigger:
+'manual'`) and by the PLATFORM-086E2B publication-aware cron (`trigger: 'automatic'` — see the E2B
+paragraph below; ACTIVE since the §8j activation, 2026-07-30). It owns the full lifecycle: a durable
+token-safe lease under `rankings-refresh-control/<year>` (`crypto.randomUUID` token, 5-minute
+duration, reclaimable only when missing/malformed/expired, token-checked release, no backoff)
+acquired **before** any provider or status work — a concurrent same-year refresh gets
+`refresh-in-progress` (HTTP `409 {"error":"rankings-refresh-in-progress"}`) with no provider request
+and **no fabricated provider-refresh attempt**; a lease-store outage fails closed
+(`store-unavailable`). After the lease: one year-scoped attempt begins (before credential
+validation), the prior durable entry is read **forced-durable** (a read outage fails closed before
+provider work), `CFBD_API_KEY` is validated, the observation instant is captured immediately before
+the regular+postseason fetch pair, and both partitions are fetched OUTSIDE the commit transaction
+with the pre-E2A retry/pacing policies. Partition validation is independent per partition (thrown
+fetch → `provider-fetch-failed`; non-array → `invalid-provider-payload`;
+nonempty-normalizing-to-zero-usable-weeks → `rankings-partition-schema-drift`), and weeks labeled
+with a **different season than requested are not usable** (an entirely-mislabeled payload is schema
+drift; a partially-mislabeled one loses its foreign weeks and must then survive the completeness
+gate) — any uncertain partition rejects the whole aggregate; a partial regular/postseason mix is
+never published. The commit runs inside `withAppStateKeyTransaction('rankings', <year>)` against the
+transaction-fresh prior entry, in order: **observation ordering** (a prior entry observed at/after
+this refresh wins — `stale-observation` no-op, nothing written); **empty handling** (all-empty over
+populated prior-good → `rankings-empty-replacement-rejected`; all-empty with no prior-good →
+`empty-response` no-op); **prior-relative completeness** (the candidate may not lose a previously
+cached week or a previously populated `ap`/`coaches`/`cfp` poll source in a matching week →
+`rankings-partition-incomplete`; new weeks, new sources, corrected ranks, and changed team
+membership are allowed — coverage may only grow); **content comparison** (identical canonical weeks
+→ `unchanged-clean`, a metadata-only freshness bump reporting `rowsCommitted: 0`; changed content →
+`written-clean` full replacement). The process memo publishes ONLY after a confirmed commit;
+provider-refresh status resolves from the typed result exactly once
+(`written-clean`/`unchanged-clean` → success recorded only after the durable commit;
+`empty-response`/`stale-observation` → no-op that never advances last-success; every failure retains
+prior-good success metadata); the lease releases token-checked in `finally`. Callers consume the
+typed closed-vocabulary `RankingsRefreshResult` (`src/lib/rankings/refreshResult.ts`) — never
+reparse an HTTP response or a thrown error; `attemptedSeasonTypes` and `providerCallAttempted` flip
+together exactly when the fetch pair begins, so pre-fetch exits never fabricate attempted
+partitions. One honest caveat is documented in the contract: a commit whose acknowledgment was lost
+reports `durable-commit-failed` (never a fabricated success) though it may have durably applied —
+the next refresh reconciles via observation ordering.
 
-**The reader is strictly cache-only.** `loadSeasonRankings(year)` (`src/lib/server/rankings.ts`) NEVER contacts CFBD: process memo (trusted ≤ **120 s** — a cross-instance visibility bound, forcing a durable re-read after it so another instance's commit becomes visible) → durable `rankings/<year>` snapshot → newest available entry, with a post-read re-peek so a same-instance commit racing the durable read is never regressed. Rankings **data** staleness is separate: the **8-day** weekly-cadence horizon (sourced from the provider descriptor's `staleAfterMs`, so diagnostics and serving truth cannot drift) — younger snapshots serve clean, older ones remain prior-good fallback with `meta.stale`/`meta.rebuildRequired`; the pre-E2A 6-hour process TTL no longer marks weekly data stale. Neither horizon ever authorizes a public read to contact the provider; a full cache miss keeps the established `503 / admin refresh required` behavior. The active publication cron consumes two pure policies: the publication-slot classifier (`src/lib/rankings/publicationPolicy.ts` — five UTC windows with fixed precedence `final-ap-coaches → cfp-publication → opening-week-exception → weekly-ap-coaches → preseason-discovery`, discovery strictly bounded to before the first kickoff, deterministic `<year>:<kind>:<date>` duplicate-suppression keys) and the rankings automation quota gate (`src/lib/rankings/quotaPolicy.ts` — trustworthy CFBD usage ≥ **1,007** = the 1,000-call reserve + 1 `/info` + 3+3 partition attempts, via the shared `evaluateAutomationQuota` evaluator with a caller-supplied minimum; the game-stats/live-score default 1,002 is unchanged).
+**The reader is strictly cache-only.** `loadSeasonRankings(year)` (`src/lib/server/rankings.ts`)
+NEVER contacts CFBD: process memo (trusted ≤ **120 s** — a cross-instance visibility bound, forcing
+a durable re-read after it so another instance's commit becomes visible) → durable `rankings/<year>`
+snapshot → newest available entry, with a post-read re-peek so a same-instance commit racing the
+durable read is never regressed. Rankings **data** staleness is separate: the **8-day**
+weekly-cadence horizon (sourced from the provider descriptor's `staleAfterMs`, so diagnostics and
+serving truth cannot drift) — younger snapshots serve clean, older ones remain prior-good fallback
+with `meta.stale`/`meta.rebuildRequired`; the pre-E2A 6-hour process TTL no longer marks weekly data
+stale. Neither horizon ever authorizes a public read to contact the provider; a full cache miss
+keeps the established `503 / admin refresh required` behavior. The active publication cron consumes
+two pure policies: the publication-slot classifier (`src/lib/rankings/publicationPolicy.ts` — five
+UTC windows with fixed precedence `final-ap-coaches → cfp-publication → opening-week-exception →
+weekly-ap-coaches → preseason-discovery`, discovery strictly bounded to before the first kickoff,
+deterministic `<year>:<kind>:<date>` duplicate-suppression keys) and the rankings automation quota
+gate (`src/lib/rankings/quotaPolicy.ts` — trustworthy CFBD usage ≥ **1,007** = the 1,000-call
+reserve + 1 `/info` + 3+3 partition attempts, via the shared `evaluateAutomationQuota` evaluator
+with a caller-supplied minimum; the game-stats/live-score default 1,002 is unchanged).
 
-**The publication-aware automatic caller (PLATFORM-086E2B).** `GET /api/cron/rankings` — triggered by the fixed external QStash heartbeat `turfwar-rankings-publication` (04:00/22:00 UTC, retries 0; **ACTIVE; current controls are in deployment-runbook §8j and completed provisioning evidence is archived there by link**) — never duplicates the authority: one delivery authenticates `CRON_SECRET`, applies the Rankings gate (`isAutoRefreshAllowed('rankings')`; all rankings automation is noncritical), selects `preseason`/`season` registry years ascending from PRODUCTION leagues only (a `season` PRODUCTION league owns a mixed year; never the calendar; PLATFORM-086F2H1T4 filters the demo league PER LEAGUE inside `selectRankingsTargetYears`, never against the resolved years, and a demo-only active registry reports `skipped / no-automatic-ranking-target`), loads CACHE-ONLY context per year (`src/lib/rankings/automaticContext.ts`: earliest valid canonical kickoff + the structured championship via the E1A resolver from `schedule/<year>-all-all` — every item must be a plain object or the year is `canonical-context-unavailable`; poll coverage counts only well-formed poll arrays on weeks labeled with the target season, so foreign-season or malformed values never suppress a discovery window), and classifies the single route-entry instant with the E2A publication classifier. A DUE window is then claimed durably at **`rankings-publication-window/<year>:<kind>:<YYYY-MM-DD>`** (`src/lib/rankings/publicationWindowControl.ts`): a version-1 record `{version, publicationKey, completedAt, claim}` whose COMPLETED state is immutable (a completed key never spends an `/info` probe or a provider request again — the at-least-once-delivery guarantee), whose unfinished claims are 5-minute `crypto.randomUUID` token-safe (reclaimable when missing/malformed/expired; finalize/release are token-checked so a reclaimed stale claimant can neither complete nor clear a newer claim), and whose store failures fail closed on claim / report unconfirmed on completion / are swallowed on best-effort release. Only after a claim does the FRESH per-year CFBD `/info` probe run through the rankings quota gate (≥ 1,007), and only a permitted year invokes `refreshSeasonRankings({trigger:'automatic'})` (no `now` — fresh lease/observation clocks). Success and clean no-ops FINALIZE the window; quota refusals, contention, and failures RELEASE the claim for a later delivery; a successful refresh whose completion write is unconfirmed is a truthful `partial / publication-completion-unconfirmed` (the claim reconciles by expiry — never a blind retry, never a replaced result). One secret-safe `rankings-cron` event per invocation (see `docs/operations/diagnostics.md`). Housekeeping note: completed window records accumulate (~50–60 per season-year) — accepted at this scale; no TTL/cleanup exists.
+**The publication-aware automatic caller (PLATFORM-086E2B).** `GET /api/cron/rankings` — triggered
+by the fixed external QStash heartbeat `turfwar-rankings-publication` (04:00/22:00 UTC, retries 0;
+**ACTIVE; current controls are in deployment-runbook §8j and completed provisioning evidence is
+archived there by link**) — never duplicates the authority: one delivery authenticates
+`CRON_SECRET`, applies the Rankings gate (`isAutoRefreshAllowed('rankings')`; all rankings
+automation is noncritical), selects `preseason`/`season` registry years ascending from PRODUCTION
+leagues only (a `season` PRODUCTION league owns a mixed year; never the calendar; PLATFORM-086F2H1T4
+filters the demo league PER LEAGUE inside `selectRankingsTargetYears`, never against the resolved
+years, and a demo-only active registry reports `skipped / no-automatic-ranking-target`), loads
+CACHE-ONLY context per year (`src/lib/rankings/automaticContext.ts`: earliest valid canonical
+kickoff + the structured championship via the E1A resolver from `schedule/<year>-all-all` — every
+item must be a plain object or the year is `canonical-context-unavailable`; poll coverage counts
+only well-formed poll arrays on weeks labeled with the target season, so foreign-season or malformed
+values never suppress a discovery window), and classifies the single route-entry instant with the
+E2A publication classifier. A DUE window is then claimed durably at
+**`rankings-publication-window/<year>:<kind>:<YYYY-MM-DD>`**
+(`src/lib/rankings/publicationWindowControl.ts`): a version-1 record `{version, publicationKey,
+completedAt, claim}` whose COMPLETED state is immutable (a completed key never spends an `/info`
+probe or a provider request again — the at-least-once-delivery guarantee), whose unfinished claims
+are 5-minute `crypto.randomUUID` token-safe (reclaimable when missing/malformed/expired;
+finalize/release are token-checked so a reclaimed stale claimant can neither complete nor clear a
+newer claim), and whose store failures fail closed on claim / report unconfirmed on completion / are
+swallowed on best-effort release. Only after a claim does the FRESH per-year CFBD `/info` probe run
+through the rankings quota gate (≥ 1,007), and only a permitted year invokes
+`refreshSeasonRankings({trigger:'automatic'})` (no `now` — fresh lease/observation clocks). Success
+and clean no-ops FINALIZE the window; quota refusals, contention, and failures RELEASE the claim for
+a later delivery; a successful refresh whose completion write is unconfirmed is a truthful `partial
+/ publication-completion-unconfirmed` (the claim reconciles by expiry — never a blind retry, never a
+replaced result). One secret-safe `rankings-cron` event per invocation (see
+`docs/operations/diagnostics.md`). Housekeeping note: completed window records accumulate (~50–60
+per season-year) — accepted at this scale; no TTL/cleanup exists.
 
 ### Schedule PRESENTATION caches (PLATFORM-086E1C1, automated by E1C2)
 
-**Two optional presentation overlays live beside — never inside — the canonical schedule:** `schedule-media/<year>-all` (normalized year-wide game media: allowlisted `gameId`/`mediaType`/`outlet` rows, deduplicated by `(gameId, mediaType, case-insensitive outlet)`, deterministically sorted) and `venue-catalog/current` (the normalized GLOBAL venue catalog: id/name/city/state/countryCode/timezone/capacity/grass/dome; conflicting provider rows for one venue id reject the whole payload). Raw provider rows, URLs, errors, credentials, media kickoff fields (`startTime`/`isStartTimeTBD`), and excluded venue fields (zip/coordinates/elevation/construction year) are never persisted; the canonical `/games` schedule remains the only kickoff-time truth. Both caches are written ONLY by the shared authority `refreshSchedulePresentation` (`src/lib/schedule/schedulePresentationRefresh.ts`): independent 5-minute token-safe leases (`schedule-media-refresh-control/<year>`, `venue-catalog-refresh-control/current` — media proceeds while venues are contended/fresh and vice versa), at most ONE provider request per part, media eligibility restricted to the exact numeric provider game ids of the canonical `schedule/<year>-all-all` entry (read cache-only; absent/empty canonical schedule → `no-eligible-games`, NO provider call; unusable context never triggers provider work), a 30-day venue TTL enforced by a forced durable freshness read PLUS a post-lease-acquisition re-check (no read→lease TOCTOU double-spend), and the same prior-good protections as the canonical writers (non-array → `invalid-payload`; nonempty-normalizes-to-zero → `schema-drift`; empty-over-populated → `empty-replacement-rejected`; commits observation-ordered inside `withAppStateKeyTransaction` — a prior entry at/after the observation wins; durable write precedes memo publication and success status; a durable failure preserves prior-good and publishes nothing). A stored entry whose nonempty rows are ALL invalid normalizes to absence so a corrupted cache self-heals. Presentation changes NEVER invalidate standings or any canonical selector. **Reads are cache-only**: every successful `/api/schedule` response joins the two caches through a bounded ~120 s process memo (`schedulePresentationJoin.ts` — media by exact `item.id`, venue display fill by exact `venueId`; memo fills and publishes are regression-guarded so racing reads/commits never roll it back), never mutating canonical records; a presentation read failure serves base rows and never fails the route. **Callers (PLATFORM-086E1C2)**: the authorized full-year `/api/schedule?bypassCache=1` refresh (`manual`), the weekly schedule cron (`weekly`), and the daily season-transition cron (`season-transition`) — each invoking the authority at most once per year and ONLY after a populated canonical E1A success, after canonical recording/probe/lifecycle work, behind a narrow defensive catch (presentation faults are invisible to canonical truth). Rollover and historical repair never invoke it; no separate scheduler, cadence, or toggle exists. Automatic provider bounds per qualifying year: 2 canonical `/games` + 1 `/games/media` + `/venues` only when the 30-day catalog is due (a later qualifying year in the same invocation observes the fresh durable commit → `fresh-cache`).
+**Two optional presentation overlays live beside — never inside — the canonical schedule:**
+`schedule-media/<year>-all` (normalized year-wide game media: allowlisted
+`gameId`/`mediaType`/`outlet` rows, deduplicated by `(gameId, mediaType, case-insensitive outlet)`,
+deterministically sorted) and `venue-catalog/current` (the normalized GLOBAL venue catalog:
+id/name/city/state/countryCode/timezone/capacity/grass/dome; conflicting provider rows for one venue
+id reject the whole payload). Raw provider rows, URLs, errors, credentials, media kickoff fields
+(`startTime`/`isStartTimeTBD`), and excluded venue fields (zip/coordinates/elevation/construction
+year) are never persisted; the canonical `/games` schedule remains the only kickoff-time truth. Both
+caches are written ONLY by the shared authority `refreshSchedulePresentation`
+(`src/lib/schedule/schedulePresentationRefresh.ts`): independent 5-minute token-safe leases
+(`schedule-media-refresh-control/<year>`, `venue-catalog-refresh-control/current` — media proceeds
+while venues are contended/fresh and vice versa), at most ONE provider request per part, media
+eligibility restricted to the exact numeric provider game ids of the canonical
+`schedule/<year>-all-all` entry (read cache-only; absent/empty canonical schedule →
+`no-eligible-games`, NO provider call; unusable context never triggers provider work), a 30-day
+venue TTL enforced by a forced durable freshness read PLUS a post-lease-acquisition re-check (no
+read→lease TOCTOU double-spend), and the same prior-good protections as the canonical writers
+(non-array → `invalid-payload`; nonempty-normalizes-to-zero → `schema-drift`; empty-over-populated →
+`empty-replacement-rejected`; commits observation-ordered inside `withAppStateKeyTransaction` — a
+prior entry at/after the observation wins; durable write precedes memo publication and success
+status; a durable failure preserves prior-good and publishes nothing). A stored entry whose nonempty
+rows are ALL invalid normalizes to absence so a corrupted cache self-heals. Presentation changes
+NEVER invalidate standings or any canonical selector. **Reads are cache-only**: every successful
+`/api/schedule` response joins the two caches through a bounded ~120 s process memo
+(`schedulePresentationJoin.ts` — media by exact `item.id`, venue display fill by exact `venueId`;
+memo fills and publishes are regression-guarded so racing reads/commits never roll it back), never
+mutating canonical records; a presentation read failure serves base rows and never fails the route.
+**Callers (PLATFORM-086E1C2)**: the authorized full-year `/api/schedule?bypassCache=1` refresh
+(`manual`), the weekly schedule cron (`weekly`), and the daily season-transition cron
+(`season-transition`) — each invoking the authority at most once per year and ONLY after a populated
+canonical E1A success, after canonical recording/probe/lifecycle work, behind a narrow defensive
+catch (presentation faults are invisible to canonical truth). Rollover and historical repair never
+invoke it; no separate scheduler, cadence, or toggle exists. Automatic provider bounds per
+qualifying year: 2 canonical `/games` + 1 `/games/media` + `/venues` only when the 30-day catalog is
+due (a later qualifying year in the same invocation observes the fresh durable commit →
+`fresh-cache`).
 
 ### Provider-refresh status, settings, and writer control
 
@@ -180,9 +402,36 @@ Recovery.
 
 ### Scheduler execution receipts (PLATFORM-086F2E1 / F2E2A)
 
-**`scheduler-execution-status/<job>`** stores ONE latest-only durable receipt per SCHEDULED cron job — the seven QStash jobs (`live-scores`, `team-records`, `game-stats`, `odds`, `schedule-refresh`, `rankings`, `usage-sample`) plus the two Vercel-native lifecycle crons (`season-transition`, `season-rollover`; PLATFORM-086F2E2A) — recording that an **authenticated** scheduled delivery reached the application: `version` (`1`), `job`, `source`, an application-generated `invocationId` (`crypto.randomUUID`, created only after `verifyCronSecret` returns `ok`), `startedAt`/`completedAt`, a nonnegative-integer `durationMs` (route duration only, excluding receipt-storage time), the route tracker's verbatim `result`/`reason`, `providerCallAttempted`, and a bounded per-job `target` summary (multi-year jobs cap at eight ascending entries with truthful `totalYears`/`truncated`). **`source` is DERIVED from `job` — never accepted from a caller** — and is `qstash` for the seven QStash jobs and `vercel-cron` for the two lifecycle crons; a stored record whose source (or target kind) disagrees with its job is corrupt and replaceable. It is written by `src/lib/server/schedulerExecutionStatus.ts` and is **completely separate from `provider-refresh-status`**: the receipt proves scheduler _delivery_, not provider-data activity.
+**`scheduler-execution-status/<job>`** stores ONE latest-only durable receipt per SCHEDULED cron job
+— the seven QStash jobs (`live-scores`, `team-records`, `game-stats`, `odds`, `schedule-refresh`,
+`rankings`, `usage-sample`) plus the two Vercel-native lifecycle crons (`season-transition`,
+`season-rollover`; PLATFORM-086F2E2A) — recording that an **authenticated** scheduled delivery
+reached the application: `version` (`1`), `job`, `source`, an application-generated `invocationId`
+(`crypto.randomUUID`, created only after `verifyCronSecret` returns `ok`),
+`startedAt`/`completedAt`, a nonnegative-integer `durationMs` (route duration only, excluding
+receipt-storage time), the route tracker's verbatim `result`/`reason`, `providerCallAttempted`, and
+a bounded per-job `target` summary (multi-year jobs cap at eight ascending entries with truthful
+`totalYears`/`truncated`). **`source` is DERIVED from `job` — never accepted from a caller** — and
+is `qstash` for the seven QStash jobs and `vercel-cron` for the two lifecycle crons; a stored record
+whose source (or target kind) disagrees with its job is corrupt and replaceable. It is written by
+`src/lib/server/schedulerExecutionStatus.ts` and is **completely separate from
+`provider-refresh-status`**: the receipt proves scheduler _delivery_, not provider-data activity.
 
-**Cache-only reader (PLATFORM-086F2E2B).** `src/lib/server/schedulerDeliveryHealth.ts` reads this scope through a single `getAppStateEntries(SCHEDULER_EXECUTION_STATUS_SCOPE)` call (no memo, no write, no provider/HTTP/quota work) and returns one state-bearing row per scheduled job in canonical order. Each stored row is parsed by the authority's exported `parseSchedulerExecutionReceipt`, which validates the version/job/derived-source/timestamps/result/reason/provider-flag/job-compatible-target contract, applies the same 5-minute future-`startedAt` guard as the writer, and **rebuilds the receipt field-by-field so no extra top-level/target/nested property escapes** (never a raw cast). Delivery state is `on-time | late | missing | invalid | unavailable`: a missing key is `missing`, an unparseable row is `invalid` (never contaminating a valid sibling), and a scope-read failure yields one `unavailable` row per job without leaking the storage error. **Delivery timeliness is `startedAt` versus the most recent fixed UTC schedule slot at/before (`now − grace`) — never `updatedAt` or `completedAt`, and never `result`/`reason`/`providerCallAttempted`/target contents.** The consolidated System Health view model consumes this reader directly; there is no separate scheduler-receipt API route.
+**Cache-only reader (PLATFORM-086F2E2B).** `src/lib/server/schedulerDeliveryHealth.ts` reads this
+scope through a single `getAppStateEntries(SCHEDULER_EXECUTION_STATUS_SCOPE)` call (no memo, no
+write, no provider/HTTP/quota work) and returns one state-bearing row per scheduled job in canonical
+order. Each stored row is parsed by the authority's exported `parseSchedulerExecutionReceipt`, which
+validates the
+version/job/derived-source/timestamps/result/reason/provider-flag/job-compatible-target contract,
+applies the same 5-minute future-`startedAt` guard as the writer, and **rebuilds the receipt
+field-by-field so no extra top-level/target/nested property escapes** (never a raw cast). Delivery
+state is `on-time | late | missing | invalid | unavailable`: a missing key is `missing`, an
+unparseable row is `invalid` (never contaminating a valid sibling), and a scope-read failure yields
+one `unavailable` row per job without leaking the storage error. **Delivery timeliness is
+`startedAt` versus the most recent fixed UTC schedule slot at/before (`now − grace`) — never
+`updatedAt` or `completedAt`, and never `result`/`reason`/`providerCallAttempted`/target contents.**
+The consolidated System Health view model consumes this reader directly; there is no separate
+scheduler-receipt API route.
 
 - **Latest-only, monotonic.** Row count stays constant at one per job. The write runs inside `withAppStateKeyTransaction('scheduler-execution-status', job, …)`; a valid prior is preserved unless the incoming receipt is strictly newer by `(startedAt, invocationId)` — later `startedAt` wins, equal instants tie-break on lexical `invocationId`, and an exact duplicate identity never rewrites. `completedAt` and app-state `updated_at` never decide freshness, so an older overlapping invocation that completes late cannot overwrite a newer delivery.
 - **Malformed / future-dated priors are replaceable.** A prior is usable only when its version, job, source, invocation identity, timestamps, result, provider flag, and job-compatible target shape are all valid AND its `startedAt` is not implausibly ahead of real time (a 5-minute skew tolerance; the skew reference is read INSIDE the transaction, after the lock wait, so contention can't make it stale). Anything else — missing, malformed, job-mismatched, obsolete-version, or future-dated — is replaced. A genuine prior-record READ failure aborts the transaction without writing (never mistaken for a replaceable absent record).
