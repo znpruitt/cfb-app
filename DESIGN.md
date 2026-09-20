@@ -322,7 +322,14 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   and [#831](https://github.com/znpruitt/cfb-app/issues/831) (the lookup, which must NOT widen the
   138-team draft catalog); [#726](https://github.com/znpruitt/cfb-app/issues/726) re-derives the
   column thresholds once it ships. A team outside the catalog and a TBD placeholder go
-  through that same field, so one row never mixes a full name with an abbreviation. Governs every
+  through that same field. **CLARIFIED 2026-09-20, because this sentence predates the #821 fallback
+  and read two ways:** it governs the name SOURCE — no surface takes a name from a different field —
+  and says nothing about the width fallback. **The fallback is PER LABEL: a row may show one team
+  abbreviated and its opponent in full.** Owner ruling on
+  [#832](https://github.com/znpruitt/cfb-app/issues/832)'s read receipt, which established that a
+  row-wide rule cannot hold: when one side has no abbreviation, keeping the row whole either mixes it
+  anyway or leaves the long sibling to clip, and a short name abbreviating because its opponent is
+  long loses information for nothing. Governs every
   scoreboard surface: Overview, Matchups, Schedule and the Postseason tab it renders, and the recap.
   **Added 2026-09-16** by owner decision on #729. This file was silent; Overview and Matchups already
   rendered provider names, while Schedule rendered an abbreviation for every FBS team — the team
