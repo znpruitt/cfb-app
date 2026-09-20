@@ -472,6 +472,7 @@ These consolidate recurring historical observations, not new project-governance 
   re-ran the gates. Every finding was CONFIRMED against the code; none was rebutted. Three were fixed in
   scope (`cd6e73d5`), one accepted-but-out-of-scope, four reported as stopped, and the `AGENTS.md`
   conflict above outranks all of them.
+- Status: **Merged `74959f26` ([PR #835](https://github.com/znpruitt/cfb-app/pull/835)), 2026-09-20;** merged tree `0c39f4c6` identical to the gated tip `c6bd6ad1` — the branch re-merged `main` and **re-ran all four gates** after `main` moved a second time post-gating, so the tree-hash check compares against a tree that was actually gated. 5,464 pass / 0 fail. NOT promoted. Leaves [#833](https://github.com/znpruitt/cfb-app/issues/833) open, which carries the four out-of-scope precedence sites, the `LeagueStatusPanel` record-versus-row defect, the two orphaned modules and the stale docstring. `AGENTS.md` was amended for this ruling in `91aa30a3`.
 
 ### PLATFORM-816-STANDINGS-CACHE-DELTA-CLAUDE-v2
 
