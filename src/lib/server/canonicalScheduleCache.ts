@@ -1,5 +1,6 @@
 import type { AppGame, ScheduleWireItem } from '../schedule.ts';
 import { getAppState } from './appStateStore.ts';
+import { validateDurableScheduleRows } from './durableScheduleRow.ts';
 
 /**
  * The durable `schedule` record as stored. Every field but `items` is optional
@@ -23,6 +24,18 @@ export type CanonicalScheduleEntry<T = ScheduleWireItem> = {
   partialFailure: boolean;
   failedSeasonTypes: string[];
   source: CanonicalScheduleEntrySource;
+  /**
+   * How many durable row FIELDS this read had to coerce (PLATFORM-813), or `null`
+   * when the rows were not validated on this path.
+   *
+   * It rides on the entry rather than being logged because #693 binds: a reader that
+   * cannot say whether the season is fully accounted for must be able to REPORT
+   * that, and a count in a log line is not available to the consumer deciding.
+   * `null` vs `0` is deliberate — see `durableScheduleRow.ts`.
+   */
+  coercedFieldCount: number | null;
+  /** How many ROWS were discarded as unusable, or `null` when not validated. */
+  droppedRowCount: number | null;
 };
 
 /** The durable app-state scope every canonical schedule key lives in. */
@@ -125,8 +138,48 @@ export function canonicalScheduleAggregateServes(value: unknown): boolean {
  * diff that falsifies a comment owns that comment, which is the rule this module's
  * header applies to `scheduleSeasonFetch.ts` and could not coherently dodge here.
  */
+/**
+ * A stored season whose EVERY row was unusable.
+ *
+ * Distinct from absence on purpose. `nationalChampionshipRollover.ts:144-157` states
+ * the contract its own way — *"A store READ failure surfaces as a failure; genuine
+ * absence (`[]`) is an ordinary skip"* — and returns
+ * `{ kind: 'skip', reason: 'no-season-schedule' }` for `[]`. If corruption collapsed
+ * into `[]`, that consumer would record **"this season has no schedule"** in a durable
+ * receipt when the truth is "the schedule was unreadable": #693's publishes-certainty
+ * failure, in a new place, written down permanently.
+ *
+ * **Throwing PRESERVES what production already does.** Before PLATFORM-813 a stored
+ * `[null]` threw on `row.homeTeam.trim()` — the very mechanism the season-rollover
+ * receipt test was built on. Returning `[]` instead would have been a silent
+ * regression wearing the costume of a design choice.
+ *
+ * Every consumer already has the branch: the rollover catches a read throw into
+ * `{ kind: 'read-failed' }`, and `seasonBuild.ts:100-102` already throws on an empty
+ * read. No consumer needed a change.
+ */
+export class SeasonScheduleUnreadableError extends Error {
+  constructor(
+    readonly year: number,
+    readonly droppedRows: number
+  ) {
+    super(
+      `schedule ${year}: every stored row was unusable (${droppedRows} dropped) — the season is unreadable, not empty`
+    );
+    this.name = 'SeasonScheduleUnreadableError';
+  }
+}
+
 export async function loadCachedScheduleItems(year: number): Promise<ScheduleWireItem[]> {
   const entry = await loadCanonicalScheduleEntry<ScheduleWireItem>(year);
+
+  // A NON-EMPTY stored array that validated down to nothing is unreadable, not empty.
+  // An empty stored array still returns `[]` — genuine absence stays a real state, and
+  // conflating the two in the other direction would be the same defect mirrored.
+  if (entry && entry.items.length === 0 && (entry.droppedRowCount ?? 0) > 0) {
+    throw new SeasonScheduleUnreadableError(year, entry.droppedRowCount!);
+  }
+
   return entry?.items ?? [];
 }
 
@@ -182,16 +235,21 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
     const stamps = contributing.map((value) =>
       typeof value.at === 'number' && Number.isFinite(value.at) ? value.at : 0
     );
+    const validated = validateDurableScheduleRows(
+      contributing.flatMap((value) => value.items ?? [])
+    );
     return {
       // Oldest contributing partition wins, so the pair can never read fresher
       // than its stalest half.
       at: Math.min(...stamps),
-      items: contributing.flatMap((value) => value.items ?? []),
+      items: validated.items as T[],
       partialFailure: contributing.some((value) => value.partialFailure === true),
       failedSeasonTypes: contributing.flatMap((value) =>
         Array.isArray(value.failedSeasonTypes) ? value.failedSeasonTypes : []
       ),
       source: 'partition-pair',
+      coercedFieldCount: validated.coercedFieldCount,
+      droppedRowCount: validated.droppedRowCount,
     };
   }
 
@@ -218,12 +276,18 @@ function normalizeEntry<T>(
   value: StoredScheduleEntry<T>,
   source: CanonicalScheduleEntrySource
 ): CanonicalScheduleEntry<T> {
+  // PLATFORM-813: the ONE place a durable row becomes a `ScheduleWireItem` the rest
+  // of the app trusts. Both construction paths validate, so there is no way to reach
+  // an entry whose rows were not checked.
+  const validated = validateDurableScheduleRows(value.items ?? []);
   return {
     at: typeof value.at === 'number' && Number.isFinite(value.at) ? value.at : 0,
-    items: value.items ?? [],
+    items: validated.items as T[],
     partialFailure: value.partialFailure === true,
     failedSeasonTypes: Array.isArray(value.failedSeasonTypes) ? value.failedSeasonTypes : [],
     source,
+    coercedFieldCount: validated.coercedFieldCount,
+    droppedRowCount: validated.droppedRowCount,
   };
 }
 

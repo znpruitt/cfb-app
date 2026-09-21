@@ -24,7 +24,7 @@ import { isFbsTeam } from './scheduleEligibility.ts';
 import { isFbsRelevantScheduleRow } from './scheduleRelevance.ts';
 import { deriveConferenceOptionsFromTrackedGames } from './selectors/conferences.ts';
 import { deriveCanonicalRegularSeasonWeek } from './regularSeasonWeekCalendar.ts';
-import type { VenueInfo } from './schedule/cfbdSchedule.ts';
+import { NON_FBS_CLASSIFICATIONS, type VenueInfo } from './schedule/cfbdSchedule.ts';
 import type { ScheduleMediaItem } from './schedule/schedulePresentation.ts';
 import { requireAdminAuthHeaders } from './adminAuth.ts';
 
@@ -286,6 +286,32 @@ function stageOrder(stage: GameStage): number {
   return 4;
 }
 
+/**
+ * `|| ''` HERE COVERS ABSENCE, NOT TYPE, AND THE DIFFERENCE IS THE POINT
+ * (PLATFORM-813).
+ *
+ * It is not dead and must not be deleted as "now redundant": an empty or missing
+ * provider status is an ordinary value this has always had to handle, and `|| ''`
+ * is what handles it.
+ *
+ * What it never covered is a WRONG TYPE. `(5 || '')` is `5`, and `.toLowerCase` on a
+ * number throws — so before the boundary validated rows, a durable row whose
+ * `status` was a JSON number took down the whole build from inside
+ * `buildScheduleFromApi`'s per-row loop, through this function, at `:542` and
+ * `:778`. **That is now covered upstream by `validateDurableScheduleRows`**, which
+ * coerces a non-string `status` to `''` once at the canonical read rather than
+ * asking each reader to re-check. This function was the only TRANSITIVE throw in the
+ * audited surface — invisible to a sweep looking for a method call on a row field,
+ * because the method is called on a parameter here.
+ *
+ * `rawStatus: string` is the same lie `homeTeam: string` tells: the signature is
+ * honest about intent and says nothing about what a durable row actually holds. Both
+ * callers pass `item.status` straight from a stored row.
+ *
+ * Asserted by `durableScheduleRow.test.ts` — "a non-string status survives the build"
+ * covers the type half, and "an absent status still classifies" covers the half this
+ * `|| ''` owns, so neither can be removed on the belief the other protects it.
+ */
 function mapStatus(rawStatus: string, isPlaceholder: boolean): GameStatus {
   const lower = (rawStatus || '').toLowerCase();
   if (lower.includes('final')) return 'final';
@@ -351,11 +377,6 @@ function retainedScheduleMetadata(item: ScheduleWireItem): Partial<AppGame> {
 }
 
 const SHARED_FIRST_ROUND_EVENT_KEY = 'cfp-first-round';
-const NON_FBS_PROVIDER_CLASSIFICATIONS: ReadonlySet<ProviderClassification> = new Set([
-  'fcs',
-  'ii',
-  'iii',
-]);
 
 /**
  * The event key a `gamePhase: 'postseason'` row is built under (PLATFORM-708).
@@ -417,8 +438,7 @@ function postseasonEventKey(item: ScheduleWireItem): string {
   const numericId = Number(providerId);
   if (!Number.isSafeInteger(numericId) || String(numericId) !== providerId) return eventKey;
   const explicitNonFbs = [item.homeClassification, item.awayClassification].some(
-    (classification) =>
-      classification !== undefined && NON_FBS_PROVIDER_CLASSIFICATIONS.has(classification)
+    (classification) => classification !== undefined && NON_FBS_CLASSIFICATIONS.has(classification)
   );
   // Returning the SHARED key here leaves explicitly non-FBS rows colliding with
   // each other exactly as they do today — #811 owns that residue, along with the

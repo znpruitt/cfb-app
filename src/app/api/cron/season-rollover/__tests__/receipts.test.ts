@@ -490,9 +490,45 @@ test('a championship-resolution throw records the failing year in the event/rece
   await setAppState('leagues', 'registry', [
     makeLeague('alpha', { state: 'season', year: 2023 }, 2023),
   ]);
-  // A malformed schedule cache: a null item makes structured-championship
-  // resolution throw AFTER the cache read succeeds (not a read-failed return).
-  await setAppState('schedule', `2023-all-all`, { items: [null] });
+  // PLATFORM-813 replaced this fixture. It used to seed `{ items: [null] }`, relying
+  // on a null ROW reaching resolution and throwing on `row.homeTeam.trim()`. The
+  // canonical boundary now validates rows, so a null row is dropped before any
+  // consumer sees it and that mechanism is gone — a non-empty array that validates
+  // down to nothing now raises `SeasonScheduleUnreadableError` from the READ, which
+  // this route classifies as `read-failed`, NOT the `unexpected-error` this test is
+  // about.
+  //
+  // The intent survives unchanged (Codex r3 finding A: a resolution throw records the
+  // failing year); only the mechanism moves, to a malformed SCORE. Scores are not
+  // covered by the schedule-row boundary, and `classifyScorePackStatus` runs at
+  // `nationalChampionshipRollover.ts:222` — OUTSIDE both try blocks — so a non-string
+  // `status` throws out of resolution and reaches the route's outer catch.
+  //
+  // WHY THIS EXACT SHAPE, because two others did not work and the difference is the
+  // point. A score pack missing `home` fails during score ATTACHMENT, inside the
+  // step-3/4 try, and returns `read-failed` — verified, not assumed. The participants
+  // must therefore be intact so the pack survives attachment and breaks only at
+  // classification. `status: 99` is the narrowest value that does that.
+  await seedChampionship(2023, PAST_CHAMP, true);
+  await setAppState('scores', `2023-all-postseason`, {
+    at: Date.parse(PAST_CHAMP),
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+    items: [
+      {
+        id: `20230752`,
+        seasonType: 'postseason',
+        startDate: PAST_CHAMP,
+        week: 15,
+        // A NON-STRING status with both participants intact: it survives attachment
+        // and breaks at `classifyScorePackStatus`, outside the try.
+        status: 99,
+        home: { team: 'Alpha U', score: 34 },
+        away: { team: 'Beta U', score: 21 },
+        time: null,
+      },
+    ],
+  });
   const { res, event, threw } = await runRoute();
   // The outer catch preserves the same 500; the event/receipt still include the year.
   assert.ok(res!.status === 500 || threw, 'a resolution throw is the existing 500 / propagation');

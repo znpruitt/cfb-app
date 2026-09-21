@@ -36,6 +36,17 @@ function partitionItems(record: AppStateRecord<unknown> | null): readonly unknow
  *     feeds the games-vanished detector — so a partial read would manufacture a
  *     disappearance. Unavailable-as-a-whole is the safe answer, and it is why
  *     the shared reader is the wrong shape for this one caller.
+ *
+ * **PLATFORM-813 adds a third fact, and this comment was INCOMPLETE rather than
+ * wrong without it.** Both bullets above are about malformed PARTITIONS; neither says
+ * anything about malformed ROWS. The canonical reader now validates every row it
+ * returns (`validateDurableScheduleRows`), so bypassing it deliberately makes this the
+ * one path that serves rows unvalidated. That is accepted, not overlooked: this value
+ * is compared by game IDENTITY to detect disappearance and no string method is called
+ * on its fields here, so a wrong-typed field cannot throw on this path. If a future
+ * change starts reading these rows' fields as strings, this bullet is the one that
+ * stops being true — validate at that point rather than unifying with the shared
+ * reader, which would reintroduce both problems above.
  */
 export async function loadScheduleDisappearanceFallback(params: {
   year: number;

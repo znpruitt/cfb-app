@@ -280,3 +280,119 @@ test('an EMPTY partition record is a miss, so it cannot become a 200 with zero r
   assert.equal(entry?.source, 'aggregate');
   assert.equal(entry?.at, 77);
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-813 v2 — the boundary validates, and all 13 consumers inherit it.
+// ---------------------------------------------------------------------------
+
+/** The 13 production consumers of the canonical reader, as audited on `main`. */
+const CANONICAL_CONSUMERS = [
+  'lib/seasonBuild.ts',
+  'app/api/scores/route.ts',
+  'app/api/admin/cache-historical-scores/route.ts',
+  'app/api/cron/polling-planner/route.ts',
+  'lib/insights/loadInsights.ts',
+  'lib/schedule/nationalChampionshipRollover.ts',
+  'lib/gameStats/canonicalSlate.ts',
+  'lib/server/teamRecordsClient.ts',
+  'lib/server/providerDataDiagnostics.ts',
+  'lib/odds/canonicalOddsContext.ts',
+  'lib/odds/oddsRefreshExecutor.ts',
+  'lib/liveScores/canonicalContext.ts',
+  'lib/selectors/leagueStandings.ts',
+] as const;
+
+test('the boundary returns COERCED rows and reports the count', async () => {
+  await setAppState('schedule', '2031-all-all', {
+    at: 500,
+    items: [
+      { id: 401, week: 1, homeTeam: 7, awayTeam: 'Rice', status: true, eventKey: { a: 1 } },
+      { id: 'ok', week: 2, homeTeam: 'Texas', awayTeam: 'Baylor', status: 'final' },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+
+  const entry = await loadCanonicalScheduleEntry(YEAR);
+  const first = entry!.items[0] as unknown as Record<string, unknown>;
+  assert.equal(first.id, '', 'a numeric id is coerced at the boundary');
+  assert.equal(first.homeTeam, '');
+  assert.equal(first.status, '');
+  assert.equal(first.eventKey, '');
+  assert.equal(entry!.coercedFieldCount, 4, 'each coerced field is counted, not each row');
+
+  // The well-formed row is untouched.
+  const second = entry!.items[1] as unknown as Record<string, unknown>;
+  assert.equal(second.homeTeam, 'Texas');
+});
+
+test('the item-only projection inherits the validation', async () => {
+  // `loadCachedScheduleItems` is what 13 consumers call. If it bypassed the entry
+  // reader, every one of them would see raw rows while the route saw validated ones.
+  await setAppState('schedule', '2031-all-all', {
+    at: 500,
+    items: [{ id: 'g1', week: 1, homeTeam: 99, awayTeam: 'Rice', status: 'final' }],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  const items = await loadCachedScheduleItems(YEAR);
+  assert.equal((items[0] as unknown as Record<string, unknown>).homeTeam, '');
+});
+
+test('the partition-pair path validates too', async () => {
+  // Two construction sites, so two chances to miss one. The pair path builds its
+  // entry inline rather than through `normalizeEntry`.
+  await setAppState('schedule', '2031-all-regular', {
+    at: 400,
+    items: [{ id: 'p1', week: 1, homeTeam: 5, awayTeam: 'Rice', status: 'final' }],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  const entry = await loadCanonicalScheduleEntry(YEAR);
+  assert.equal(entry!.source, 'partition-pair');
+  assert.equal((entry!.items[0] as unknown as Record<string, unknown>).homeTeam, '');
+  assert.equal(entry!.coercedFieldCount, 1);
+});
+
+test('all 13 consumers read through the boundary, and none reads around it', async () => {
+  // ACCEPTANCE 3. This fails if a consumer starts reading the durable key directly —
+  // which is how it would silently opt out of validation while the boundary's tests
+  // stayed green.
+  //
+  // POPULATION: the 13 files listed above, resolved under `src/`. That is the claim's
+  // population and it is stated because a sweep's root is part of its result — v1's
+  // non-FBS sweep rooted at `src/lib` and read identically to one rooted correctly.
+  const { readFile } = await import('node:fs/promises');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  // This file lives at `src/lib/server/__tests__/`, so `src` is THREE levels up. The
+  // count is asserted rather than trusted: v1's non-FBS sweep rooted at `src/lib`
+  // believing it was at `src`, and I repeated the error here before this assertion
+  // caught it. A sweep's root is part of its result.
+  const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+  assert.equal(path.basename(src), 'src', `the sweep root must be src/, got ${src}`);
+
+  const missing: string[] = [];
+  for (const rel of CANONICAL_CONSUMERS) {
+    const text = await readFile(path.join(src, rel), 'utf8');
+    if (!text.includes('loadCachedScheduleItems')) missing.push(rel);
+  }
+  assert.deepEqual(
+    missing,
+    [],
+    `these consumers no longer read through the canonical boundary: ${missing.join(', ')}`
+  );
+
+  // POSITIVE CONTROL for the check itself: a path that does NOT go through the
+  // boundary must be detected as such, or the assertion above could pass by matching
+  // everything. `scheduleDisappearanceBaseline` deliberately bypasses the reader.
+  const bypass = await readFile(
+    path.join(src, 'lib/schedule/scheduleDisappearanceBaseline.ts'),
+    'utf8'
+  );
+  assert.equal(
+    bypass.includes('loadCachedScheduleItems('),
+    false,
+    'the known bypass must read as a bypass, proving this check can tell the difference'
+  );
+});

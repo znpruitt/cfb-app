@@ -302,7 +302,31 @@ function hasPlayoffMarker(text: string): boolean {
  * CFBD classification values that are EXPLICIT negative evidence for CFP
  * inference. CFBD currently emits `fbs`, `fcs`, `ii`, and `iii`.
  */
-const NON_FBS_CLASSIFICATIONS: ReadonlySet<ProviderClassification> = new Set(['fcs', 'ii', 'iii']);
+/**
+ * THE ONE DEFINITION of the provider's non-FBS vocabulary (PLATFORM-813).
+ *
+ * `schedule.ts` held a second, separately spelled copy
+ * (`NON_FBS_PROVIDER_CLASSIFICATIONS`) and now imports this one.
+ *
+ * **PREVENTIVE, and worth being exact about what it does NOT do.** The two sets were
+ * IDENTICAL when merged — `fcs`, `ii`, `iii` — so no drift was repaired; one copy was
+ * removed so the next edit cannot create drift. It also does NOT stop a new division
+ * failing open: this is an allow-list of known non-FBS values, so a fifth
+ * classification CFBD might start emitting would read as FBS at both call sites until
+ * someone adds it here. Deriving non-FBS as `ProviderClassification` minus `'fbs'`
+ * would close that, and needs the union's own set exported from
+ * `conferenceSubdivision.ts:89-91` — outside this slice's scope.
+ *
+ * Asserted by `nonFbsClassifications.test.ts`, whose sweep fails if a second set of
+ * these values reappears anywhere under `src/` — and which states that root beside
+ * its result, because v1's sweep rooted at `src/lib` and a clean result from a narrow
+ * root reads identically to a clean one from the right root.
+ */
+export const NON_FBS_CLASSIFICATIONS: ReadonlySet<ProviderClassification> = new Set([
+  'fcs',
+  'ii',
+  'iii',
+]);
 
 /**
  * Whether the provider EXPLICITLY classifies either participant below FBS.
