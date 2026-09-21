@@ -117,8 +117,10 @@ retained, refresh recorded as failed, `502`); only a genuinely inapplicable/unpu
 nothing and preserves prior-good success metadata. An empty schedule is never
 committed-then-labelled-a-no-op (which would empty the cache while claiming old rows are still
 served). **CORRECTED 2026-09-20:** this paragraph used to say both paths share ONE
-classifier, `classifyEmptyScheduleRefresh` in `scheduleSeasonFetch.ts` — **that helper has no
-production caller on `main` today.** PLATFORM-663 made the whole-year aggregate the single writer
+classifier, `classifyEmptyScheduleRefresh` in `scheduleSeasonFetch.ts` — **that helper no longer exists.**
+It had no production caller when this correction was first written on 2026-09-20; #833 deleted it
+later the same day (merged `c03042ad`), and `scheduleSeasonFetch.test.ts:34` now asserts its
+absence by name. PLATFORM-663 made the whole-year aggregate the single writer
 and the check moved into it: `commitFullSeasonSchedule` decides all-empty inside the
 advisory-locked transaction against a transaction-fresh prior entry
 (`fullSeasonScheduleRefresh.ts:151-157`). The rule is unchanged — an empty probe over a populated

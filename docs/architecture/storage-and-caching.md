@@ -157,7 +157,17 @@ Both schedule refresh paths — the season-transition cron (`/api/cron/season-tr
 On uncertainty the two routes surface it in their own style but with the same effect — no durable write, no process-cache update, no standings invalidation, prior-good state retained:
 
 - the **cron** (PLATFORM-085B) requests regular + postseason, retains prior-good durable schedule/probe, and reports `partialFailure` on that year's result (the next run retries). Its lifecycle status flip is a separate write that runs off the validated probe, so a partial fetch never advances the probe and the transition only ever acts on complete/prior-good schedule data.
-- the **`/api/schedule` route** (PLATFORM-085C) refuses to commit an incomplete season, returning `502` before the durable-first commit block runs — so `SCHEDULE_ROUTE_CACHE`, the durable `${cacheKey}`, and standings invalidation are all left untouched. A legitimately empty partition (empty upstream array) still commits normally. **CORRECTED 2026-09-20:** this bullet used to name `fetchSeasonType` and `hasRequiredSeasonTypeFailure` as the mechanism. **`fetchSeasonType` no longer exists in `src/` at all, and `hasRequiredSeasonTypeFailure` has no production caller** — PLATFORM-663 retired the per-season-type partition machinery those two implemented. The refusal survives; the symbols do not. See #833/#837 for their removal.
+- the **`/api/schedule` route** (PLATFORM-085C) refuses to commit an incomplete season, returning `502` before
+  the durable-first commit block runs — so `SCHEDULE_ROUTE_CACHE`, the durable `${cacheKey}`, and standings
+  invalidation are all left untouched. A legitimately empty partition (empty upstream array) still commits
+  normally. **CORRECTED 2026-09-20:** this bullet used to name `fetchSeasonType` and
+  `hasRequiredSeasonTypeFailure` as the mechanism. **Neither `fetchSeasonType` nor
+  `hasRequiredSeasonTypeFailure` exists in `src/` any more** — PLATFORM-663 retired the per-season-type
+  partition machinery they implemented, and #833 deleted what it left behind (merged `c03042ad`, 2026-09-20).
+  The refusal survives; the symbols do not. **UPDATED 2026-09-20 after that merge:** this sentence previously
+  drew a distinction between the two — one absent, one merely uncalled — which is no longer a distinction.
+  `scheduleSeasonFetch.test.ts:34` now asserts both names are absent, so the claim has a test rather than a
+  reader's memory behind it.
 - an **all-empty** result — every requested partition validly returned zero rows — is classified
   **before** the durable/process-cache write (PLATFORM-086A 4th review): if a populated schedule is
   already cached under `${cacheKey}`, the empty result is **rejected** as an unexpected replacement
