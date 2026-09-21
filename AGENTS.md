@@ -811,6 +811,16 @@ to it — and make the answer assertable when the answer is "nothing".
 
 **A MUTATION THAT REDDENS BOTH THE OLD AND NEW ASSERTION DISCRIMINATES NOTHING.** Added 2026-09-10 by the Item 210 lane, which caught it in its own work before reporting. When a mutation is used to prove an assertion was STRENGTHENED — that the previous version would have missed a regression the new one catches — it must fail on exactly ONE side. **A mutation that fails on both is measuring something else**, typically an unrelated assertion in the same test, and reads identically to a successful discrimination. **Say which side stayed green, not merely that the mutation went red.**
 
+**WHEN YOUR CHANGE KILLS A TEST, SEPARATE ITS INTENT FROM ITS MECHANISM BEFORE TOUCHING IT.** Added 2026-09-21, after the third instance on one campaign. A test that your diff makes fail, or makes look dead, encodes a REASON that usually outlives the VEHICLE it used. The cheap moves — delete it, weaken its assertions, or edit the fixture until it passes — all discard the reason, and they are indistinguishable in a diff from a legitimate update. **So answer two questions in writing, in that order: is the thing it was protecting still true, and is the route it used to reach that thing still open?** Only the second is usually dead.
+
+The three shapes, all measured on this repo:
+
+- **Mechanism dead, intent alive.** PLATFORM-813 v2's boundary validation stopped `{items:[null]}` from reaching championship resolution, so `season-rollover/__tests__/receipts.test.ts:488` failed. Its intent — a resolution throw records the failing year rather than omitting it — was correct and had to survive; only its fixture died. **The lane stopped with one failure rather than editing around it, which is the behaviour this rule asks for.**
+- **Looks vacuous, is live for another reason.** [#700](https://github.com/znpruitt/cfb-app/issues/700) reported an assertion that could not catch the regression it was cited for, and proposed removing it. Mutation proved it DOES catch a different one — a placeholder emitted over absent media — and that the missing positive control had already shipped as a separate test. **Both proposed asks were wrong; the issue's diagnosis was right.**
+- **Guard deleted, argument preserved.** PLATFORM-833 removed `scheduleRefreshScope`, whose `throw` for `week` + `all` was independent evidence that the partition-plus-aggregate model was never coherent. The code went; the argument was carried into the closeout and `AGENTS.md`.
+
+**A red test is evidence before it is an obstacle.** If the replacement fixture cannot reach the condition the original reached, that is a finding about the change, not a reason to assert less — come back rather than trimming what it checks.
+
 **A regression test must be verified failing against its own pre-fix code**, reverting one fix at a time. A multi-fix revert that breaks compilation fails the whole file and proves nothing. State explicitly that this was done. A test whose stated discriminating property is false is worse than no test.
 
 **A negative assertion requires a proven observer.** A test claiming that nothing was written,
