@@ -92,9 +92,17 @@ but says nothing about the shape of an ITEM.
 `row.label?.trim()` — that survives `null` and `undefined` and **still throws on a number**, because
 `(5).trim` is `undefined`, not callable. Any audit that treats `?.` as a guard will undercount.
 
-**The six unguarded string reads in `postseason-classify.ts` alone**, on `main`: `:216` (×2), `:343`,
-`:344`, `:351`, `:362`, `:363`. `schedule.ts:498`'s `item.eventKey?.trim()` is the seventh and is the
-one v1 fixed.
+**SIXTEEN unguarded string reads in `postseason-classify.ts` alone** — corrected 2026-09-21 by the
+v2 receipt. A regex sweep sees only six (`:216` ×2, `:343`, `:344`, `:351`, `:362`, `:363`); the
+checker finds ten more, including `:43` `(row.eventKey ?? '').trim()`, `:52`
+`row.label?.trim() || row.bowlName?.trim()`, and `:226`/`:241`/`:368`
+`(row.seasonType ?? '').toLowerCase()`. **Every one of those hides behind a form that reads as a
+guard and is not one.**
+
+The read v1 fixed is `schedule.ts:413`, `item.eventKey?.trim() || \`${item.week}-${item.id}\``.
+**This prompt cited `:498`, inherited from v1 without re-deriving it — an off-by-85, and the CARRIES
+block at the top of this very file says to re-derive every line-number citation.** Quoting a rule is
+not complying with it; that is now twice on this campaign.
 
 ## The second half: one provider vocabulary, two definitions
 
@@ -108,9 +116,34 @@ root reads identically to a clean result from the right one. State the root with
 
 ## Acceptance
 
-1. **A durable row with a non-string `homeTeam`, `awayTeam`, `id`, `label`, `bowlName` or `eventKey`
-   cannot take down the build**, pinned per field by a test that fails against today's code.
-   Per field, not per class — the class is what v1 asserted and did not cover.
+1. **A durable row with a non-string value in ANY OF THE TEN MEASURED FIELDS cannot take down the
+   build**, pinned **per field** by a test that fails against today's code. Per field, not per class
+   — the class is what v1 asserted and did not cover.
+
+   **AMENDED 2026-09-21 by the v2 receipt, and the amendment is the same defect this slice fixes.**
+   This bullet first named six fields — `homeTeam`, `awayTeam`, `id`, `label`, `bowlName`,
+   `eventKey` — taken from a regex sweep of `postseason-classify.ts` that returned six sites. The
+   lane resolved receiver types with the TypeScript checker instead and found **16 sites in that
+   file alone**. The ten the acceptance now covers:
+
+   | field | note |
+   | --- | --- |
+   | `homeTeam`, `awayTeam` | 4 sites each |
+   | `id` | 4 sites, across three files |
+   | `eventKey` | 3 sites |
+   | `seasonType` | 3 sites, all `(row.seasonType ?? '').toLowerCase()` |
+   | `label` | 2 sites |
+   | `startDate` | 2 sites |
+   | `bowlName` | 1 site |
+   | `conferenceChampionshipConference` | 1 site |
+   | `status` | **transitive only** — `mapStatus` (`schedule.ts:289`) does `(rawStatus \|\| '').toLowerCase()`, called at `:542` and `:778` inside the per-row loop |
+
+   **Why the first list was short, because it is the lesson and not an apology:** a regex keyed on
+   `row.field.method` cannot see `(row.eventKey ?? '').trim()` or `row.label?.trim()`, and **`?? ''`
+   catches `null` and `undefined` while still throwing on a number** — so the guarded-looking forms
+   are exactly the unguarded ones. Verified on `main`: `:43`, `:52`, `:226`, `:241`, `:368` are all
+   real method calls the sweep missed. **A field list assembled by grep is a measurement of the
+   grep.**
 2. **The validation happens once, at the boundary**, and the per-field guards it makes redundant are
    REMOVED rather than left beside it. Two answers to "is this row safe" is the shape this slice
    exists to delete.
