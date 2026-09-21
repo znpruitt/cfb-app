@@ -171,15 +171,11 @@ export class SeasonScheduleUnreadableError extends Error {
 }
 
 export async function loadCachedScheduleItems(year: number): Promise<ScheduleWireItem[]> {
+  // The all-dropped guard lives in `loadCanonicalScheduleEntry`, the COMMON boundary,
+  // so both projections inherit it. It was here first, and `/api/schedule` — which
+  // reads the entry directly — bypassed it entirely and served HTTP 200 with zero rows
+  // for a fully corrupt season. A guard on one of two projections protects one of two.
   const entry = await loadCanonicalScheduleEntry<ScheduleWireItem>(year);
-
-  // A NON-EMPTY stored array that validated down to nothing is unreadable, not empty.
-  // An empty stored array still returns `[]` — genuine absence stays a real state, and
-  // conflating the two in the other direction would be the same defect mirrored.
-  if (entry && entry.items.length === 0 && (entry.droppedRowCount ?? 0) > 0) {
-    throw new SeasonScheduleUnreadableError(year, entry.droppedRowCount!);
-  }
-
   return entry?.items ?? [];
 }
 
@@ -212,7 +208,7 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
     canonicalScheduleAggregateKey(year)
   );
   if (canonicalScheduleAggregateServes(aggregate?.value)) {
-    return normalizeEntry<T>(aggregate!.value!, 'aggregate');
+    return assertReadable(year, normalizeEntry<T>(aggregate!.value!, 'aggregate'));
   }
 
   const [regularKey, postseasonKey] = canonicalSchedulePartitionKeys(year);
@@ -238,7 +234,7 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
     const validated = validateDurableScheduleRows(
       contributing.flatMap((value) => value.items ?? [])
     );
-    return {
+    return assertReadable(year, {
       // Oldest contributing partition wins, so the pair can never read fresher
       // than its stalest half.
       at: Math.min(...stamps),
@@ -250,7 +246,7 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
       source: 'partition-pair',
       coercedFieldCount: validated.coercedFieldCount,
       droppedRowCount: validated.droppedRowCount,
-    };
+    });
   }
 
   // Nothing contributes rows. Distinguish "a record exists and is empty" from
@@ -267,9 +263,30 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
   // is a fallback for SERVING ROWS; with no rows it has nothing to say, so it stays
   // a miss.
   if (aggregate?.value) {
-    return normalizeEntry<T>(aggregate.value, 'aggregate');
+    return assertReadable(year, normalizeEntry<T>(aggregate.value, 'aggregate'));
   }
   return null;
+}
+
+/**
+ * A NON-EMPTY stored array that validated down to nothing is unreadable, not empty.
+ *
+ * An empty stored array still returns `[]` — genuine absence stays a real state, and
+ * conflating the two in the other direction would be the same defect mirrored. A
+ * PARTIAL drop does NOT throw: the season is still usable, and continuing past a bad
+ * row is the improvement #813 was filed for — `buildScheduleFromApi`'s per-row loop has
+ * no try/catch, so one bad row already took down the whole build, and throwing here
+ * would restore exactly that. Partial drops travel as `droppedRowCount` instead, for
+ * consumers that write durable records.
+ */
+function assertReadable<T>(
+  year: number,
+  entry: CanonicalScheduleEntry<T>
+): CanonicalScheduleEntry<T> {
+  if (entry.items.length === 0 && (entry.droppedRowCount ?? 0) > 0) {
+    throw new SeasonScheduleUnreadableError(year, entry.droppedRowCount!);
+  }
+  return entry;
 }
 
 function normalizeEntry<T>(

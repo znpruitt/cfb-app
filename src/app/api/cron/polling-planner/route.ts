@@ -399,9 +399,16 @@ export async function GET(req: Request): Promise<NextResponse<PollingPlannerResu
     if (read.kind !== 'usable') {
       // FAIL CLOSED, AND ABSENCE COUNTS AS UNREADABLE.
       //
-      // The first version guarded only a THROWN read, which is the failure that
-      // does not happen: `loadCachedScheduleItems` returns `[]` for a missing key
-      // and never throws. So an absent or empty season cache reached
+      // The first version guarded only a THROWN read, on the reasoning that
+      // `loadCachedScheduleItems` returns `[]` for a missing key and never throws.
+      // **THAT SENTENCE IS NO LONGER TRUE, and PLATFORM-813's diff is what falsified
+      // it:** the canonical boundary now raises `SeasonScheduleUnreadableError` when a
+      // non-empty stored array validates down to nothing. The fail-closed reading
+      // below is unaffected — `readPlanningSchedule` catches and returns `unreadable`,
+      // which is the same answer — but a deterministic corruption now burns all three
+      // `SCHEDULE_READ_ATTEMPTS` with backoff before reaching it, because a throw is
+      // what the retry loop is built to retry. So an absent or empty season cache
+      // reached
       // `plannerWindows([])`, which is byte-identical to a genuinely dead day —
       // and the planner PAUSED both dense schedules on the strength of a record it
       // had never read. Measured 2026-09-07: `schedule/2027-all-all` does not

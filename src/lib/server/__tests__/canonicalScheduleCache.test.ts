@@ -305,9 +305,30 @@ const CANONICAL_CONSUMERS = [
 test('the boundary returns COERCED rows and reports the count', async () => {
   await setAppState('schedule', '2031-all-all', {
     at: 500,
+    // Every REQUIRED field is present on both rows, so the count below is exactly the
+    // four deliberately-malformed values and nothing incidental. An earlier version of
+    // this fixture omitted homeConference/awayConference and the count read 8 — correct
+    // under the required-field rule, but unreadable as a claim about this test.
     items: [
-      { id: 401, week: 1, homeTeam: 7, awayTeam: 'Rice', status: true, eventKey: { a: 1 } },
-      { id: 'ok', week: 2, homeTeam: 'Texas', awayTeam: 'Baylor', status: 'final' },
+      {
+        id: 401,
+        week: 1,
+        homeTeam: 7,
+        awayTeam: 'Rice',
+        homeConference: 'SEC',
+        awayConference: 'Big 12',
+        status: true,
+        eventKey: { a: 1 },
+      },
+      {
+        id: 'ok',
+        week: 2,
+        homeTeam: 'Texas',
+        awayTeam: 'Baylor',
+        homeConference: 'SEC',
+        awayConference: 'Big 12',
+        status: 'final',
+      },
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -331,7 +352,17 @@ test('the item-only projection inherits the validation', async () => {
   // reader, every one of them would see raw rows while the route saw validated ones.
   await setAppState('schedule', '2031-all-all', {
     at: 500,
-    items: [{ id: 'g1', week: 1, homeTeam: 99, awayTeam: 'Rice', status: 'final' }],
+    items: [
+      {
+        id: 'g1',
+        week: 1,
+        homeTeam: 99,
+        awayTeam: 'Rice',
+        homeConference: 'SEC',
+        awayConference: 'Big 12',
+        status: 'final',
+      },
+    ],
     partialFailure: false,
     failedSeasonTypes: [],
   });
@@ -344,7 +375,17 @@ test('the partition-pair path validates too', async () => {
   // entry inline rather than through `normalizeEntry`.
   await setAppState('schedule', '2031-all-regular', {
     at: 400,
-    items: [{ id: 'p1', week: 1, homeTeam: 5, awayTeam: 'Rice', status: 'final' }],
+    items: [
+      {
+        id: 'p1',
+        week: 1,
+        homeTeam: 5,
+        awayTeam: 'Rice',
+        homeConference: 'SEC',
+        awayConference: 'Big 12',
+        status: 'final',
+      },
+    ],
     partialFailure: false,
     failedSeasonTypes: [],
   });

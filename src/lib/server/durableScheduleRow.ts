@@ -36,21 +36,46 @@ import type { ScheduleWireItem } from '../schedule.ts';
  */
 
 /**
- * Every `ScheduleWireItem` field whose declared type admits a string.
+ * Fields declared NON-OPTIONAL and non-nullable on `ScheduleWireItem`.
  *
- * MEASURED, not assembled by eye: 20 of the type's 35 fields, derived from the
- * declaration. `venue` is deliberately absent — its type is
- * `VenueInfo | string | null`, so an object is legitimate there and coercing it to
- * `''` would destroy real data. It is handled separately below.
+ * For these, `null` and `undefined` are NOT absence — they are malformed, because the
+ * type says a string is always present. `row.homeTeam.trim()` throws on `null` exactly
+ * as it throws on a number, and the first version of this module skipped both on the
+ * reasoning that "absence is legitimate". **That is true of the optional fields and
+ * false of these**, and the fixture that should have caught it held six malformed
+ * values, none of them `null`, for the same wrong reason.
+ *
+ * `startDate` is deliberately NOT here: it is required but its type is
+ * `string | null`, so a null start date is a real state.
  */
-const STRING_FIELDS = [
+const REQUIRED_STRING_FIELDS = [
   'id',
-  'startDate',
   'homeTeam',
   'awayTeam',
   'homeConference',
   'awayConference',
   'status',
+] as const satisfies ReadonlyArray<keyof ScheduleWireItem>;
+
+/**
+ * Fields whose declared type admits a string but where absence is legitimate —
+ * optional, nullable, or both.
+ *
+ * **THE COUNT IN THIS COMMENT USED TO BE WRONG, AND HOW is the reusable part.** It
+ * said "20 of the type's 35 fields, MEASURED", and the enumeration behind it tested
+ * whether each field's type ANNOTATION contained the substring `string`. So
+ * `ProviderClassification` and `playoffRoundSource`'s union — both string types —
+ * were never counted, and three fields were missing. **I measured the annotation, not
+ * the type.** That is the same class as v1's short field list and as the regex that
+ * produced the prompt's original six: a sweep measuring its own syntax rather than the
+ * thing it is about. Third instance in this campaign.
+ *
+ * Now: 22 of the type's 35 fields admit a string. Six are required (above), `venue` is
+ * handled separately because an object is legitimate there, and the remaining 15 are
+ * here.
+ */
+const OPTIONAL_STRING_FIELDS = [
+  'startDate',
   'label',
   'notes',
   'seasonType',
@@ -63,6 +88,9 @@ const STRING_FIELDS = [
   'conferenceChampionshipConference',
   'eventKey',
   'neutralSiteDisplay',
+  'homeClassification',
+  'awayClassification',
+  'playoffRoundSource',
 ] as const satisfies ReadonlyArray<keyof ScheduleWireItem>;
 
 /** The ten fields a reader actually calls a string method on — the audited surface. */
@@ -77,7 +105,7 @@ export const METHOD_CALLED_FIELDS = [
   'bowlName',
   'conferenceChampionshipConference',
   'status',
-] as const satisfies ReadonlyArray<(typeof STRING_FIELDS)[number]>;
+] as const satisfies ReadonlyArray<keyof ScheduleWireItem>;
 
 export type DurableRowValidation = {
   items: ScheduleWireItem[];
@@ -116,7 +144,16 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * and turning `undefined` into `''` would make an absent field indistinguishable
  * from a present-but-empty one — a different fact, and not this slice's to change.
  */
-export function validateDurableScheduleRows(items: readonly unknown[]): DurableRowValidation {
+export function validateDurableScheduleRows(items: unknown): DurableRowValidation {
+  // `StoredScheduleEntry.items?: T[]` is the SAME LIE this module's header is about,
+  // and the first version of this function trusted it one line into the loop: a
+  // non-array `items` threw `items is not iterable` out of the boundary, where the
+  // record had previously returned an entry. A module written about not trusting the
+  // declared type must not trust it either.
+  if (!Array.isArray(items)) {
+    return { items: [], coercedFieldCount: 0, droppedRowCount: 0 };
+  }
+
   const out: ScheduleWireItem[] = [];
   let coerced = 0;
   let dropped = 0;
@@ -131,7 +168,20 @@ export function validateDurableScheduleRows(items: readonly unknown[]): DurableR
     }
 
     let next: Record<string, unknown> | null = null;
-    for (const field of STRING_FIELDS) {
+
+    // REQUIRED: the type promises a string is always there, so null and undefined are
+    // malformed here rather than absent, and `.trim()` throws on them just as it does
+    // on a number.
+    for (const field of REQUIRED_STRING_FIELDS) {
+      if (typeof raw[field] === 'string') continue;
+      if (!next) next = { ...raw };
+      next[field] = '';
+      coerced += 1;
+    }
+
+    // OPTIONAL: absence is a real state every consumer already handles, and coercing
+    // it would make an absent field indistinguishable from an empty one.
+    for (const field of OPTIONAL_STRING_FIELDS) {
       const value = raw[field];
       if (value === undefined || value === null) continue;
       if (typeof value === 'string') continue;

@@ -23,6 +23,7 @@ import { ALIAS_OVERRIDES_HASH } from '@/lib/teamDatabase';
 import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import {
   loadCachedScheduleItems,
+  SeasonScheduleUnreadableError,
   loadPostseasonOverrides,
 } from '@/lib/server/canonicalScheduleCache';
 import { buildScheduleFromApi, type AppGame } from '@/lib/schedule';
@@ -280,7 +281,15 @@ export async function buildLeagueInsightContext(
     confirmedRoster,
     draftRecord,
   ] = await Promise.all([
-    loadCachedScheduleItems(resolvedYear).catch(() => []),
+    // PLATFORM-813: a blanket `.catch(() => [])` here swallowed
+    // `SeasonScheduleUnreadableError` and rendered a CORRUPTED season as an empty one —
+    // the exact collapse that error exists to prevent, and the reason the claim "every
+    // consumer already has the branch" was false. A store-read failure still degrades
+    // to `[]` as before; an unreadable season propagates.
+    loadCachedScheduleItems(resolvedYear).catch((error: unknown) => {
+      if (error instanceof SeasonScheduleUnreadableError) throw error;
+      return [];
+    }),
     getTeamDatabaseItems().catch(() => [] as Awaited<ReturnType<typeof getTeamDatabaseItems>>),
     getScopedAliasMap(slug, resolvedYear).catch(() => ({}) as AliasMap),
     loadPostseasonOverrides(slug, resolvedYear).catch(() => ({})),

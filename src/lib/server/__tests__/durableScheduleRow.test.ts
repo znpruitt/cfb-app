@@ -243,3 +243,103 @@ test('a non-string status still classifies, and an ABSENT status still classifie
   });
   assert.equal(builtAbsent.games.length, 1, 'an absent status survives the build');
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-813 v2 review round 1.
+// ---------------------------------------------------------------------------
+
+test('null and undefined in a REQUIRED field are malformed, not absence', () => {
+  // Codex P2-1. The first version skipped null/undefined for EVERY field on the
+  // reasoning that absence is legitimate — true of the optional fields, false of
+  // these, where the type promises a string is always present. `row.homeTeam.trim()`
+  // throws on null exactly as it throws on a number, and the fixture that should have
+  // caught it held six malformed values, none of them null, for the same wrong reason.
+  for (const field of [
+    'homeTeam',
+    'awayTeam',
+    'id',
+    'homeConference',
+    'awayConference',
+    'status',
+  ]) {
+    for (const bad of [null, undefined]) {
+      const { items, coercedFieldCount } = validateDurableScheduleRows([row({ [field]: bad })]);
+      assert.equal(
+        (items[0] as unknown as Record<string, unknown>)[field],
+        '',
+        `${field} = ${String(bad)} must coerce, because the type says it is always present`
+      );
+      assert.equal(coercedFieldCount, 1, `${field} = ${String(bad)} must be counted`);
+    }
+  }
+});
+
+test('null in an OPTIONAL field is still left alone', () => {
+  // The discriminating control for the split. A validator that coerced every
+  // null/undefined would pass the test above while destroying the absent-vs-empty
+  // distinction the optional fields depend on.
+  const { items, coercedFieldCount } = validateDurableScheduleRows([
+    row({ label: null, eventKey: null, bowlName: undefined }),
+  ]);
+  const out = items[0] as unknown as Record<string, unknown>;
+  assert.equal(out.label, null);
+  assert.equal(out.eventKey, null);
+  assert.equal(out.bowlName, undefined);
+  assert.equal(coercedFieldCount, 0);
+});
+
+test('a null homeTeam takes the existing drop path rather than the build down', () => {
+  const validated = validateDurableScheduleRows([row({ homeTeam: null })]);
+  assert.doesNotThrow(() =>
+    buildScheduleFromApi({
+      scheduleItems: validated.items,
+      teams: [],
+      aliasMap: {},
+      season: 2027,
+    })
+  );
+  assert.deepEqual(classifyScheduleRow(validated.items[0]!, 2027), {
+    kind: 'invalid_row',
+    reason: 'empty participant names',
+  });
+});
+
+test('a NON-ARRAY items is handled, not thrown out of the boundary', () => {
+  // A regression this slice introduced: `for (const raw of items)` trusted
+  // `items?: T[]`, which is the same lie this module's header is about, and a stored
+  // `{a:1}` threw `items is not iterable` where it had previously returned an entry.
+  for (const notAnArray of [{ a: 1 }, 'rows', 42, true]) {
+    const result = validateDurableScheduleRows(notAnArray);
+    assert.deepEqual(result.items, [], `${JSON.stringify(notAnArray)} yields no rows`);
+    assert.equal(result.droppedRowCount, 0, 'nothing was dropped — there was no array');
+  }
+});
+
+test('the field lists cover every string-admitting field of the type', () => {
+  // The claim that was wrong. Its first version said "20 of 35, MEASURED" while the
+  // array held 19 and omitted three — because the enumeration behind it tested whether
+  // each field's type ANNOTATION contained the substring `string`, so
+  // `ProviderClassification` and `playoffRoundSource`'s union were never counted.
+  // I measured the annotation, not the type.
+  for (const field of ['homeClassification', 'awayClassification', 'playoffRoundSource']) {
+    const { items, coercedFieldCount } = validateDurableScheduleRows([row({ [field]: 7 })]);
+    assert.equal(
+      (items[0] as unknown as Record<string, unknown>)[field],
+      '',
+      `${field} is string-typed and must be covered`
+    );
+    assert.equal(coercedFieldCount, 1);
+  }
+});
+
+test('a PARTIAL drop does not throw — the season is usable and continues', async () => {
+  // The ruling, and the reason option 1 was rejected: `buildScheduleFromApi`'s per-row
+  // loop has no try/catch, so one bad row already took down the whole build. Throwing
+  // on a partial drop would restore precisely the defect #813 was filed about.
+  await setAppState('schedule', '2031-all-all', {
+    at: Date.now(),
+    items: [null, { id: 'g1', week: 1, homeTeam: 'Texas', awayTeam: 'Rice', status: 'final' }],
+  });
+  const items = await loadCachedScheduleItems(2031);
+  assert.equal(items.length, 1, 'the usable row is served rather than the season failing');
+});
