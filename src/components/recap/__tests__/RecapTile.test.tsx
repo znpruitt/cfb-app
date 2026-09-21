@@ -141,7 +141,7 @@ test('recap tile expands its compact week-record grid in normal flow and collaps
   assert.match(rendered.getByText('55 PF · 38 PA').className, /text-zinc-400/);
   const georgia = rendered.container.querySelector('[data-scoreboard-team-full="loser"]');
   assert.ok(georgia);
-  assert.match(georgia.closest('.truncate')?.className ?? '', /text-zinc-400/);
+  assert.match(georgia.closest('div')?.className ?? '', /text-zinc-400/);
   assert.doesNotMatch(georgia.closest('article')?.className ?? '', /border/);
   assert.equal(panel.hidden, false);
   const collapse = rendered.getByRole('button', { name: 'Collapse' });
@@ -244,7 +244,8 @@ test('recap scoreboards use the same per-label accessible fallback and preserve 
 
   const longName = rendered.container.querySelector('[data-scoreboard-team-label="winner"]');
   assert.ok(longName);
-  assert.equal(longName.getAttribute('data-scoreboard-team-fallback-max-width'), '403');
+  assert.match(longName.className, /overflow-visible/);
+  assert.doesNotMatch(longName.className, /truncate|overflow-hidden/);
   assert.equal(
     longName.querySelector('[data-scoreboard-team-accessible="winner"]')?.textContent,
     'Southeast Missouri State'
@@ -258,10 +259,15 @@ test('recap scoreboards use the same per-label accessible fallback and preserve 
     'true'
   );
 
-  const shortOpponent = rendered.container.querySelector(
-    '[data-scoreboard-team-label="loser"][data-scoreboard-team-fallback="atLeast8Characters"]'
+  const shortOpponent = rendered.container.querySelector('[data-scoreboard-team-label="loser"]');
+  assert.ok(shortOpponent, 'the opposing label must retain an independent measured box');
+  const owner = Array.from(longName.parentElement?.children ?? []).find(
+    (element) => element.textContent === 'Alice'
   );
-  assert.ok(shortOpponent, 'the opposing label must select its rule independently');
+  assert.ok(owner);
+  assert.equal(longName.parentElement, owner.parentElement);
+  assert.equal(longName.contains(owner), false);
+  assert.doesNotMatch(longName.parentElement?.className ?? '', /truncate|overflow-hidden/);
 
   const nullName = Array.from(
     rendered.container.querySelectorAll('[data-scoreboard-team="winner"]')

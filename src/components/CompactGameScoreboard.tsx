@@ -243,7 +243,7 @@ export default function CompactGameScoreboard({
 
   return (
     <article
-      className="@container border-b py-3 dark:border-zinc-800/80"
+      className="border-b py-3 dark:border-zinc-800/80"
       aria-label={matchupLabel}
       data-game-scoreboard
       data-scoreboard-state={state}
@@ -318,7 +318,7 @@ export default function CompactGameScoreboard({
               />
             ) : null}
             {/* The slot remains reserved when artwork is unavailable so both rows stay aligned. */}
-            <span className="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap">
+            <span className="flex min-w-0 flex-1 items-baseline gap-1.5 whitespace-nowrap">
               {participant.rank !== null && participant.rank !== undefined ? (
                 <span className="shrink-0 text-xs font-normal dark:text-zinc-400" title={rankTitle}>
                   #{participant.rank}
@@ -331,7 +331,7 @@ export default function CompactGameScoreboard({
                   FCS
                 </span>
               ) : null}
-              <span className="min-w-0 truncate">
+              <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
                 <ScoreboardTeamName
                   abbreviation={teamAbbreviation}
                   marker={side}
@@ -339,15 +339,28 @@ export default function CompactGameScoreboard({
                 />
                 {showsInlineRecord && teamRecord ? (
                   <span
-                    className="ml-1.5 text-[12.5px] font-normal tabular-nums dark:text-zinc-400"
-                    data-scoreboard-record={side}
+                    className="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap"
+                    data-scoreboard-suffix={side}
                   >
-                    ({teamRecord})
+                    <span
+                      className="shrink-0 text-[12.5px] font-normal tabular-nums dark:text-zinc-400"
+                      data-scoreboard-record={side}
+                    >
+                      ({teamRecord})
+                    </span>
+                    {owner ? (
+                      <span
+                        className="min-w-0 overflow-hidden text-[12.5px] font-normal dark:text-zinc-400"
+                        data-scoreboard-owner={side}
+                      >
+                        {owner}
+                      </span>
+                    ) : null}
                   </span>
-                ) : null}
-                {owner ? (
+                ) : owner ? (
                   <span
-                    className="ml-1.5 text-[12.5px] font-normal dark:text-zinc-400"
+                    className="min-w-0 overflow-hidden whitespace-nowrap text-[12.5px] font-normal dark:text-zinc-400"
+                    data-scoreboard-suffix={side}
                     data-scoreboard-owner={side}
                   >
                     {owner}

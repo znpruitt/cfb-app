@@ -23,7 +23,7 @@ type ScheduleLayoutMeasurement = {
   whiteSpace: string;
   overflow: string;
   textOverflow: string;
-  labelClipped: boolean;
+  nameOverflows: boolean;
   rowHeight: number;
   labelWidth: number;
   contentWidth: number;
@@ -95,6 +95,7 @@ async function compileFixtureStyles(): Promise<string> {
   )}
     @source '../components/GameWeekPanel.tsx';
     @source '../components/CompactGameScoreboard.tsx';
+    @source '../components/ScoreboardTeamName.tsx';
     @source '../lib/teamLogos.ts';
   `;
   const result = await postcss([tailwindcss()]).process(source, { from });
@@ -146,7 +147,7 @@ async function measureWidths(
         container.style.width = width + 'px';
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const team = grid.querySelector('[data-scoreboard-team="away"]');
-        const label = team?.parentElement;
+        const label = team;
         const row = team?.closest('[data-scoreboard-side="away"]');
         const value = row?.querySelector('[data-scoreboard-value="away"]');
         if (
@@ -173,7 +174,7 @@ async function measureWidths(
           whiteSpace: labelStyle.whiteSpace,
           overflow: labelStyle.overflow,
           textOverflow: labelStyle.textOverflow,
-          labelClipped: contentRect.width > labelRect.width + 0.5,
+          nameOverflows: contentRect.width > labelRect.width + 0.5,
           rowHeight: round(rowRect.height),
           labelWidth: round(labelRect.width),
           contentWidth: round(contentRect.width),
@@ -187,7 +188,7 @@ async function measureWidths(
   `);
 }
 
-test('Schedule keeps the owner-required provider-name stress case single-line with a stable score anchor', async (t) => {
+test('Schedule keeps a null-lookup provider name untruncated with a stable score anchor', async (t) => {
   assert.equal(
     STRESS_TEAM_NAME.length,
     29,
@@ -219,8 +220,8 @@ test('Schedule keeps the owner-required provider-name stress case single-line wi
         assert.equal(measurement.teamName, STRESS_TEAM_NAME);
         assert.equal(measurement.score, '100');
         assert.equal(measurement.whiteSpace, 'nowrap');
-        assert.equal(measurement.overflow, 'hidden');
-        assert.equal(measurement.textOverflow, 'ellipsis');
+        assert.equal(measurement.overflow, 'visible');
+        assert.equal(measurement.textOverflow, 'clip');
         assert.equal(measurement.anchorInside, true);
         assert.equal(measurement.valueFlexShrink, '0');
       }
@@ -228,12 +229,12 @@ test('Schedule keeps the owner-required provider-name stress case single-line wi
       assert.equal(
         clippingControl.rowHeight,
         twoColumn.rowHeight,
-        'the clipped control must keep the same single-line row height'
+        'the overflow control must keep the same single-line row height'
       );
       assert.equal(
-        clippingControl.labelClipped,
+        clippingControl.nameOverflows,
         true,
-        'the ellipsis observer needs a control where label content exceeds its box'
+        'the no-lookup control must prove that the full name visibly exceeds its box'
       );
       assert.ok(
         Math.abs(oneColumn.anchorInset - twoColumn.anchorInset) <= 0.1,

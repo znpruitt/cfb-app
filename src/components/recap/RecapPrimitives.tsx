@@ -295,16 +295,16 @@ function GameScoreboard({
           compact ? 'text-[13.5px]' : 'text-sm'
         } ${winner ? 'font-medium text-zinc-100' : 'text-zinc-400'}`}
       >
-        <span className="flex min-w-0 items-baseline gap-2">
-          <span className={`truncate ${winner ? '' : 'text-zinc-400'}`}>
-            <ScoreboardTeamName
-              abbreviation={teamAbbreviation}
-              marker={winner ? 'winner' : 'loser'}
-              teamName={entry.team}
-            />
-          </span>
+        <span className="flex min-w-0 flex-1 items-baseline gap-2">
+          <ScoreboardTeamName
+            abbreviation={teamAbbreviation}
+            marker={winner ? 'winner' : 'loser'}
+            teamName={entry.team}
+          />
           {entry.owner ? (
-            <span className="shrink-0 text-[12.5px] font-normal text-zinc-400">{entry.owner}</span>
+            <span className="min-w-0 overflow-hidden whitespace-nowrap text-[12.5px] font-normal text-zinc-400">
+              {entry.owner}
+            </span>
           ) : null}
         </span>
         <span className={`shrink-0 tabular-nums ${winner ? 'font-semibold' : ''}`}>
@@ -315,7 +315,7 @@ function GameScoreboard({
   };
 
   return (
-    <article className={`@container ${compact ? 'py-2' : 'py-2.5'}`}>
+    <article className={compact ? 'py-2' : 'py-2.5'}>
       <p className="mb-1.5 text-xs text-zinc-400">
         <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-300">
           {line.label}

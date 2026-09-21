@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 
 type ScoreboardTeamNameProps = {
@@ -6,120 +8,120 @@ type ScoreboardTeamNameProps = {
   teamName: string;
 };
 
-export const SCOREBOARD_TEAM_NAME_FALLBACK_MEASUREMENTS = {
-  atLeast22Characters: { minimumNameLength: 22, requiredWidthPx: 402.469 },
-  atLeast18Characters: { minimumNameLength: 18, requiredWidthPx: 377.672 },
-  atLeast13Characters: { minimumNameLength: 13, requiredWidthPx: 360.141 },
-  atLeast11Characters: { minimumNameLength: 11, requiredWidthPx: 341.484 },
-  atLeast8Characters: { minimumNameLength: 8, requiredWidthPx: 323.625 },
-  anyLength: { minimumNameLength: 1, requiredWidthPx: 305.859 },
-} as const;
+type ResizeHandler = () => void;
 
-export const SCOREBOARD_TEAM_NAME_FALLBACK_THRESHOLDS = {
-  atLeast22Characters: Math.ceil(
-    SCOREBOARD_TEAM_NAME_FALLBACK_MEASUREMENTS.atLeast22Characters.requiredWidthPx
-  ),
-  atLeast18Characters: Math.ceil(
-    SCOREBOARD_TEAM_NAME_FALLBACK_MEASUREMENTS.atLeast18Characters.requiredWidthPx
-  ),
-  atLeast13Characters: Math.ceil(
-    SCOREBOARD_TEAM_NAME_FALLBACK_MEASUREMENTS.atLeast13Characters.requiredWidthPx
-  ),
-  atLeast11Characters: Math.ceil(
-    SCOREBOARD_TEAM_NAME_FALLBACK_MEASUREMENTS.atLeast11Characters.requiredWidthPx
-  ),
-  atLeast8Characters: Math.ceil(
-    SCOREBOARD_TEAM_NAME_FALLBACK_MEASUREMENTS.atLeast8Characters.requiredWidthPx
-  ),
-  anyLength: Math.ceil(SCOREBOARD_TEAM_NAME_FALLBACK_MEASUREMENTS.anyLength.requiredWidthPx),
-} as const;
+const resizeHandlers = new WeakMap<Element, Set<ResizeHandler>>();
+let sharedResizeObserver: ResizeObserver | null = null;
 
-type ScoreboardTeamNameFallbackKey = keyof typeof SCOREBOARD_TEAM_NAME_FALLBACK_THRESHOLDS;
+function getSharedResizeObserver(): ResizeObserver | null {
+  if (typeof ResizeObserver === 'undefined') return null;
+  if (sharedResizeObserver) return sharedResizeObserver;
 
-type ScoreboardTeamNameFallbackRule = {
-  abbreviationClassName: string;
-  fullNameClassName: string;
-  key: ScoreboardTeamNameFallbackKey;
-  minimumNameLength: number;
-  thresholdPx: number;
-};
+  sharedResizeObserver = new ResizeObserver((entries) => {
+    const pendingHandlers = new Set<ResizeHandler>();
+    for (const entry of entries) {
+      for (const handler of resizeHandlers.get(entry.target) ?? []) {
+        pendingHandlers.add(handler);
+      }
+    }
+    for (const handler of pendingHandlers) handler();
+  });
+  return sharedResizeObserver;
+}
 
-/*
- * These literal utilities are required for Tailwind discovery. Their numeric portions are pinned
- * to the derived constants by ScoreboardTeamName.test.tsx.
- *
- * A container query cannot measure rendered text, so each label selects a rule from its character
- * count and swaps at that rule's measured container width. This is deliberately conservative: a
- * name may abbreviate before it had to, and at extreme widths even its abbreviation may not fit.
- * The browser assertion named "scoreboard name fallback swaps per label and exposes its precision
- * limits" pins both sides of that caveat against rendered pixels.
- */
-const SCOREBOARD_TEAM_NAME_FALLBACK_RULES: readonly ScoreboardTeamNameFallbackRule[] = [
-  {
-    key: 'atLeast22Characters',
-    minimumNameLength:
-      SCOREBOARD_TEAM_NAME_FALLBACK_MEASUREMENTS.atLeast22Characters.minimumNameLength,
-    thresholdPx: SCOREBOARD_TEAM_NAME_FALLBACK_THRESHOLDS.atLeast22Characters,
-    fullNameClassName: '@max-[403px]:hidden',
-    abbreviationClassName: 'hidden @max-[403px]:inline',
-  },
-  {
-    key: 'atLeast18Characters',
-    minimumNameLength:
-      SCOREBOARD_TEAM_NAME_FALLBACK_MEASUREMENTS.atLeast18Characters.minimumNameLength,
-    thresholdPx: SCOREBOARD_TEAM_NAME_FALLBACK_THRESHOLDS.atLeast18Characters,
-    fullNameClassName: '@max-[378px]:hidden',
-    abbreviationClassName: 'hidden @max-[378px]:inline',
-  },
-  {
-    key: 'atLeast13Characters',
-    minimumNameLength:
-      SCOREBOARD_TEAM_NAME_FALLBACK_MEASUREMENTS.atLeast13Characters.minimumNameLength,
-    thresholdPx: SCOREBOARD_TEAM_NAME_FALLBACK_THRESHOLDS.atLeast13Characters,
-    fullNameClassName: '@max-[361px]:hidden',
-    abbreviationClassName: 'hidden @max-[361px]:inline',
-  },
-  {
-    key: 'atLeast11Characters',
-    minimumNameLength:
-      SCOREBOARD_TEAM_NAME_FALLBACK_MEASUREMENTS.atLeast11Characters.minimumNameLength,
-    thresholdPx: SCOREBOARD_TEAM_NAME_FALLBACK_THRESHOLDS.atLeast11Characters,
-    fullNameClassName: '@max-[342px]:hidden',
-    abbreviationClassName: 'hidden @max-[342px]:inline',
-  },
-  {
-    key: 'atLeast8Characters',
-    minimumNameLength:
-      SCOREBOARD_TEAM_NAME_FALLBACK_MEASUREMENTS.atLeast8Characters.minimumNameLength,
-    thresholdPx: SCOREBOARD_TEAM_NAME_FALLBACK_THRESHOLDS.atLeast8Characters,
-    fullNameClassName: '@max-[324px]:hidden',
-    abbreviationClassName: 'hidden @max-[324px]:inline',
-  },
-  {
-    key: 'anyLength',
-    minimumNameLength: SCOREBOARD_TEAM_NAME_FALLBACK_MEASUREMENTS.anyLength.minimumNameLength,
-    thresholdPx: SCOREBOARD_TEAM_NAME_FALLBACK_THRESHOLDS.anyLength,
-    fullNameClassName: '@max-[306px]:hidden',
-    abbreviationClassName: 'hidden @max-[306px]:inline',
-  },
-];
+function observeSize(element: Element, handler: ResizeHandler): () => void {
+  const observer = getSharedResizeObserver();
+  if (!observer) return () => undefined;
 
-export const SCOREBOARD_TEAM_NAME_FALLBACK_RULE_SPECS = SCOREBOARD_TEAM_NAME_FALLBACK_RULES.map(
-  ({ abbreviationClassName, fullNameClassName, key, minimumNameLength, thresholdPx }) => ({
-    abbreviationClassName,
-    fullNameClassName,
-    key,
-    minimumNameLength,
-    thresholdPx,
-  })
-);
+  let handlers = resizeHandlers.get(element);
+  if (!handlers) {
+    handlers = new Set();
+    resizeHandlers.set(element, handlers);
+    observer.observe(element);
+  }
+  handlers.add(handler);
 
-function fallbackRuleFor(teamName: string): ScoreboardTeamNameFallbackRule {
-  const nameLength = teamName.trim().length;
+  return () => {
+    handlers.delete(handler);
+    if (handlers.size > 0) return;
+    observer.unobserve(element);
+    resizeHandlers.delete(element);
+  };
+}
+
+function MeasuredScoreboardTeamName({
+  abbreviation,
+  marker,
+  teamName,
+}: ScoreboardTeamNameProps & { abbreviation: string }): React.ReactElement {
+  const boxRef = React.useRef<HTMLSpanElement>(null);
+  const fullNameRef = React.useRef<HTMLSpanElement>(null);
+  const abbreviationRef = React.useRef<HTMLSpanElement>(null);
+  const [showFullName, setShowFullName] = React.useState(false);
+
+  const measureFit = React.useCallback(() => {
+    const box = boxRef.current;
+    const fullName = fullNameRef.current;
+    const abbreviationProbe = abbreviationRef.current;
+    if (!box || !fullName || !abbreviationProbe) return;
+
+    const boxWidth = box.getBoundingClientRect().width;
+    const fullNameWidth = fullName.getBoundingClientRect().width;
+    const abbreviationWidth = abbreviationProbe.getBoundingClientRect().width;
+    const nextShowFullName = abbreviationWidth >= fullNameWidth || fullNameWidth <= boxWidth;
+
+    setShowFullName((current) => (current === nextShowFullName ? current : nextShowFullName));
+  }, []);
+
+  React.useLayoutEffect(() => {
+    measureFit();
+    const elements = [boxRef.current, fullNameRef.current, abbreviationRef.current].filter(
+      (element): element is HTMLSpanElement => element !== null
+    );
+    const cleanups = elements.map((element) => observeSize(element, measureFit));
+    return () => {
+      for (const cleanup of cleanups) cleanup();
+    };
+  }, [abbreviation, measureFit, teamName]);
+
+  /*
+   * SSR and no-JS deliberately leave the provider abbreviation visible, even when that
+   * viewer would measure it wider than the name: never-wider only binds after measurement.
+   * Both variants overflow visibly on one line, so neither can be ellipsized, clipped, or
+   * wrapped while the layout effect or observer catches up. The browser assertions named
+   * "SSR and no-JS keep a single untruncated abbreviation" and "fit, overflow, never-wider,
+   * and resize decisions use the rendered name box" pin those two mechanisms.
+   */
   return (
-    SCOREBOARD_TEAM_NAME_FALLBACK_RULES.find(
-      ({ minimumNameLength }) => nameLength >= minimumNameLength
-    ) ?? SCOREBOARD_TEAM_NAME_FALLBACK_RULES.at(-1)!
+    <span
+      className="relative block min-w-0 max-w-full shrink-0 overflow-visible whitespace-nowrap"
+      data-scoreboard-team-display={showFullName ? 'full' : 'abbreviation'}
+      data-scoreboard-team-label={marker}
+      ref={boxRef}
+    >
+      <span className="sr-only" data-scoreboard-team-accessible={marker}>
+        {teamName}
+      </span>
+      <span
+        aria-hidden="true"
+        className={`inline-block whitespace-nowrap ${showFullName ? '' : 'invisible'}`}
+        data-scoreboard-team-full={marker}
+        data-scoreboard-team={marker}
+        ref={fullNameRef}
+      >
+        {teamName}
+      </span>
+      <span
+        aria-hidden="true"
+        className={`pointer-events-none absolute left-0 top-0 inline-block whitespace-nowrap ${
+          showFullName ? 'invisible' : ''
+        }`}
+        data-scoreboard-team-abbreviation={marker}
+        ref={abbreviationRef}
+      >
+        {abbreviation}
+      </span>
+    </span>
   );
 }
 
@@ -129,34 +131,17 @@ export default function ScoreboardTeamName({
   teamName,
 }: ScoreboardTeamNameProps): React.ReactElement {
   if (abbreviation === null) {
-    return <span data-scoreboard-team={marker}>{teamName}</span>;
-  }
-
-  const rule = fallbackRuleFor(teamName);
-  return (
-    <span
-      data-scoreboard-team-label={marker}
-      data-scoreboard-team-fallback={rule.key}
-      data-scoreboard-team-fallback-max-width={rule.thresholdPx}
-    >
-      <span className="sr-only" data-scoreboard-team-accessible={marker}>
-        {teamName}
-      </span>
+    return (
       <span
-        aria-hidden="true"
-        className={rule.fullNameClassName}
-        data-scoreboard-team-full={marker}
+        className="relative block min-w-0 max-w-full shrink-0 overflow-visible whitespace-nowrap"
         data-scoreboard-team={marker}
       >
         {teamName}
       </span>
-      <span
-        aria-hidden="true"
-        className={rule.abbreviationClassName}
-        data-scoreboard-team-abbreviation={marker}
-      >
-        {abbreviation}
-      </span>
-    </span>
+    );
+  }
+
+  return (
+    <MeasuredScoreboardTeamName abbreviation={abbreviation} marker={marker} teamName={teamName} />
   );
 }
