@@ -99,7 +99,7 @@ checker finds ten more, including `:43` `(row.eventKey ?? '').trim()`, `:52`
 `(row.seasonType ?? '').toLowerCase()`. **Every one of those hides behind a form that reads as a
 guard and is not one.**
 
-The read v1 fixed is `schedule.ts:413`, `item.eventKey?.trim() || \`${item.week}-${item.id}\``.
+The read v1 fixed is at `schedule.ts:413` — the `eventKey` trim with its week-and-id template fallback.
 **This prompt cited `:498`, inherited from v1 without re-deriving it — an off-by-85, and the CARRIES
 block at the top of this very file says to re-derive every line-number citation.** Quoting a rule is
 not complying with it; that is now twice on this campaign.
