@@ -96,6 +96,7 @@ what it means today.
 </gate>
 
 <completeness_contract>
+
 - **Under isolation, a configured `DATABASE_URL` cannot open a real pool** — asserted directly, and
   proven by mutation: remove the guard and show a named test go red.
 - **The delete helper cannot reach the database branch under isolation**, asserted separately from the

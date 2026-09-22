@@ -66,6 +66,7 @@ All of it, or stop and report which part you could not meet:
   failure, not the expectation.
 
 OUT OF SCOPE — file as follow-ups, do not build:
+
 - Any change to `cache-historical-schedule` or `cache-historical-scores` route logic, including the
   active-season protection.
 - Any other maintenance action, panel, or descriptor.
@@ -92,6 +93,7 @@ command that reports the code. Report the exact commit SHA the gates ran against
 was clean and HEAD unchanged at that moment.
 
 Required gates:
+
 1. `npx tsc --noEmit`
 2. `npm run lint:all`
 3. `npm test`
@@ -106,6 +108,7 @@ unexercised.
 </verification_loop>
 
 <action_safety>
+
 - Branch `polish/historical-cache-force-affordance` off current `main`. Do not commit to `main`.
 - **Do NOT push `preview`, or any other preview branch**, unless the owner has ruled otherwise on the
   pre-dispatch gate above. `AGENTS.md` → Preview branch: `preview` belongs to Claude alone. Push your

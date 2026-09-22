@@ -180,6 +180,7 @@ turns out to be ambiguous about what Overview should render.
 </gate>
 
 <completeness_contract>
+
 - **All eleven checks run against all four sections**, or a named reason a check does not apply to a
   section. A skipped check is a hole and cannot be inferred from the others.
 - **Every divergence carries its mapping** — an item number or `NOTHING`. No divergence is left

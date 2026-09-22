@@ -129,6 +129,7 @@ Item 170's premise is wrong and the item needs re-filing, not building.
 </gate>
 
 <completeness_contract>
+
 - **The owner survives a narrow render that previously lost it.** Assert on rendered output, and
   **mutation-prove it** — revert the protection and show a named test go red.
 - **Whatever now clips instead is asserted too.** A test that proves the owner survives without proving

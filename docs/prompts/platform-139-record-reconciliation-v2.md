@@ -38,8 +38,8 @@ withholding ruling is WITHDRAWN**; it was made without anyone measuring the popu
 
 ## References — READ THESE BEFORE WRITING ANYTHING
 
-- **`docs/campaigns/item-87-live-watchlist-scoreboard.md` → _Records across scoreboard states —
-  resolved_.** Canonical for PLACEMENT and for **"One rule, not two… No state-dependent branching in
+- **`docs/campaigns/item-87-live-watchlist-scoreboard.md` → *Records across scoreboard states —
+  resolved*.** Canonical for PLACEMENT and for **"One rule, not two… No state-dependent branching in
   the data layer."**
 - **`DESIGN.md`** → canonical for the RULE: a record is always the team's record today, with the
   binding corollary that a final carries the result being read. Neither supersedes the other.
@@ -116,6 +116,7 @@ STOP and report if the payload grows materially, or if a page call site cannot r
 </gate>
 
 <completeness_contract>
+
 - **A final renders the record INCLUDING its own result.** The headline; assert it directly.
 - **A record three games behind folds all three** — not one. A one-game fixture cannot distinguish
   "folds the current game" from "folds everything unreflected", and those are different

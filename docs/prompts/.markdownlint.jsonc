@@ -1,0 +1,36 @@
+// Prompts extend the repository rules and disable four of them. Each is
+// disabled because ENFORCING it would edit prompt CONTENT, not formatting --
+// measured 2026-09-22 by running the fixer and reading its diff (#842).
+//
+//   MD033 no-inline-html        placeholder notation this project writes on
+//                               purpose: <task>, <verification>, <gate>.
+//                               115 of the 251 violations. Escaping them
+//                               would damage the prompts.
+//   MD029 ol-prefix             the fixer renumbered a list that deliberately
+//                               started at 5, so "finding 5" silently became
+//                               "finding 1". Prompt lists continue sequences
+//                               across headings on purpose.
+//   MD026 no-trailing-punct     headings in prompts are sentences and end in
+//                               a full stop; the fixer deletes it.
+//   MD028 no-blanks-blockquote  adjacent quotes separated by a blank line are
+//                               two distinct quotations, and this is not
+//                               auto-fixable anyway.
+//   MD018 no-missing-space-atx  `#713` at line start is an ISSUE REFERENCE, and
+//                               CommonMark does NOT treat it as a heading --
+//                               a heading needs a space after the hash. The
+//                               rule assumes a typo, and its FIX inserts that
+//                               space, turning correct prose into an H1. It did
+//                               exactly that to `#713` and `#727` here on
+//                               2026-09-22 before the diff was read.
+//
+// Everything else stays ON, including the rules that have actually cost this
+// project something: MD013 (the 1000-char cap) and MD018, where a line
+// beginning `#833` renders as a heading.
+{
+  "extends": "../../.markdownlint.jsonc",
+  "MD033": false,
+  "MD029": false,
+  "MD026": false,
+  "MD028": false,
+  "MD018": false
+}

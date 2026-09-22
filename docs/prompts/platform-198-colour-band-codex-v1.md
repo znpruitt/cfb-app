@@ -132,6 +132,7 @@ the mute existed for, and it reappearing means the band's ceiling is wrong, not 
 </gate>
 
 <completeness_contract>
+
 - **Every rendered bar clears the proposed floor against the WORST-CASE background**, asserted over the
   real catalog, not a fixture. A test that samples five teams proves nothing about 135.
 - **No bar exceeds the band's ceiling** — asserted separately. A one-sided band is a lift.

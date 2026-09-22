@@ -98,6 +98,7 @@ about how much of the catalog may vanish silently, and it is the owner's.
 </gate>
 
 <completeness_contract>
+
 - **An empty upstream body leaves the durable catalog at 138**, asserted against the stored row, not
   against a return value.
 - **A non-array body does the same**, asserted separately — one test covering both proves neither.

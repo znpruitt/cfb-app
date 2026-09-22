@@ -123,6 +123,7 @@ rewrite more than the team catalog.
 </gate>
 
 <completeness_contract>
+
 - **A provider row carrying `alternateColor` produces a stored `altColor`.** Assert on the normaliser,
   with a fixture using the real field name.
 - **A provider row carrying the OLD `altColor` name produces nothing.** Assert it — that is the bug,

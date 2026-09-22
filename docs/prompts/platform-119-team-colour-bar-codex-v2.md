@@ -168,6 +168,7 @@ item owns.
 </gate>
 
 <completeness_contract>
+
 - **A team with a catalog colour renders an 8px bar** at the line start, on every consumer that renders
   a team line.
 - **A team with NO catalog colour renders no bar at all.** Assert the absence of the element, not a

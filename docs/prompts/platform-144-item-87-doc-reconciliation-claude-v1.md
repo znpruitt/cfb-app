@@ -146,6 +146,7 @@ contradiction needs an owner decision rather than a reading.
 </gate>
 
 <completeness_contract>
+
 - **All 16 documents read end to end**, in the stated order. Report the order you actually read them
   in; a skipped document is a hole in the result and cannot be inferred from the others.
 - **Every index entry is verified**, and says so — none may remain at "best knowledge".

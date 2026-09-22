@@ -210,6 +210,7 @@ change what an existing caller renders today.
 </task>
 
 <completeness_contract>
+
 - **Overview must render IDENTICALLY before and after, with EXACTLY ONE named exception: every
   `dark:text-zinc-500` in `CompactGameScoreboard.tsx` becomes `dark:text-zinc-400`.** That is a
   COLOUR-TOKEN change only — no element changes size, weight, position, `title`, or structure. Any

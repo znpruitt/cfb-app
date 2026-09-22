@@ -1,34 +1,7 @@
 {
+  // Rules live in `.markdownlint.jsonc` so directory-level configs can extend
+  // them instead of duplicating them (#842).
   "config": {
-    "default": true,
-
-    // Line length is capped at 1000 characters — not a style preference, a
-    // readability floor. AGENTS.md:148 reached 17,005 characters carrying the
-    // whole provider-refresh scope contract, and it was still growing: the
-    // week-reconciliation description was appended to a 16,000-character line
-    // without anyone noticing (#705). The limit is deliberately generous so
-    // ordinary long prose lines stay legal; it exists to stop the pathological
-    // case becoming unreviewable. Tables and code blocks are exempt because
-    // wrapping either changes what they mean.
-    "MD013": {
-      "line_length": 1000,
-      "tables": false,
-      "code_blocks": false,
-      "headings": false
-    },
-
-    // Allow duplicate headings under different parent sections.
-    "MD024": {
-      "siblings_only": true
-    },
-
-    // Permit files that begin with PROMPT_ID or other required preambles.
-    "MD041": false,
-
-    // Defer repository-wide table formatting.
-    "MD060": false,
-
-    // Standalone bold labels are used intentionally in some project docs.
-    "MD036": false
+    "extends": ".markdownlint.jsonc"
   }
 }

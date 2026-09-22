@@ -89,6 +89,7 @@ ten, because it means the budget question went unanswered.
 </gate>
 
 <completeness_contract>
+
 - **Every verdict cites code**, by file and line, except UNCLEAR — which cites what it could not
   establish.
 - **Every STALE verdict states the absence method used**, and why a literal grep would or would not

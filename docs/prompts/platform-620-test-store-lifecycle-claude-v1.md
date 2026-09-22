@@ -89,6 +89,7 @@ change with the whole suite as its blast radius.
 </gate>
 
 <completeness_contract>
+
 - **Two processes with the same pid in different runs cannot collide** — asserted directly, by
   simulating the collision rather than by reasoning about the scheme.
 - **The plant that reproduced the planner failure no longer can**, asserted against the same payload

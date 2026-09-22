@@ -102,6 +102,7 @@ STOP and report if the tint cannot be rendered without changing the row's layout
 </gate>
 
 <completeness_contract>
+
 - **Overview and Schedule render byte-identically. Prove it by MUTATION** — force the flag on for all
   participants and show a SPECIFIC named test going red, then restore.
 - The tint renders when the flag is set and is absent when it is unset, absent, or false.

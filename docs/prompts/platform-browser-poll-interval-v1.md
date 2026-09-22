@@ -122,6 +122,7 @@ command that reports the code. Report the exact commit SHA the gates ran against
 was clean and HEAD unchanged at that moment.
 
 Required gates:
+
 1. `npx tsc --noEmit`
 2. `npm run lint:all`
 3. `npm test`
@@ -134,6 +135,7 @@ arithmetic over two cadences, not an observation. Cite it as the item's projecti
 </verification_loop>
 
 <action_safety>
+
 - Branch `platform/browser-poll-interval` off current `main`. Do not commit to `main`.
 - **Do NOT push `preview`, or any other preview branch.** `AGENTS.md` → Preview branch: `preview`
   belongs to Claude alone, decided 2026-08-18 because parallel worktrees made a single force-pushed

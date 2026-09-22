@@ -201,6 +201,7 @@ STOP and report if the shared projection needs widening to serve Matchups.
 </gate>
 
 <completeness_contract>
+
 - **A row past kickoff with no usable score renders `awaiting`, not `SCH`.** The headline. Assert on
   rendered output, **and mutation-prove it** by restoring the scheduled label and showing a named test
   go red.

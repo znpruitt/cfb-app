@@ -123,6 +123,7 @@ anticipate — that is a finding about the audit, not a reason to build around i
 </gate>
 
 <completeness_contract>
+
 - **The drift measurement is reported as a number**, with its partition, its call cost, and quota before
   and after.
 - **The cadence is justified by that number**, and the report says what the number ruled out.

@@ -82,7 +82,6 @@ truncation divergence appears, say whether the 28px line-start element explains 
 existing issues will otherwise absorb a finding they were not scoped for and their own numbers are
 wrong.
 
-
 **A partial match is RESIDUE, not a match** — same rendering wrong for a different reason than the item
 names. **Name the near-miss item beside each residue entry** so the count can be re-derived rather than
 trusted. This procedure was set by the Item 167 auditor and is adopted.
@@ -145,6 +144,7 @@ about what these surfaces should render.
 </gate>
 
 <completeness_contract>
+
 - **Every adapted check run against both surfaces**, or a named reason it does not apply.
 - **Every divergence carries its mapping** — an item number or `NOTHING`.
 - **The residue count is stated as a number**, per surface and combined, with each entry named.

@@ -128,6 +128,7 @@ state.
 </gate>
 
 <completeness_contract>
+
 - **`inspect` is unchanged for every job it exists for.** Prove it by MUTATION — break the fallback
   and show a SPECIFIC named test going red, then restore.
   **Corrected 2026-09-06 — "seven jobs" conflated two populations.** `EXTERNAL_SCHEDULER_JOBS` has

@@ -102,6 +102,7 @@ by a path that would also reach every other satisfied game.
 </gate>
 
 <completeness_contract>
+
 - **Each of the five is re-observed and its before/after recorded.** Named by provider ID.
 - **Prior-good data survives a failed observation.** Assert it — a partial provider response must not
   destroy a stored record.
