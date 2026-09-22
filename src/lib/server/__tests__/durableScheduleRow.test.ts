@@ -368,6 +368,72 @@ test('ACCEPTANCE 1 control: the same seeding with conforming rows reads cleanly 
   }
 });
 
+test('a malformed CONTAINER fails the read whatever its siblings hold', async () => {
+  // v4 round 1 (Codex P2). The reader asked "does this record carry rows?" BEFORE validating,
+  // so a present but non-array `items` read as "no rows", was skipped unvalidated, and its
+  // sibling was served alone as the whole season. The widening: the aggregate had the same
+  // skip, so a malformed aggregate beside a populated legacy pair served the pair.
+  const MALFORMED: Array<[string, unknown, string]> = [
+    ['items is a string', { at: 1, items: 'not-an-array' }, 'items'],
+    ['items is null', { at: 1, items: null }, 'items'],
+    ['items is an object', { at: 1, items: { 0: ROW_KINDS.regular } }, 'items'],
+    ['the record is a number', 7, '<record>'],
+    ['the record is a bare array', [ROW_KINDS.regular], '<record>'],
+  ];
+  const SIBLINGS: Array<[string, unknown]> = [
+    ['absent', undefined],
+    ['empty', { at: 1, items: [] }],
+    ['populated', { at: 1, items: [ROW_KINDS.postseason] }],
+  ];
+  const aggKey = `${YEAR}-all-all`;
+  const regKey = `${YEAR}-all-regular`;
+  const postKey = `${YEAR}-all-postseason`;
+  // Which record is malformed, and which records are its siblings.
+  const TARGETS: Array<[string, string, string[]]> = [
+    ['aggregate', aggKey, [regKey, postKey]],
+    ['regular partition', regKey, [postKey]],
+    ['postseason partition', postKey, [regKey]],
+  ];
+
+  let cells = 0;
+  for (const [targetName, targetKey, siblingKeys] of TARGETS) {
+    for (const [malformedName, malformed, field] of MALFORMED) {
+      for (const [siblingName, sibling] of SIBLINGS) {
+        await freshStore();
+        await setAppState('schedule', targetKey, malformed);
+        for (const key of siblingKeys) {
+          if (sibling !== undefined) await setAppState('schedule', key, sibling);
+        }
+        await assert.rejects(
+          () => loadCanonicalScheduleEntry(YEAR),
+          (e) => assertNonConformance(e, { key: targetKey, index: null, field }),
+          `${targetName} / ${malformedName} / siblings ${siblingName}`
+        );
+        cells += 1;
+      }
+    }
+  }
+  assert.equal(cells, TARGETS.length * MALFORMED.length * SIBLINGS.length);
+
+  // CONTROL: every sibling state reads cleanly on its own, so the rejections above come from
+  // the malformed record and not from the siblings.
+  for (const [siblingName, sibling] of SIBLINGS) {
+    await freshStore();
+    if (sibling !== undefined) {
+      await setAppState('schedule', regKey, sibling);
+      await setAppState('schedule', postKey, sibling);
+    }
+    await assert.doesNotReject(
+      () => loadCanonicalScheduleEntry(YEAR),
+      `siblings ${siblingName} alone`
+    );
+  }
+  // And a record with NO `items` key is still valid absence, as on `main`.
+  await freshStore();
+  await setAppState('schedule', aggKey, { at: 5 });
+  assert.deepEqual((await loadCanonicalScheduleEntry(YEAR))?.items, []);
+});
+
 // ---------------------------------------------------------------------------
 // ACCEPTANCE 8 — the WRITER never produces a row the reader would reject
 // ---------------------------------------------------------------------------

@@ -318,20 +318,31 @@ export async function GET(req: Request) {
     // refusal below because the remedy is the same: an admin refresh rebuilds the season.
     // `detail` names the key, row and field. Asserted by the schedule route test
     // "a non-conforming stored season answers a shaped 503 naming the row".
+    //
+    // AN ADMIN FALLS THROUGH TO THE REFRESH INSTEAD (v4 round 1). Fail-closed with no
+    // working recovery path means down until someone edits the database: on `main` an
+    // admin load of a stale season rebuilt it, and the first version of this handler
+    // answered the admin with the member's 503. The refresh reads its prior record itself,
+    // not through this reader, and commits a conforming aggregate over the bad one.
+    // Asserted by the schedule route test "an admin load REBUILDS a non-conforming season".
     let stored: Awaited<ReturnType<typeof loadCanonicalScheduleEntry<ScheduleItem>>>;
     try {
       stored = await loadCanonicalScheduleEntry<ScheduleItem>(year);
     } catch (error) {
       if (!(error instanceof ScheduleRowNonConformanceError)) throw error;
-      return NextResponse.json(
-        {
-          error:
-            'schedule cache unreadable: the stored season does not conform to the schedule row type — an admin refresh is required to rebuild it',
-          code: 'schedule-cache-nonconforming',
-          detail: error.message,
-        },
-        { status: 503 }
-      );
+      if (!isAdmin) {
+        return NextResponse.json(
+          {
+            error:
+              'schedule cache unreadable: the stored season does not conform to the schedule row type — an admin refresh is required to rebuild it',
+            code: 'schedule-cache-nonconforming',
+            detail: error.message,
+          },
+          { status: 503 }
+        );
+      }
+      // Nothing readable is stored: the admin continues to the refresh below.
+      stored = null;
     }
     if (stored) {
       // Only the aggregate owns the process-cache slot; a partition-pair read is a

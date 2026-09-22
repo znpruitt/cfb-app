@@ -1,18 +1,9 @@
 import type { AppGame, ScheduleWireItem } from '../schedule.ts';
 import { getAppState } from './appStateStore.ts';
-import { assertConformingScheduleRows } from './durableScheduleRow.ts';
-
-/**
- * The durable `schedule` record as stored. Every field but `items` is optional
- * here on purpose: this type describes what the store may HOLD (including rows
- * written by older shapes), not what a writer produces.
- */
-type StoredScheduleEntry<T> = {
-  at?: number;
-  items?: T[];
-  partialFailure?: boolean;
-  failedSeasonTypes?: string[];
-};
+import {
+  assertConformingScheduleRecord,
+  type ConformingScheduleRecord,
+} from './durableScheduleRow.ts';
 
 /** Which key precedence actually served a canonical schedule read. */
 export type CanonicalScheduleEntrySource = 'aggregate' | 'partition-pair';
@@ -155,55 +146,49 @@ export async function loadCachedScheduleItems(year: number): Promise<ScheduleWir
 export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
   year: number
 ): Promise<CanonicalScheduleEntry<T> | null> {
-  const aggregate = await getAppState<StoredScheduleEntry<T>>(
-    CANONICAL_SCHEDULE_SCOPE,
-    canonicalScheduleAggregateKey(year)
+  // PLATFORM-813: every record is validated AS IT IS READ, before any decision about which
+  // record serves. A malformed record therefore fails the read wherever it sits, rather
+  // than being skipped as "no rows" while a sibling is served as the whole season. Every
+  // row returned conforms to `ScheduleWireItem`; no path returns the rows that remain after
+  // a bad one.
+  const aggregateKey = canonicalScheduleAggregateKey(year);
+  const aggregate = assertConformingScheduleRecord(
+    aggregateKey,
+    (await getAppState<unknown>(CANONICAL_SCHEDULE_SCOPE, aggregateKey))?.value
   );
-  if (canonicalScheduleAggregateServes(aggregate?.value)) {
-    return normalizeEntry<T>(aggregate!.value!, 'aggregate', canonicalScheduleAggregateKey(year));
+  if (aggregate && aggregate.items.length > 0) {
+    return entryFrom<T>(aggregate, 'aggregate');
   }
 
   const [regularKey, postseasonKey] = canonicalSchedulePartitionKeys(year);
   const [regular, postseason] = await Promise.all([
-    getAppState<StoredScheduleEntry<T>>(CANONICAL_SCHEDULE_SCOPE, regularKey),
-    getAppState<StoredScheduleEntry<T>>(CANONICAL_SCHEDULE_SCOPE, postseasonKey),
+    getAppState<unknown>(CANONICAL_SCHEDULE_SCOPE, regularKey),
+    getAppState<unknown>(CANONICAL_SCHEDULE_SCOPE, postseasonKey),
   ]);
-
-  const contributing = (
-    [
-      [regularKey, regular?.value],
-      [postseasonKey, postseason?.value],
-    ] as const
-  )
-    .filter((pair): pair is readonly [string, StoredScheduleEntry<T>] =>
-      canonicalScheduleAggregateServes(pair[1])
-    )
-    // PLATFORM-813: each partition is checked under ITS OWN key, so the error names the
-    // record that holds the bad row rather than a composed view no key stores.
-    .map(([key, value]) => ({
-      value,
-      items: assertConformingScheduleRows(key, value.items) as unknown as T[],
-    }));
+  // Each partition is checked under ITS OWN key, so the error names the record that holds
+  // the bad row rather than a composed view no key stores.
+  const contributing = [
+    assertConformingScheduleRecord(regularKey, regular?.value),
+    assertConformingScheduleRecord(postseasonKey, postseason?.value),
+  ].filter((partition): partition is ConformingScheduleRecord =>
+    Boolean(partition && partition.items.length > 0)
+  );
   if (contributing.length > 0) {
     // An UNKNOWN age is not a missing contribution. A contributing partition whose
     // `at` is absent or non-finite normalizes to 0 (stale) rather than dropping out
-    // of the comparison: `StoredScheduleEntry.at` is optional precisely because the
+    // of the comparison: a stored record's `at` is optional precisely because the
     // store may hold older records, and skipping those stamps let a fresh sibling
     // report the combined view fresh while half of it had unknown age. `0` is
     // stale-but-comparable, which is the honest answer and matches what
-    // `normalizeEntry` already does for the single-record paths.
-    const stamps = contributing.map(({ value }) =>
-      typeof value.at === 'number' && Number.isFinite(value.at) ? value.at : 0
-    );
+    // `entryFrom` already does for the single-record paths.
+    const stamps = contributing.map(({ record }) => stampOf(record));
     return {
       // Oldest contributing partition wins, so the pair can never read fresher
       // than its stalest half.
       at: Math.min(...stamps),
-      items: contributing.flatMap(({ items }) => items),
-      partialFailure: contributing.some(({ value }) => value.partialFailure === true),
-      failedSeasonTypes: contributing.flatMap(({ value }) =>
-        Array.isArray(value.failedSeasonTypes) ? value.failedSeasonTypes : []
-      ),
+      items: contributing.flatMap(({ items }) => items) as unknown as T[],
+      partialFailure: contributing.some(({ record }) => record.partialFailure === true),
+      failedSeasonTypes: contributing.flatMap(({ record }) => failedSeasonTypesOf(record)),
       source: 'partition-pair',
     };
   }
@@ -221,30 +206,29 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
   // season for any store holding an empty `-all-regular` and no aggregate. The pair
   // is a fallback for SERVING ROWS; with no rows it has nothing to say, so it stays
   // a miss.
-  if (aggregate?.value) {
-    return normalizeEntry<T>(aggregate.value, 'aggregate', canonicalScheduleAggregateKey(year));
+  if (aggregate) {
+    return entryFrom<T>(aggregate, 'aggregate');
   }
   return null;
 }
 
-function normalizeEntry<T>(
-  value: StoredScheduleEntry<T>,
-  source: CanonicalScheduleEntrySource,
-  key: string
+function stampOf(record: Record<string, unknown>): number {
+  return typeof record.at === 'number' && Number.isFinite(record.at) ? record.at : 0;
+}
+
+function failedSeasonTypesOf(record: Record<string, unknown>): string[] {
+  return Array.isArray(record.failedSeasonTypes) ? (record.failedSeasonTypes as string[]) : [];
+}
+
+function entryFrom<T>(
+  { record, items }: ConformingScheduleRecord,
+  source: CanonicalScheduleEntrySource
 ): CanonicalScheduleEntry<T> {
   return {
-    at: typeof value.at === 'number' && Number.isFinite(value.at) ? value.at : 0,
-    // PLATFORM-813: every row the canonical reader returns conforms to `ScheduleWireItem`,
-    // or the read throws `ScheduleRowNonConformanceError` naming key, row and field. No
-    // path returns the rows that remain after a bad one. An ABSENT `items` stays `[]`
-    // exactly as on `main` — the stored type makes it optional — while a PRESENT
-    // non-array is non-conformance. Asserted by `durableScheduleRow.test.ts` (acceptance 1).
-    items:
-      value.items === undefined
-        ? []
-        : (assertConformingScheduleRows(key, value.items) as unknown as T[]),
-    partialFailure: value.partialFailure === true,
-    failedSeasonTypes: Array.isArray(value.failedSeasonTypes) ? value.failedSeasonTypes : [],
+    at: stampOf(record),
+    items: items as unknown as T[],
+    partialFailure: record.partialFailure === true,
+    failedSeasonTypes: failedSeasonTypesOf(record),
     source,
   };
 }

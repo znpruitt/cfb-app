@@ -199,6 +199,50 @@ export class ScheduleRowNonConformanceError extends Error {
   }
 }
 
+/** A stored schedule record whose `items` conforms — see {@link assertConformingScheduleRecord}. */
+export type ConformingScheduleRecord = {
+  record: Record<string, unknown>;
+  items: ScheduleWireItem[];
+};
+
+/**
+ * Validate one stored schedule RECORD before anything decides whether it contributes.
+ *
+ * `null` for an absent record, and `items: []` for a record with no `items` or an empty
+ * array — both are valid absence. A present record that is not an object, or whose `items`
+ * is present but not an array, throws; so does any non-conforming row.
+ *
+ * **WHY THIS RUNS BEFORE PRECEDENCE, NOT INSIDE IT** (v4 round 1, Codex P2). The reader used
+ * to ask "does this record carry rows?" first and validate only the records that did. A
+ * present but non-array `items` answered "no rows", was skipped unvalidated, and its sibling
+ * was served alone as the whole season — partial data reaching a consumer, the one thing v4
+ * exists to prevent. The selection ran before the guard saw the record: v1's "a guard a
+ * sibling read jumps in front of", again, in the precedence step. Asserted by
+ * `durableScheduleRow.test.ts` "a malformed CONTAINER fails the read whatever its siblings hold".
+ */
+export function assertConformingScheduleRecord(
+  key: string,
+  value: unknown
+): ConformingScheduleRecord | null {
+  if (value === null || value === undefined) return null;
+  if (!isPlainObject(value)) {
+    throw new ScheduleRowNonConformanceError(
+      key,
+      null,
+      null,
+      '<record>',
+      describe(value),
+      'a schedule record object'
+    );
+  }
+  // An ABSENT `items` is valid absence — the stored type makes it optional. `null` is NOT:
+  // it is present and not an array. `main` read it as `[]` through `value.items ?? []`;
+  // v4 does not. That reaches no stored data: planning's conformance probe (2026-09-22)
+  // found all 7 stored schedule keys holding arrays.
+  const items = value.items === undefined ? [] : assertConformingScheduleRows(key, value.items);
+  return { record: value, items };
+}
+
 /**
  * Assert that a stored `items` value is an array of conforming rows, and return it UNCHANGED.
  *

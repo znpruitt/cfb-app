@@ -110,13 +110,34 @@ type Scan = {
   unresolvedScopes: Array<{ file: string; scope: string }>;
 };
 
-function scan(root: string): Scan {
+/**
+ * Scan every non-test source file, plus any `virtualFiles` (path relative to `root` →
+ * source text), which are compiled into the SAME program through the compiler host.
+ * The virtual files exist for the positive control: it runs this exact function, not a
+ * copy of one predicate.
+ */
+function scan(root: string, virtualFiles: Record<string, string> = {}): Scan {
   const parsed = ts.getParsedCommandLineOfConfigFile(path.join(root, 'tsconfig.json'), undefined, {
     ...ts.sys,
     onUnRecoverableConfigFileDiagnostic: () => {},
   });
   assert.ok(parsed, 'tsconfig.json parses');
-  const program = ts.createProgram(parsed.fileNames, parsed.options);
+  const virtual = new Map(
+    Object.entries(virtualFiles).map(([rel, text]) => [path.join(root, rel), text] as const)
+  );
+  const host = ts.createCompilerHost(parsed.options);
+  const baseGetSourceFile = host.getSourceFile.bind(host);
+  const baseFileExists = host.fileExists.bind(host);
+  const baseReadFile = host.readFile.bind(host);
+  host.getSourceFile = (fileName, languageVersion, ...rest) => {
+    const text = virtual.get(path.resolve(fileName));
+    return text !== undefined
+      ? ts.createSourceFile(fileName, text, languageVersion, true)
+      : baseGetSourceFile(fileName, languageVersion, ...rest);
+  };
+  host.fileExists = (fileName) => virtual.has(path.resolve(fileName)) || baseFileExists(fileName);
+  host.readFile = (fileName) => virtual.get(path.resolve(fileName)) ?? baseReadFile(fileName);
+  const program = ts.createProgram([...parsed.fileNames, ...virtual.keys()], parsed.options, host);
   const checker = program.getTypeChecker();
 
   const result: Scan = {
@@ -126,11 +147,20 @@ function scan(root: string): Scan {
     unresolvedScopes: [],
   };
 
-  const resolvesToStore = (node: ts.Identifier): boolean => {
+  /**
+   * The store reader this identifier RESOLVES to, or null. Matched on the DECLARATION's
+   * name in the store module, never on the identifier's own spelling: an import such as
+   * `getAppState as readState` has local text `readState`, and the first version of this
+   * scan filtered on that text before resolving, so an aliased read escaped it (v4 round
+   * 1, Codex P3) — a sweep measuring its own syntax again.
+   */
+  const storeReaderOf = (node: ts.Identifier): string | null => {
     let symbol = checker.getSymbolAtLocation(node);
-    if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
-    const decl = symbol?.declarations?.[0];
-    return Boolean(decl && path.relative(root, decl.getSourceFile().fileName) === STORE);
+    if (!symbol) return null;
+    if (symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+    const decl = symbol.declarations?.[0];
+    if (!decl || path.relative(root, decl.getSourceFile().fileName) !== STORE) return null;
+    return READERS.has(symbol.name) ? symbol.name : null;
   };
 
   for (const sourceFile of program.getSourceFiles()) {
@@ -139,7 +169,7 @@ function scan(root: string): Scan {
     result.filesScanned += 1;
 
     const visit = (node: ts.Node): void => {
-      if (ts.isIdentifier(node) && READERS.has(node.text) && resolvesToStore(node)) {
+      if (ts.isIdentifier(node) && !ts.isImportSpecifier(node.parent) && storeReaderOf(node)) {
         const parent = node.parent;
         const isDirectCall = ts.isCallExpression(parent) && parent.expression === node;
         const isTypeOnly = ts.isTypeQueryNode(parent);
@@ -156,7 +186,7 @@ function scan(root: string): Scan {
               scope: scopeArg?.getText(sourceFile) ?? '<none>',
             });
           }
-        } else if (!isTypeOnly && !ts.isImportSpecifier(parent)) {
+        } else if (!isTypeOnly) {
           result.indirect.add(rel);
         }
       }
@@ -243,4 +273,23 @@ test('every durable schedule read in src/ is the canonical reader or an allowed,
     [],
     'a runtime-built scope mentions schedule; this scan cannot resolve it'
   );
+});
+
+test('POSITIVE CONTROL: an ALIASED reader import is found by the same scan', () => {
+  // v4 round 1 (Codex P3). An in-memory file compiled into the SAME program through the
+  // scan's own compiler host, so this exercises the whole scan — program, resolution and
+  // classification — rather than one predicate. It must report the aliased schedule read
+  // as a direct read, and an aliased reader passed as a value as indirect.
+  const CONTROL = 'src/lib/__scan_control__/aliasedRead.ts';
+  const result = scan(ROOT, {
+    [CONTROL]: [
+      "import { getAppState as readState } from '../server/appStateStore.ts';",
+      'export async function aliasedRead(year: number) {',
+      "  return readState('schedule', `${year}-all-all`);",
+      '}',
+      'export const passed = readState;',
+    ].join('\n'),
+  });
+  assert.equal(result.scheduleReads.get(CONTROL), 1, 'the aliased direct read is counted');
+  assert.ok(result.indirect.has(CONTROL), 'the aliased reader passed as a value is flagged');
 });

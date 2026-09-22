@@ -25,6 +25,8 @@ import {
 import { yearScope } from '../../../../lib/providerRefreshScope.ts';
 import { acquireScheduleRefreshLease } from '../../../../lib/schedule/scheduleRefreshLease.ts';
 import { conformingScheduleRow } from '../../../../test/conformingScheduleRow.ts';
+import { loadCanonicalScheduleEntry } from '../../../../lib/server/canonicalScheduleCache.ts';
+import { ScheduleRowNonConformanceError } from '../../../../lib/server/durableScheduleRow.ts';
 
 // PLATFORM-663: every refresh this route can reach is a WHOLE-SEASON refresh
 // through the shared authority, so the year rollup is the only status scope it
@@ -555,8 +557,9 @@ test('a non-conforming stored season answers a shaped 503 naming the row', async
   // served the malformed row with a 200 and the client crashed building it. The reader now
   // throws `ScheduleRowNonConformanceError`, and without a handler that escaped as Next's
   // bare 500. The body names what is wrong and where; nothing is served, and nothing enters
-  // the route's process cache.
+  // the route's process cache. A MEMBER request: the admin token is configured and not sent.
   process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
   await setAppState('schedule', '2026-all-all', {
     at: Date.now(),
     items: [
@@ -577,6 +580,77 @@ test('a non-conforming stored season answers a shaped 503 naming the row', async
   assert.match(json.detail ?? '', /schedule 2026-all-all: row #1 \(id "g2"\) startDate is absent/);
   assert.equal(json.items, undefined, 'no rows are served');
   assert.equal(SCHEDULE_ROUTE_CACHE['2026-all-all'], undefined, 'nothing enters the process cache');
+});
+
+test('an admin load REBUILDS a non-conforming season, and the next read is clean', async () => {
+  // PLATFORM-813 v4, acceptance 10 (admin half). Fail-closed with no recovery path means
+  // down until someone edits the database. On `main` an admin load of a stale season fell
+  // through to the refresh; v4's first handler answered the admin with the member's 503.
+  // The seeded record is FRESH, so only the non-conformance — not staleness — can send the
+  // admin to the refresh. Fails against `4038fdeb` (503).
+  //
+  // Seeded a minute in the PAST, as a real stored record is: the writer keeps a prior
+  // observed at/after its own observation (`fullSeasonScheduleRefresh.ts:147`), so a seed
+  // stamped `Date.now()` lost that race whenever both landed in the same millisecond — the
+  // first version of this test was flaky for exactly that reason.
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    const body =
+      url.pathname === '/games' && url.searchParams.get('seasonType') === 'regular'
+        ? [
+            {
+              week: 1,
+              home_team: 'Texas',
+              away_team: 'Rice',
+              id: 7,
+              start_date: '2026-09-05T00:00:00Z',
+            },
+          ]
+        : [];
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+
+  const BAD_RECORDS: Array<[string, unknown]> = [
+    ['a row missing a required field', [{ id: 'g-bad', week: 1 }]],
+    ['a null row', [null]],
+    ['a non-array container', 'not-an-array'],
+  ];
+  for (const [name, items] of BAD_RECORDS) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    resetScheduleRouteCacheForTests();
+    await setAppState('schedule', '2026-all-all', {
+      at: Date.now() - 60_000,
+      items,
+      partialFailure: false,
+      failedSeasonTypes: [],
+    });
+    await assert.rejects(
+      () => loadCanonicalScheduleEntry(2026),
+      ScheduleRowNonConformanceError,
+      `${name}: seeded non-conforming`
+    );
+
+    const res = await GET(
+      new Request('http://localhost/api/schedule?year=2026', {
+        headers: { 'x-admin-token': 'admin-token' },
+      })
+    );
+    assert.equal(res.status, 200, `${name}: the admin is rebuilt, not refused`);
+
+    // The typed error stops on the NEXT read: a conforming aggregate replaced the bad one.
+    const entry = await loadCanonicalScheduleEntry(2026);
+    assert.deepEqual(
+      entry?.items.map((item) => item.id),
+      ['7'],
+      `${name}: the next read is clean`
+    );
+  }
 });
 
 // ---------------------------------------------------------------------------

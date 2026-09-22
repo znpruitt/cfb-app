@@ -30,6 +30,7 @@ import {
   type League,
 } from './_routeHarness.ts';
 import { weekPartitionScope } from '../../../../../lib/providerRefreshScope.ts';
+import { loadCanonicalScheduleEntry } from '../../../../../lib/server/canonicalScheduleCache.ts';
 
 function finalGameBody(year: number, week = 1): string {
   return JSON.stringify([
@@ -539,4 +540,53 @@ test('a critical year is latched durably and stays exempt after the boundary mov
   const entry = second.events[0]!.years[0]!;
   assert.equal(entry.operation, 'postseason-boundary', 'latched classification persists');
   assert.ok(fetchLog.length > 0, 'the latched year still reached the provider');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-813 v4, acceptance 10 (scheduled half) — the cron REPAIRS a non-conforming
+// season. The canonical reader fails closed, so recovery has to come from a path that does
+// not read through it: this cron classifies from the stored record directly
+// (`weeklyRefreshOperation.ts`) and the writer reads its prior record itself.
+// ---------------------------------------------------------------------------
+
+async function seedNonConforming(year: number, mangle: (items: unknown[]) => unknown) {
+  await seedSchedule(year, ORDINARY_KICKOFF);
+  const stored = (await getAppState<{ items: unknown[] }>('schedule', `${year}-all-all`))!.value!;
+  await setAppState('schedule', `${year}-all-all`, { ...stored, items: mangle(stored.items) });
+  // The harness's own rows omit required fields, so the seeded season is non-conforming
+  // before the mangle; the mangle adds the specific corruption each case is about.
+  await assert.rejects(() => loadCanonicalScheduleEntry(year));
+}
+
+for (const [name, mangle] of [
+  ['a row missing required fields', (items: unknown[]) => [...items, { id: 'g-bad', week: 1 }]],
+  ['a null row', (items: unknown[]) => [...items, null]],
+] as const) {
+  test(`#813 v4: the scheduled refresh overwrites a season holding ${name}, and the next read is clean`, async () => {
+    await seedSeasonLeague(2031);
+    await seedNonConforming(2031, mangle);
+    stubProvider({ 2031: { regular: gameBody(2031), postseason: '[]' } });
+
+    const { events } = await runRoute();
+    assert.equal(events[0]!.years[0]!.reason, 'written-clean', 'the cron refreshed the season');
+
+    const entry = await loadCanonicalScheduleEntry(2031);
+    assert.ok(entry && entry.items.length > 0, 'the typed error stops on the next read');
+  });
+}
+
+test('#813 v4: a NON-ARRAY container is the one case the scheduled refresh does not repair', async () => {
+  // PINNED, NOT ENDORSED. The cron's classifier reads a non-array `items` as unusable
+  // context and refuses before any provider work, so the season stays unreadable until an
+  // ADMIN refresh (which does repair it — see the schedule route test "an admin load
+  // REBUILDS a non-conforming season"). Out of v4's scope and reported for a ruling; this
+  // test fails the day that changes, so the change is made deliberately.
+  await seedSeasonLeague(2031);
+  await seedNonConforming(2031, () => 'not-an-array');
+  stubProvider({ 2031: { regular: gameBody(2031), postseason: '[]' } });
+
+  const { events } = await runRoute();
+  assert.equal(events[0]!.years[0]!.reason, 'canonical-context-unavailable');
+  assert.equal(fetchLog.length, 0, 'no provider work');
+  await assert.rejects(() => loadCanonicalScheduleEntry(2031), 'still unreadable');
 });
