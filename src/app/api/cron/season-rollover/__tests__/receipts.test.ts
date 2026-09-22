@@ -490,9 +490,37 @@ test('a championship-resolution throw records the failing year in the event/rece
   await setAppState('leagues', 'registry', [
     makeLeague('alpha', { state: 'season', year: 2023 }, 2023),
   ]);
-  // A malformed schedule cache: a null item makes structured-championship
-  // resolution throw AFTER the cache read succeeds (not a read-failed return).
-  await setAppState('schedule', `2023-all-all`, { items: [null] });
+  // PLATFORM-813 v4 moved this test's VEHICLE; its intent (Codex r3 finding A: a
+  // resolution throw records the failing year) is unchanged. It used to seed
+  // `{ items: [null] }`, relying on a null ROW reaching resolution and throwing on
+  // `row.homeTeam.trim()`. The canonical reader now rejects a non-conforming row, so
+  // that row fails the READ and the route records `read-failed` instead — asserted by
+  // the next test, which is what fail-closed means for this route.
+  //
+  // So the throw moves to a malformed SCORE, which the schedule contract does not cover:
+  // `classifyScorePackStatus` runs OUTSIDE both try blocks in
+  // `resolveNationalChampionshipRollover`, so a non-string `status` escapes to the
+  // route's outer catch. The participants must stay intact — a pack missing `home`
+  // fails during attachment, inside the try, and returns `read-failed`. `status: 99` is
+  // the narrowest value that survives attachment and breaks at classification.
+  await seedChampionship(2023, PAST_CHAMP, true);
+  await setAppState('scores', `2023-all-postseason`, {
+    at: Date.parse(PAST_CHAMP),
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+    items: [
+      {
+        id: `20230752`,
+        seasonType: 'postseason',
+        startDate: PAST_CHAMP,
+        week: 15,
+        status: 99,
+        home: { team: 'Alpha U', score: 34 },
+        away: { team: 'Beta U', score: 21 },
+        time: null,
+      },
+    ],
+  });
   const { res, event, threw } = await runRoute();
   // The outer catch preserves the same 500; the event/receipt still include the year.
   assert.ok(res!.status === 500 || threw, 'a resolution throw is the existing 500 / propagation');
@@ -508,6 +536,29 @@ test('a championship-resolution throw records the failing year in the event/rece
   assert.deepEqual(
     target.years.map((y) => y.year),
     [2023]
+  );
+});
+
+// PLATFORM-813 v4 — a NON-CONFORMING stored row fails the year's READ, legibly.
+// The superseded half of the test above: the `[null]` row it used to seed now stops at the
+// canonical reader, and the route records a `read-failed` failure whose detail names the
+// key, the row and the field — rather than an unattributable 500.
+test('a non-conforming schedule row records read-failed naming the key, row and field', async () => {
+  await seedTeams();
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'season', year: 2023 }, 2023),
+  ]);
+  await setAppState('schedule', `2023-all-all`, { items: [null] });
+  const { res, event } = await runRoute();
+  assert.ok(res, 'the route answers rather than throwing');
+  assert.equal(event.years.length, 1, 'the failing year is NOT omitted');
+  assert.equal(event.years[0]!.result, 'failure');
+  assert.equal(event.years[0]!.reason, 'read-failed');
+  const body = (await res!.json()) as { errors?: Array<{ error: string }> };
+  assert.match(
+    body.errors?.map((e) => e.error).join('\n') ?? '',
+    /schedule 2023-all-all: row #0 <row> is null, expected an object/,
+    'the failure names what is wrong and where'
   );
 });
 

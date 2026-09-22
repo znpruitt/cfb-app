@@ -29,6 +29,10 @@ import { yearScope } from '../providerRefreshScope.ts';
 import { invalidateStandings } from '../selectors/leagueStandings.ts';
 import { getAppState, withAppStateKeyTransaction } from '../server/appStateStore.ts';
 import {
+  assertConformingScheduleRecord,
+  ScheduleRowNonConformanceError,
+} from '../server/durableScheduleRow.ts';
+import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
   recordProviderRefreshFailure,
@@ -86,6 +90,35 @@ function normalizePriorEntry(value: unknown): CacheEntry | null {
   };
 }
 
+/**
+ * The prior entry the commit's rules may consult, or `null` when there is none — and a prior
+ * that does NOT conform to `ScheduleWireItem` counts as none, however new its `at`
+ * (PLATFORM-813 v4 round 2).
+ *
+ * The observation-ordering rule below assumes a prior observed at/after this refresh is
+ * newer GOOD state worth keeping (PLATFORM-086E1A finding 3). A non-conforming record is
+ * not good state: keeping it returned `stale-observation`, and that branch forwarded the
+ * record's unvalidated rows into `SCHEDULE_ROUTE_CACHE`, where they were served in place of
+ * the validating canonical reader until the TTL — the admin repair path reinstating exactly
+ * the partial data the reader fails closed on. Both reviewers found it independently.
+ *
+ * A CONFORMING prior is returned exactly as before, so the ordering rule does its original
+ * job unchanged. And "no prior" cannot make an all-empty provider result destroy anything:
+ * with no prior it resolves to `empty-response` and writes nothing, so the bad record stays
+ * and keeps failing closed rather than being replaced by an empty season. Asserted by the
+ * schedule route tests "a non-conforming record stamped in the FUTURE is still overwritten"
+ * and "an all-empty refresh never replaces a non-conforming record".
+ */
+function conformingPriorEntry(key: string, value: unknown): CacheEntry | null {
+  try {
+    assertConformingScheduleRecord(key, value);
+  } catch (error) {
+    if (error instanceof ScheduleRowNonConformanceError) return null;
+    throw error;
+  }
+  return normalizePriorEntry(value);
+}
+
 type CommitOutcome =
   | {
       kind: 'written-clean';
@@ -140,7 +173,7 @@ async function commitFullSeasonSchedule(params: {
       'schedule',
       key,
       async (txn): Promise<typeof outcome> => {
-        const prior = normalizePriorEntry((await txn.read<CacheEntry>())?.value);
+        const prior = conformingPriorEntry(key, (await txn.read<CacheEntry>())?.value);
 
         // Observation ordering: a prior entry observed at/after this refresh wins —
         // never overwrite newer durable state with a stale observation.

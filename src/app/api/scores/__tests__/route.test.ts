@@ -29,6 +29,7 @@ import {
   __setCanonicalStandingsInvalidatorForTests,
   __setCanonicalStandingsWarmerForTests,
 } from '../../../../lib/server/standingsCacheWarmer.ts';
+import { conformingScheduleRow } from '../../../../test/conformingScheduleRow.ts';
 
 type MockFetch = typeof fetch;
 
@@ -473,7 +474,7 @@ test('an empty CFBD payload when the canonical schedule shows started games is a
   await setAppState('schedule', '2026-all-all', {
     at: Date.now(),
     items: [
-      {
+      conformingScheduleRow({
         id: 'g-started',
         week: 3,
         startDate: startedKickoff,
@@ -481,7 +482,7 @@ test('an empty CFBD payload when the canonical schedule shows started games is a
         awayTeam: 'Auburn',
         status: 'scheduled',
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -505,7 +506,7 @@ test('an empty CFBD payload for a future-only target remains a valid no-op', asy
   await setAppState('schedule', '2026-all-all', {
     at: Date.now(),
     items: [
-      {
+      conformingScheduleRow({
         id: 'g-future',
         week: 3,
         startDate: futureKickoff,
@@ -513,7 +514,7 @@ test('an empty CFBD payload for a future-only target remains a valid no-op', asy
         awayTeam: 'Auburn',
         status: 'scheduled',
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -536,7 +537,7 @@ test('canceled and postponed games do not make an empty CFBD payload unexpected'
   await setAppState('schedule', '2026-all-all', {
     at: Date.now(),
     items: [
-      {
+      conformingScheduleRow({
         id: 'g-canceled',
         week: 3,
         startDate: pastKickoff,
@@ -544,8 +545,8 @@ test('canceled and postponed games do not make an empty CFBD payload unexpected'
         awayTeam: 'Auburn',
         status: 'canceled',
         seasonType: 'regular',
-      },
-      {
+      }),
+      conformingScheduleRow({
         id: 'g-postponed',
         week: 3,
         startDate: pastKickoff,
@@ -553,7 +554,7 @@ test('canceled and postponed games do not make an empty CFBD payload unexpected'
         awayTeam: 'Rice',
         status: 'postponed',
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -577,7 +578,7 @@ test('canceled and postponed games do not make an empty CFBD payload unexpected'
 // ---------------------------------------------------------------------------
 
 function startedScheduleGame(seasonType: 'regular' | 'postseason', week: number) {
-  return {
+  return conformingScheduleRow({
     id: `g-${seasonType}-${week}`,
     week,
     startDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
@@ -585,7 +586,7 @@ function startedScheduleGame(seasonType: 'regular' | 'postseason', week: number)
     awayTeam: 'Auburn',
     status: 'scheduled',
     seasonType,
-  };
+  });
 }
 
 function scheduleEntry(items: ReturnType<typeof startedScheduleGame>[]) {

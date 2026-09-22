@@ -488,10 +488,38 @@ test('R4 regression: the unexpected-error 500 still reports refusals counted bef
     ...((await getAppState<League[]>('leagues', 'registry'))?.value ?? []),
     makeLeague('alpha', { state: 'season', year: YEAR }),
   ]);
-  // A structurally malformed cached schedule makes resolution THROW.
-  await setAppState('schedule', `${YEAR}-all-all`, { items: 'not-an-array' });
+  // PLATFORM-813 v4 moved the VEHICLE. This used to seed `{ items: 'not-an-array' }`,
+  // which threw inside resolution. The canonical reader now rejects a non-conforming
+  // container at the READ, which the route records as `read-failed` — so the old fixture
+  // stopped reaching the unexpected-error 500 this test is named for, while its single
+  // assertion (the count) still held on the read-failed response. **It passed while
+  // testing a different path** (v2's boundary had vacated it the same way). Found by
+  // logging every validator throw across the suite, not by a red test.
+  //
+  // The throw now comes from a malformed SCORE: `classifyScorePackStatus` runs outside
+  // resolution's try blocks, so a non-string `status` on an intact pack escapes to the
+  // outer catch. The status assertion below is what keeps the vehicle honest.
+  await seedScheduleWithChampionship('2023-01-09T00:00:00.000Z');
+  await setAppState('scores', `${YEAR}-all-postseason`, {
+    at: Date.parse('2023-01-10T00:00:00.000Z'),
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+    items: [
+      {
+        id: '401752',
+        seasonType: 'postseason',
+        startDate: '2023-01-09T00:00:00.000Z',
+        week: 15,
+        status: 99,
+        home: { team: 'Alpha U', score: 34 },
+        away: { team: 'Beta U', score: 21 },
+        time: null,
+      },
+    ],
+  });
 
   const { result: res } = await runCapturingTags(() => GET(cronRequest()));
+  assert.equal(res.status, 500, 'this is the unexpected-error path, not read-failed');
   const body = (await res.json()) as { invalidLifecycleTargets?: number };
 
   assert.equal(body.invalidLifecycleTargets, 1, 'the refusal reaches the error response too');

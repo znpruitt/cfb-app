@@ -19,6 +19,7 @@ import {
   canonicalScheduleAggregateKey,
   loadCanonicalScheduleEntry,
 } from '@/lib/server/canonicalScheduleCache';
+import { ScheduleRowNonConformanceError } from '@/lib/server/durableScheduleRow';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import {
   getScheduleProbeState,
@@ -310,7 +311,48 @@ export async function GET(req: Request) {
 
     // Process entry missing or expired → consult durable storage, which is never
     // masked by a stale local mirror.
-    const stored = await loadCanonicalScheduleEntry<ScheduleItem>(year);
+    // PLATFORM-813: a stored season that does not conform to `ScheduleWireItem` is a
+    // shaped 503, not an opaque 500. The reader throws `ScheduleRowNonConformanceError`,
+    // and without this handler it escaped `GET` as Next's default 500 with no body — while
+    // every other failure this route returns is shaped JSON. 503 matches the cache-miss
+    // refusal below because the remedy is the same: an admin refresh rebuilds the season.
+    // `detail` names the key, row and field. Asserted by the schedule route test
+    // "a non-conforming stored season answers a shaped 503 naming the row".
+    //
+    // AN ADMIN FALLS THROUGH TO THE REFRESH INSTEAD (v4 round 1). Fail-closed with no
+    // working recovery path means down until someone edits the database: on `main` an
+    // admin load of a stale season rebuilt it, and the first version of this handler
+    // answered the admin with the member's 503. The refresh reads its prior record itself,
+    // not through this reader, and commits a conforming aggregate over the bad one.
+    // Asserted by the schedule route test "an admin load REBUILDS a non-conforming season".
+    let stored: Awaited<ReturnType<typeof loadCanonicalScheduleEntry<ScheduleItem>>>;
+    try {
+      stored = await loadCanonicalScheduleEntry<ScheduleItem>(year);
+    } catch (error) {
+      if (!(error instanceof ScheduleRowNonConformanceError)) throw error;
+      if (!isAdmin) {
+        return NextResponse.json(
+          {
+            error:
+              'schedule cache unreadable: the stored season does not conform to the schedule row type — an admin refresh is required to rebuild it',
+            code: 'schedule-cache-nonconforming',
+            detail: error.message,
+          },
+          { status: 503 }
+        );
+      }
+      // Nothing readable is stored: the admin continues to the refresh below. Logged FIRST,
+      // with the row-naming detail, so a repair that then fails (a 409, a failed partition,
+      // an empty provider result) still tells the operator what was broken.
+      console.warn(
+        JSON.stringify({
+          event: 'schedule-nonconforming-admin-repair',
+          year,
+          detail: error.message,
+        })
+      );
+      stored = null;
+    }
     if (stored) {
       // Only the aggregate owns the process-cache slot; a partition-pair read is a
       // compatibility path and is never promoted (there is no authoritative

@@ -189,6 +189,11 @@ export type ScheduleMapResult =
   | { ok: true; item: ScheduleItem }
   | { ok: false; reason: ScheduleDropReason; raw: unknown };
 
+/** A provider kickoff: the string as sent, or `null` for anything that is not a string. */
+function normalizeStartDate(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -729,7 +734,13 @@ export function mapCfbdScheduleGame(
     item: {
       id: String(game.id ?? `${week}-${homeTeam}-${awayTeam}`),
       week,
-      startDate: game.start_date ?? game.startDate ?? null,
+      // PLATFORM-813 v4: the one field this mapper stored RAW. The canonical reader now
+      // rejects a row whose `startDate` is neither a string nor null, so an unguarded
+      // provider value here would make the whole season unreadable on the next upstream
+      // change. A string passes through UNCHANGED — not trimmed, and '' not turned into
+      // null — because altering a string date would change a well-typed row; only a
+      // non-string becomes null. Asserted by `durableScheduleRow.test.ts` (acceptance 8).
+      startDate: normalizeStartDate(game.start_date ?? game.startDate),
       neutralSite,
       conferenceGame: Boolean(game.conference_game ?? game.conferenceGame),
       homeTeam,
