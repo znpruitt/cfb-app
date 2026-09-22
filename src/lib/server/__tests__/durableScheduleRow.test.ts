@@ -554,7 +554,7 @@ test('ACCEPTANCE 8: every row the writer produces from adversarial provider inpu
   // PRE-EXISTING, and separate from conformance: a non-string provider `name` or `notes`
   // makes the mapper THROW at `conferenceChampionships.ts:39` (`normalizeConferenceIdentity`
   // calls `.toLowerCase` on the raw value). Loud — nothing is stored and the partition
-  // refresh fails, exactly as on `main` — so not v4's to fix. Pinned as a SET so a new
+  // refresh fails, exactly as on `main` — so not v4's to fix (#848). Pinned as a SET so a new
   // throwing field surfaces here, and so fixing it updates this line deliberately.
   assert.deepEqual([...throwingFields].sort(), ['name', 'notes']);
 });
