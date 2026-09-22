@@ -741,6 +741,7 @@ function CondensedStandingsTable({
                               : 'text-amber-700 dark:text-amber-300'
                           }`}
                           aria-label={`Moved ${movedUp ? 'up' : 'down'} ${places} ${places === 1 ? 'place' : 'places'} from ${labelFn(previousWeek)} to ${labelFn(latestWeek)}`}
+                          role="img"
                         >
                           {movedUp ? '↑' : '↓'}
                         </span>

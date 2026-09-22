@@ -67,7 +67,6 @@ export type OverviewViewModel = {
   topTierLeaders: OwnerStandingsRow[];
   isTopTie: boolean;
   standingsTopN: OwnerStandingsRow[];
-  previousStandingsLeaders: OwnerStandingsRow[];
   standingsHasMore: boolean;
   standingsContext: string | null;
   watchlistCandidates: PrioritizedOverviewItem[];
@@ -543,11 +542,9 @@ export function selectOverviewViewModel(params: {
     standingsLimit = OVERVIEW_STANDINGS_LIMIT,
     resultsLimit = OVERVIEW_RESULTS_LIMIT,
   } = params;
-  const resolvedMovement = deriveResolvedMovementStandings(standingsHistory);
   // Records and ordering are live; resolved history is for movement, not row
   // values. OverviewLiveRecords.test.tsx asserts "partial-week table and
   // in-season podium share live records and ordering" with differing snapshots.
-  const previousStandings = resolvedMovement.previous;
   const overviewMatchupCandidates = keyMatchups;
   const featuredCandidates = overviewMatchupCandidates.filter((item) => {
     const gameState = gameStateFromScore(item.score);
@@ -613,7 +610,6 @@ export function selectOverviewViewModel(params: {
     topTierLeaders,
     isTopTie,
     standingsTopN: standingsLeaders.slice(0, standingsLimit),
-    previousStandingsLeaders: previousStandings ?? [],
     standingsHasMore: standingsLeaders.length > standingsLimit,
     standingsContext,
     watchlistCandidates,

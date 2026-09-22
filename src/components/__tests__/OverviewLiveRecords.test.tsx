@@ -3,6 +3,7 @@ import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
+import { queryAllByRole } from '@testing-library/dom';
 import OverviewPanel from '../OverviewPanel';
 import StandingsPanel from '../StandingsPanel';
 import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
@@ -183,6 +184,20 @@ test('827: arrows are owner-keyed resolved movement beside live ranks', () => {
       { owner: 'BHooper', label: 'Moved up 1 place from W1 to W2' },
     ],
     'arrows compare W1 to W2 by owner even when live rank reverses movement'
+  );
+});
+
+test('827: movement arrows expose an accessible image name with both resolved boundaries', () => {
+  const doc = render();
+  assert.equal(
+    queryAllByRole(doc.body, 'img', { name: 'Moved down 2 places from W1 to W2' }).length,
+    1,
+    'down arrow exposes its full comparison as an accessible image name'
+  );
+  assert.equal(
+    queryAllByRole(doc.body, 'img', { name: 'Moved up 1 place from W1 to W2' }).length,
+    2,
+    'up arrows expose their full comparison as accessible image names'
   );
 });
 
