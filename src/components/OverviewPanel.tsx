@@ -659,7 +659,6 @@ function formatGb(gb: number): string {
 function CondensedStandingsTable({
   rows,
   onOwnerSelect,
-  previousRows,
   ownersWithInProgressGames,
   liveDelta,
   deltaWeeks,
@@ -668,24 +667,27 @@ function CondensedStandingsTable({
 }: {
   rows: OwnerStandingsRow[];
   onOwnerSelect?: (owner: string) => void;
-  previousRows?: OwnerStandingsRow[] | null;
   ownersWithInProgressGames?: ReadonlySet<string>;
   liveDelta?: LiveDelta | null;
   deltaWeeks?: number[];
   deltasByOwner?: Map<string, Map<number, number | null>>;
   weekLabel?: (week: number) => string;
 }): React.ReactElement {
-  const previousRankLookup = new Map(
-    (previousRows ?? []).map((row, index) => [row.owner, index + 1] as const)
-  );
   const hasDeltaCols = deltaWeeks && deltaWeeks.length > 0 && deltasByOwner;
   const labelFn = weekLabel ?? ((w: number) => `W${w}`);
+  const latestWeek = deltaWeeks?.at(-1);
+  const previousWeek = deltaWeeks?.at(-2);
   const deltaCount = hasDeltaCols ? deltaWeeks.length : 0;
   // Grid template: flexible content column + fixed-width delta columns (1.75rem each)
   const gridCols =
     deltaCount > 0 ? `minmax(0, 1fr) repeat(${deltaCount}, 1.75rem)` : 'minmax(0, 1fr)';
   return (
     <div className="-mx-1 overflow-x-auto px-1">
+      <p className="mb-1 px-2 text-xs text-gray-500 dark:text-zinc-400">
+        {latestWeek == null
+          ? 'Movement · awaiting first resolved week'
+          : `Movement · through ${labelFn(latestWeek)}`}
+      </p>
       <div
         className="min-w-full text-sm"
         style={{ display: 'grid', gridTemplateColumns: gridCols }}
@@ -721,9 +723,16 @@ function CondensedStandingsTable({
                   <span className="text-sm tabular-nums text-gray-400 dark:text-zinc-500">
                     {index + 1}
                     {(() => {
-                      const previousRank = previousRankLookup.get(row.owner);
-                      if (!previousRank || previousRank === index + 1) return null;
-                      const movedUp = previousRank > index + 1;
+                      const delta = latestWeek == null ? null : ownerDeltas?.get(latestWeek);
+                      if (
+                        latestWeek == null ||
+                        previousWeek == null ||
+                        delta == null ||
+                        delta === 0
+                      )
+                        return null;
+                      const movedUp = delta > 0;
+                      const places = Math.abs(delta);
                       return (
                         <span
                           className={`ml-0.5 text-xs font-semibold ${
@@ -731,7 +740,7 @@ function CondensedStandingsTable({
                               ? 'text-emerald-700 dark:text-emerald-300'
                               : 'text-amber-700 dark:text-amber-300'
                           }`}
-                          aria-label={movedUp ? 'Moved up in standings' : 'Dropped in standings'}
+                          aria-label={`Moved ${movedUp ? 'up' : 'down'} ${places} ${places === 1 ? 'place' : 'places'} from ${labelFn(previousWeek)} to ${labelFn(latestWeek)}`}
                         >
                           {movedUp ? '↑' : '↓'}
                         </span>
@@ -1594,7 +1603,7 @@ export default function OverviewPanel({
     setExpandedSections((current) => ({ ...current, [section]: !current[section] }));
   };
 
-  // Canonical owns the resolved-week snapshot for Overview: rows, standings
+  // Canonical owns the standings snapshot for Overview: rows, standings
   // history, and color order all flow from it directly. The client-derived
   // overlay (in-progress games, pending W/L) is passed separately as
   // `liveDelta`. Phase 1 wires the overlay through as data only — the visual
@@ -1870,7 +1879,6 @@ export default function OverviewPanel({
               <CondensedStandingsTable
                 rows={viewModel.standingsTopN}
                 onOwnerSelect={onOwnerSelect}
-                previousRows={viewModel.previousStandingsLeaders}
                 ownersWithInProgressGames={ownersWithInProgressGames}
                 liveDelta={liveDelta}
                 deltaWeeks={positionDeltaData?.weeks}

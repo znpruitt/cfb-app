@@ -544,15 +544,9 @@ export function selectOverviewViewModel(params: {
     resultsLimit = OVERVIEW_RESULTS_LIMIT,
   } = params;
   const resolvedMovement = deriveResolvedMovementStandings(standingsHistory);
-  // Movement insights and CondensedStandingsTable rank arrows both compare
-  // week-over-week resolved snapshots. When the latest week is partially
-  // unresolved (some games not yet final), `standingsLeaders` reflects that
-  // partial state and would skew the comparison by crossing two week
-  // boundaries; pin `current` to the most recent fully-resolved week and fall
-  // back to the raw rows only when no resolved history exists. Live-display
-  // surfaces (top-3 hero, GB Race chart) keep using `standingsLeaders` directly
-  // via OverviewPanel.
-  const resolvedCurrent = resolvedMovement.latest ?? standingsLeaders;
+  // Records and ordering are live; resolved history is for movement, not row
+  // values. OverviewLiveRecords.test.tsx asserts "partial-week table and
+  // in-season podium share live records and ordering" with differing snapshots.
   const previousStandings = resolvedMovement.previous;
   const overviewMatchupCandidates = keyMatchups;
   const featuredCandidates = overviewMatchupCandidates.filter((item) => {
@@ -618,9 +612,9 @@ export function selectOverviewViewModel(params: {
     podiumLeaders,
     topTierLeaders,
     isTopTie,
-    standingsTopN: resolvedCurrent.slice(0, standingsLimit),
+    standingsTopN: standingsLeaders.slice(0, standingsLimit),
     previousStandingsLeaders: previousStandings ?? [],
-    standingsHasMore: resolvedCurrent.length > standingsLimit,
+    standingsHasMore: standingsLeaders.length > standingsLimit,
     standingsContext,
     watchlistCandidates,
     recentResults,
