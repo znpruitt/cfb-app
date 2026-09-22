@@ -124,9 +124,80 @@ count of what exists.**
   which is false and is the collapse this slice exists to remove. A notice is a better answer and it
   is `DESIGN.md` UI work on a draft surface; it is filed, not built here.
 
+  **CORRECTED 2026-09-21 at v3 round 1 — this ruling was made without reading the page callers, and
+  it is moot.** `draft/board/page.tsx:61-65` and `draft/page.tsx:84` wrap the load in a bare `catch`
+  that renders empty, and both date from `336050f99` (2026-04-03), long before this slice. So on
+  `main` a corrupted schedule ALREADY rendered as an empty board, the loader's throw never reaches a
+  member, and this slice did not regress the draft pages. Making the pages propagate would change
+  `main`'s behaviour on a draft surface; that is #844's decision, not this slice's. **Fourth time on
+  this slice planning ruled from the fact in hand without checking the one beside it.**
+
 **`/api/schedule` — shaped 503**, matching `route.ts:360`. An opaque Next 500 with no body is
 inconsistent with every other failure this route returns and tells a caller nothing about whether to
 retry.
+
+## ROUND 1, ruled 2026-09-21 — four findings, and the premise of this prompt covered one loss site in three
+
+**"The channel already exists — this is the whole slice" was wrong, and it was planning's.** Planning
+verified that `issues` exists and that one path writes `invalid-schedule-row`, and concluded it was
+THE record of row loss. It records one of three places a row is lost:
+
+| loss site | writes an issue? | seen by v3's gate |
+| --- | --- | --- |
+| regular-season row, blanked participant → `classifyScheduleRow` | yes | yes |
+| non-object row dropped at the boundary (`durableScheduleRow.ts:197`) | no | **no — F1** |
+| postseason / conference-championship row, blanked participant → placeholder | no | **no — F2** |
+
+v2's count caught the second and missed the first; v3 has the opposite gap. **Both versions were
+built from a list of loss sites, and both lists were incomplete.**
+
+**F1 was hidden by a comment.** The `continue` at `durableScheduleRow.ts:197` carries a comment saying
+the dropped row is *"counted separately, because a discarded row changes the season's content."*
+**Nothing counts it** — that comment describes `droppedRowCount`, which v3 deleted, and it survived
+the deletion still asserting the loss is recorded. A diff that falsifies a comment owns it.
+
+**Ruled on F1 + F2: the boundary reports what it destroys, and the durable writers refuse on it.**
+This is NOT the parallel counts returning. v3 deleted those because they were a second record of a
+fact the codebase already computed. **These are facts the codebase computes nowhere else**: an F1 row
+never reaches `classifyScheduleRow`, an F2 row bypasses it, and after the build a coerced postseason
+participant is **indistinguishable from a legitimate TBD slot**. The boundary is the only code that
+knows a non-string was coerced rather than an empty string sent by the provider. Discarding that fact
+at the boundary is the defect. Planning's preference, not a requirement: normalise the boundary's
+reports into the same list the writers already read, so a durable writer's refusal checks ONE thing
+and the next loss site has one place to report to.
+
+**THE TEST IS BUILT FROM THE INPUT SPACE, NOT FROM A LIST OF LOSS SITES.** This is the requirement
+that matters most, because it is what both versions lacked. `AGENTS.md` already states it: *"An
+invariant over a space must be tested over the space, not over chosen representatives."* The
+invariant: **no corrupted durable row produces an archive or a standings snapshot that reads as
+complete.** The space: every row kind (regular, conference championship, postseason) × every
+required field made non-string, plus a non-object row. The oracle: the durable output's game set
+against the uncorrupted baseline's — if they differ and the writer did not refuse, the test fails.
+**A matrix finds a loss site nobody listed; a list of tests inherits the list's gaps.** The four tests
+the round-1 report proposes are representatives; keep them, and add the matrix.
+
+**Which fields trigger refusal is DETERMINED by the matrix, not declared up front.** The round-1 report
+scopes refusal to coerced *participant* fields. Include every required field in the space and let the
+outcome decide. A candidate the participant scoping would miss: **`id`.** Postseason games take
+`key: id, eventId: id` (`schedule.ts:693`) and the `eventKey` fallback is `${week}-${id}` (`:413`), so
+two rows with a coerced `id` may share a key. **Planning did not trace whether anything downstream
+merges games by key — this is unverified, which is exactly why the matrix and not planning decides
+it.**
+
+**F3 — move the refusal to the archive writer.** That is what this prompt ruled (*"Recap and
+`analyticsProvenance` — RECORD, do not refuse"*); the implementation put it in the shared build,
+which made recap and provenance refuse too, contradicting both the ruling and its own commit message.
+Standings keeps its own refusal under invariant 8. **Provenance must report the actual cause, not
+`build-failed`.**
+
+**F4 — fix the comment, not the behaviour.** See the correction under the draft ruling above: the
+pages have caught and rendered empty since 2026-04-03, so the comment's "throws rather than rendering
+as 'no games'" is true of the loader and false of every page a member sees. Say what is true. The
+notice is #844.
+
+**Round accounting.** This is v3's one cohesive remediation round (`AGENTS.md` step 4). Then both
+reviewers run against the remediated commit. A second remediation round requires explicit owner
+approval, and only for a narrow defect directly caused by this one (step 6).
 
 ## Acceptance
 

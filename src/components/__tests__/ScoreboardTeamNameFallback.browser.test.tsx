@@ -359,6 +359,73 @@ async function collectReport(page: BrowserFixturePage): Promise<BrowserReport> {
   `);
 }
 
+type NameScoreEdges = {
+  cardWidth: number;
+  nameRight: number;
+  scoreLeft: number;
+  viewport: number;
+};
+
+async function measureNameScoreEdges(
+  page: BrowserFixturePage,
+  scope: 'data-compact-case' | 'data-overlap-viewport'
+): Promise<NameScoreEdges> {
+  return page.evaluate<NameScoreEdges>(`
+    (async () => {
+      await document.fonts.ready;
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const card = document.querySelector('[${scope}] [data-game-scoreboard]');
+      const row = card?.querySelector('[data-scoreboard-side="away"]');
+      const name = row?.querySelector('[data-scoreboard-team-label="away"]');
+      const score = row?.querySelector('[data-scoreboard-value="away"]');
+      if (!(card instanceof HTMLElement) || !(name instanceof HTMLElement) ||
+          !(score instanceof HTMLElement)) {
+        throw new Error('name–score overlap control did not render');
+      }
+      return {
+        cardWidth: card.getBoundingClientRect().width,
+        nameRight: name.getBoundingClientRect().right,
+        scoreLeft: score.getBoundingClientRect().left,
+        viewport: window.innerWidth,
+      };
+    })()
+  `);
+}
+
+test('the hydrated name box never overlaps the score at the reviewed widths', async (t) => {
+  await withBrowserFixture(
+    t,
+    { directoryPrefix: 'cfb-scoreboard-name-score-overlap-', markup: fixtureMarkup },
+    async (page) => {
+      const report = await collectReport(page);
+      assert.deepEqual(report.hydrationErrors, []);
+      const at390Card = await measureNameScoreEdges(page, 'data-compact-case');
+      assert.equal(at390Card.cardWidth, 390);
+
+      await page.setViewport(272, 800);
+      const at272Viewport = await measureNameScoreEdges(page, 'data-overlap-viewport');
+      assert.equal(at272Viewport.viewport, 272);
+      assert.equal(at272Viewport.cardWidth, 240);
+
+      await page.setViewport(219, 800);
+      const at219Viewport = await measureNameScoreEdges(page, 'data-overlap-viewport');
+      assert.equal(at219Viewport.viewport, 219);
+      assert.equal(at219Viewport.cardWidth, 187);
+
+      for (const [width, edges] of [
+        ['390px card', at390Card],
+        ['272px viewport', at272Viewport],
+        ['219px viewport', at219Viewport],
+      ] as const) {
+        t.diagnostic(`${width}: name right ${edges.nameRight}px, score left ${edges.scoreLeft}px`);
+        // Settles the round-5 reported name–score overlap: a box entering the
+        // score's reserved area must make this behavioral assertion fail.
+        assert.ok(edges.nameRight <= edges.scoreLeft, `${width}: name box overlaps score`);
+      }
+    }
+  );
+});
+
 test('the full owner outranks the full team name in their measured fit band', async (t) => {
   await withBrowserFixture(
     t,

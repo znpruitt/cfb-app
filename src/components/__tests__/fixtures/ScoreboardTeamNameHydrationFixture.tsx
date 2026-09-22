@@ -32,6 +32,27 @@ export function ScoreboardTeamNameHydrationFixture(): React.ReactElement {
           }}
         />
       </div>
+      <div className="p-4 sm:p-6" data-overlap-viewport>
+        <div className="grid grid-cols-1">
+          <CompactGameScoreboard
+            state="final"
+            matchupLabel="Southeast Missouri State at Ohio State"
+            away={{
+              teamName: 'Southeast Missouri State',
+              owner: 'Mastromatteo',
+              rank: 25,
+              record: { wins: 12, losses: 0 },
+              score: 100,
+            }}
+            home={{
+              teamName: 'Ohio State',
+              owner: 'Chamness',
+              record: { wins: 12, losses: 0 },
+              score: 7,
+            }}
+          />
+        </div>
+      </div>
       <div data-scheduled-case style={{ width: 200 }}>
         <CompactGameScoreboard
           state="scheduled"

@@ -134,6 +134,28 @@ Client-safe matters now: the measurement runs in the browser and needs the looku
    no-JS path has no recovery, so if an abbreviation cannot fit its box, say in a test what
    happens — overflow, clip, or wrap. An unstated answer here is where the invariant would leak
    back in.
+
+   **ANSWERED by owner ruling 2026-09-22 (`DESIGN.md`, "the owner yields").** At `624d2f7c` the name
+   box's floor was `min-w-[1em]` (`ScoreboardTeamName.tsx:102`) and the visible span was
+   `whitespace-normal break-words` (`:129`), so at a 272px viewport the box sat at 14px and `SEMO`
+   stacked one letter per line. **Wrap is rejected.** The abbreviation never breaks mid-word, the
+   name box's minimum width is the abbreviation's own width, and **the owner truncates first**, with
+   an ellipsis. The record stays whole. **Measure and report the viewport width below which even the
+   abbreviation, record and score cannot fit**; behaviour below it is not yet specified, and
+   planning will decide whether to name a supported minimum once it has that number.
+
+   **Reference implementation: `main` already gives up the owner first, and v2 reversed it.** On
+   `main` each team is its own line (`CompactGameScoreboard.tsx` renders one `data-scoreboard-side`
+   line per side). The name, inline record and owner sit in a single `min-w-0 truncate` span inside a
+   `whitespace-nowrap` wrapper (`:317`, `:331`), so a line is cut from the right: **the owner goes
+   first**, then the inline record, then the name. The owner is last in that span in every state; the
+   inline record is present for `live`/`awaiting`/`unavailable`/`final` and absent for `scheduled`
+   (`:189`-`:194`), where the record is instead the right-hand value, `shrink-0`, and always whole.
+   **The v2 re-derivation moved the name into its own `flex-1` box with a `min-w-[1em]` floor, which
+   let it collapse while the owner kept its content width. That reversed a priority `main` already
+   had right.** Use `main` as the check: the fix must give up the owner first, as `main` does, and
+   differ from `main` in exactly two ways: the name **abbreviates** instead of being cut, and the
+   inline record **stays whole** instead of being cut after the owner.
 6. **The abbreviation is never fabricated.** A `null` lookup renders the full name — test
    `Chicago State`.
 7. **The full name is available to assistive technology** whenever the abbreviation renders. Say what
@@ -150,7 +172,9 @@ Client-safe matters now: the measurement runs in the browser and needs the looku
 12. **The record and owner suffixes survive.** A hydrated browser test measures each suffix's
     rendered width as non-zero at the narrowest tier, and **it fails against `b2e4fba2`**, where the
     measured suffix is 0px. That failure is the positive control; a suffix test that passes against
-    `b2e4fba2` is measuring something else.
+    `b2e4fba2` is measuring something else. **Clarified 2026-09-22:** "survive" means the record
+    stays WHOLE and the owner stays PRESENT, non-zero and possibly truncated with an ellipsis. The
+    owner yielding is the ruling, not a failure of this item.
 13. **No decision is made from a box that has not been laid out.** A zero-width box or probe — an
     unmounted recap, a hidden ancestor, a collapsed container — leaves the label in its
     conservative state, and the observer decides when real width arrives. At `0 ≥ 0` the
@@ -158,6 +182,20 @@ Client-safe matters now: the measurement runs in the browser and needs the looku
 14. **The browser gate observes the element that is actually visible**, and proves it can tell the
     visible variant from the hidden one. The Overview probe in `b2e4fba2` selected the hidden
     variant and passed; a gate that cannot distinguish the two is not a gate for this slice.
+15. **At a 272px viewport the abbreviation renders on ONE line.** Assert single-line height, not
+    overflow. **An overflow assertion cannot detect letter-stacking, because stacked text does not
+    overflow**: the lane's own scroll/client assertions pass on `624d2f7c` for exactly that reason.
+    The single-line assertion must **fail against `624d2f7c`**, where the visible span is 80px tall,
+    and pass after the fix. Assert in the same test that the owner is truncated and non-zero and the
+    record is whole.
+16. **At a normal width, the owner outranks the FULL team name** (owner ruling 2026-09-22; `DESIGN.md`,
+    "the whole priority order"). Pick a width, **measured, not assumed**, at which the abbreviation,
+    the record and the full owner fit but the full team name, the record and the full owner do not.
+    Assert that the name abbreviates and the owner renders WHOLE. **This passes on `624d2f7c`**: the
+    order is already the layout's behaviour there, so this pins it rather than proving a fix. That
+    means it needs its own positive control. Mutate the layout to favour the full name (for example,
+    let the name box claim space before the owner) and show THIS assertion reddens. A width at which
+    both fit, or neither fits, cannot tell the two orders apart and proves nothing.
 
 ## RE-DERIVATION, ruled 2026-09-21 — the LAYOUT MODEL, not the mechanism
 
