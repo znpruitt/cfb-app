@@ -394,8 +394,11 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   breaks mid-word (it is 2–4 characters, and splitting it ruins it); the name box's minimum width is
   the abbreviation's own width; the **owner name truncates first**, with an ellipsis; the record stays
   whole. **The rule above protects TEAM names. Owner names are not covered by it.** Letter-stacking
-  is rejected. Below the width at which even the abbreviation, record and score cannot fit, the
-  behaviour is not yet specified; #832 measures that width.
+  is rejected. **The floor, measured 2026-09-22 by #832:** a **219px** viewport is the last integer
+  width at which the abbreviation, record and score all fit, for a ranked final row in Chrome's
+  system font. At 218px the record starts clipping, and the owner reaches zero width at 224px.
+  That is a boundary for that fixture, not a universal constant or a code value. **No supported
+  minimum width is set**: the floor is roughly 100px below the narrowest phones in common use.
 
   **THE WHOLE PRIORITY ORDER, stated once because the two rules above can read as opposites —
   owner ruling 2026-09-22.** "The owner yields" (narrow widths) and "the owner keeps priority over the
