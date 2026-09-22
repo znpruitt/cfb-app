@@ -114,19 +114,35 @@ Client-safe matters now: the measurement runs in the browser and needs the looku
    a measurement of the rendered box, not a constant. Both pinned, with a mutation reddening each.
 2. **No frame ever shows a truncated team name**, including the server-rendered first paint and the
    hydration boundary. Pin the SSR output for a long name at a narrow tier.
-3. **With JavaScript disabled the row renders the abbreviation and stays correct.** Pinned.
-4. **An abbreviation that is not narrower than its name is never substituted**, decided per viewer.
-   `Berry`/`BERR` is the regression case and the test must use a real measurement, not a length
-   comparison.
-5. **The abbreviation is never fabricated.** A `null` lookup renders the full name — test
+3. **With JavaScript disabled the row renders the abbreviation and stays correct.** Pinned. This is
+   unconditional.
+4. **Wherever measurement is available, an abbreviation that is not narrower than its name is never
+   substituted** — decided per viewer, by a real measurement, never a length comparison.
+   `Berry`/`BERR` is the regression case.
+
+   **AMENDED 2026-09-21 — acceptances 3 and 4 contradicted each other and the v2 receipt caught it.**
+   Without JavaScript there is no measurement, so `Berry` → `BERR` renders abbreviated and stays
+   that way even where that viewer's font makes `BERR` wider. **Owner ruling: that is accepted, and
+   never-wider is scoped to "wherever measurement is available."** Never-wider is not the invariant;
+   the invariant is that a name is never TRUNCATED. Never-wider is the lesser rule that stops a swap
+   destroying information while making the fit worse, and the no-JS case loses information without
+   truncating anything. The rejected alternative — a server rule for short names — needs a width
+   judgement the server cannot make, which reintroduces the heuristic three rounds were spent
+   removing. `DESIGN.md` carries the ruling; **state the exemption where it is implemented** so no
+   reader has to reconcile the two rules alone.
+5. **The name box does not truncate the name, and what it does on overflow is pinned.** The
+   no-JS path has no recovery, so if an abbreviation cannot fit its box, say in a test what
+   happens — overflow, clip, or wrap. An unstated answer here is where the invariant would leak
+   back in.
+6. **The abbreviation is never fabricated.** A `null` lookup renders the full name — test
    `Chicago State`.
-6. **The full name is available to assistive technology** whenever the abbreviation renders. Say what
+7. **The full name is available to assistive technology** whenever the abbreviation renders. Say what
    a screen reader announces, and note that the announced name must not change on upgrade.
-7. **Overview, Matchups and Schedule all get the behaviour** from the shared component; if the recap
+8. **Overview, Matchups and Schedule all get the behaviour** from the shared component; if the recap
    is in scope it gets it too, and if not, the closeout says why.
-8. **The column tiers and their constants are unchanged** — #726 re-derives them after this. A test
+9. **The column tiers and their constants are unchanged** — #726 re-derives them after this. A test
    pins that this slice moved none of them.
-9. **No threshold table, per-surface constant or font-weight assumption exists in the shipped code.**
+10. **No threshold table, per-surface constant or font-weight assumption exists in the shipped code.**
    A test or a grep-backed assertion is fine; the point is that v1's shape cannot creep back.
 
 ## Testing requirements, which are not negotiable on this project

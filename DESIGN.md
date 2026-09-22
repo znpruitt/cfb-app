@@ -350,7 +350,28 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   decides whether the name truncates — which is the original defect, and it reappeared at 206px
   against a 205px threshold. And **the never-wider check is per viewer, not per table**: whether an
   abbreviation is narrower than its name depends on the rendering font, so it is measured where the
-  swap is measured. A team outside the catalog and a TBD placeholder go
+  swap is measured.
+
+  **NEVER-WIDER IS NOT THE INVARIANT, AND WITHOUT JAVASCRIPT IT IS EXEMPT — owner ruling
+  2026-09-21.** The absolute rule is that **a team name is never truncated**. Never-wider is a
+  different and lesser rule: it exists so a swap does not destroy information while making the fit
+  _worse_, which is the opposite of the fallback's purpose. The two have different enforcement
+  surfaces, and conflating them produces a contradiction with no-JS rendering.
+
+  With JavaScript disabled there is no measurement, so a short name whose abbreviation is wider in
+  that viewer's font — `Berry` → `BERR` — renders abbreviated and stays that way. **That is
+  accepted.** It is an information loss with no fit benefit, bounded to a handful of short-named
+  teams, and the full name remains in the accessibility tree. **The truncation invariant is not
+  violated by it.**
+
+  **The alternative was rejected on the grounds that created this whole ruling.** Making the server
+  decide which short names to leave alone requires a width judgement the server cannot make, which
+  reintroduces the heuristic three review rounds were spent eliminating. Trading an absolute,
+  measurable property for a heuristic that restores the failure class is the wrong trade.
+
+  **So: never-wider binds wherever measurement is available, and nowhere else.** State the exemption
+  where it is implemented rather than leaving a reader to reconcile two rules that appear to
+  conflict. A team outside the catalog and a TBD placeholder go
   through that same field. **CLARIFIED 2026-09-20, because this sentence predates the #821 fallback
   and read two ways:** it governs the name SOURCE — no surface takes a name from a different field —
   and says nothing about the width fallback. **The fallback is PER LABEL: a row may show one team

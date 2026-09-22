@@ -152,6 +152,63 @@ root reads identically to a clean result from the right one. State the root with
 4. **What happens to an invalid row is a decision you state and pin** — dropped with a recorded
    count, or coerced, or the read fails. #693's lesson binds: if the reader cannot say whether the
    season is complete after dropping rows, it reports that rather than assuming.
+
+   **AMENDED 2026-09-21 — the ALL-DROPPED case is a separate decision and the receipt framed this
+   one per field. Ruled: `loadCachedScheduleItems` THROWS when the stored array was non-empty and
+   the boundary dropped every row.** An empty stored array still returns `[]`, because genuine
+   absence is a real state.
+
+   **Three reasons, the last of which is decisive.** (a) `nationalChampionshipRollover.ts:144-157`
+   declares the contract in its own comment — *"A store READ failure surfaces as a failure; genuine
+   absence (`[]`) is an ordinary skip"* — and then returns `{kind:'skip', reason:'no-season-schedule'}`
+   on `[]`. Collapsing corruption into `[]` makes that consumer write a **durable receipt asserting
+   a falsehood**, which is #693's "publishes certainty where the truth is unknown" exactly. (b) The
+   consumers already have the branch: that same function catches a read throw into
+   `{kind:'read-failed'}`, and `seasonBuild.ts:100-102` already throws on an empty read. Nothing
+   needs a new code path. (c) **Before this slice, `{items:[null]}` ALREADY threw** — on
+   `row.homeTeam.trim()` — so throwing PRESERVES existing behaviour and the two alternatives are
+   silent regressions dressed as choices.
+
+   **Count dropped ROWS separately from coerced FIELDS.** They answer different questions and a
+   single number cannot carry both.
+
+   **THE PARTIAL-DROP CASE IS RULED SEPARATELY, 2026-09-21, AND IT DOES NOT FOLLOW THE ALL-DROPPED
+   RULE. A partial drop MUST NOT THROW.**
+
+   **Why the all-dropped reasoning does not extend — it proves too much.** That ruling leaned on
+   "before this slice `{items:[null]}` already threw, so throwing preserves behaviour." Applied to a
+   partial drop the same sentence is still TRUE and the conclusion is wrong: verified on `main`,
+   `buildScheduleFromApi`'s per-row loop (`schedule.ts:501`) contains **no `try`/`catch` at all**, so
+   before this slice **one** bad row threw the whole build. That is not an argument for throwing —
+   **it is the defect #813 was filed about**, whose own words are *"the blast radius is the whole
+   build … not one row."* Throwing on any dropped row restores it and reduces the slice to a nicer
+   error message.
+
+   **The two cases differ in what the reader is told, not in severity.** All-dropped: nothing is
+   usable and returning `[]` asserts "this season has no schedule", a positive falsehood. Partial
+   drop: the season IS usable, and dropping the bad row while continuing is precisely the improvement
+   this issue asks for.
+
+   **So: propagate the counts, scoped by CONSEQUENCE rather than by opt-in.** A consumer that writes
+   a DURABLE record — an archive, a receipt, a standings snapshot — must not claim a completeness it
+   cannot support, and must therefore see `droppedRowCount`. A transient consumer (odds, live scores,
+   diagnostics) need not, and forcing all 13 to opt in is how the count ends up read by nobody.
+
+   **Finding 4 is right that a count reaching no consumer is not a count**, so the durable writers'
+   migration is part of THIS slice, not deferred. Enumerate which of the 13 write durable state, say
+   what each does when rows were dropped, and pin it. Reporting the count beside the record satisfies
+   #693; refusing to write is also acceptable where that is the honest answer. **Silently writing a
+   record that reads as complete is not.**
+
+   **Rejected: a threshold.** It is a confidence claim with no measurement behind it, which is the
+   shape this campaign has spent three slices removing.
+
+   **SCOPE EXTENDED, narrowly:** `src/app/api/cron/season-rollover/__tests__/receipts.test.ts:488`
+   may be edited to re-point its fixture. Its intent — a resolution throw records the failing year,
+   Codex r3 finding A — is correct and must survive; only its MECHANISM dies, because `[null]` no
+   longer reaches resolution. Induce a resolution throw another way, keep the assertions, and say in
+   the closeout what the new fixture breaks and why it is still a resolution throw rather than a
+   read failure.
 5. **One provider vocabulary, one definition**, with a test that fails if a second copy reappears —
    and the sweep's ROOT stated beside its result.
 6. **The aggregate-only contract is untouched.** No week-partition machinery returns.
