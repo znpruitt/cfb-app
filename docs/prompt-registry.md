@@ -148,7 +148,7 @@ These consolidate recurring historical observations, not new project-governance 
   run failed seven browser-capability cases; the authorized rerun passed. That was the environment,
   not the code. **The merged tree matches the gated `0508c6c6` tree** (`bb23a341`).
 - Status: **MERGED `a1d0f3e9` ([PR #850](https://github.com/znpruitt/cfb-app/pull/850)) 2026-09-22;
-  #832 closed. NOT LIVE until promoted.** Post-merge flip by planning, which also added the
+  #832 closed. **LIVE 2026-09-22** as `dpl_4eZ4C9b29fJTVMCQgPLkxugdagsU`, verified from the live league bundle: `data-scoreboard-team-accessible`, `"SEMO"` and `Southeast Missouri State` present, all three absent before promotion, and the bundle up ~35 KB against the measured ~32 KB lookup cost.** Post-merge flip by planning, which also added the
   normal-width half of the priority order and the run of record above, both missing from the
   pre-merge closeout.
 
