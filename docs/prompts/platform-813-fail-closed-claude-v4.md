@@ -10,11 +10,15 @@ PURPOSE: A durable schedule row that does not conform to its declared type makes
 SCOPE:   the durable-row validator, src/lib/server/canonicalScheduleCache.ts (both construction paths
          of loadCanonicalScheduleEntry), src/app/league/[slug]/draft/board/boardData.ts and
          src/app/league/[slug]/draft/page.tsx (moved onto the reader, as ruled in v3), the
-         /api/schedule handler for the new error, and their tests.
+         /api/schedule handler for the new error, and their tests. AMENDED 2026-09-22 by the
+         receipt ruling: ALSO the startDate normalization in src/lib/schedule/cfbdSchedule.ts (one
+         field), the loadInsights rethrow and the analytics-provenance cause mapping (the two
+         catch-all exceptions below), and the fixture completions the strict contract forces.
          DO NOT build a path that returns surviving rows. Its first real consumer builds it, with its
          own review. DO NOT change behaviour for a well-typed row in any way. DO NOT fix consumers'
-         pre-existing catch-alls (see receipt item 4). DO NOT touch AGENTS.md / DESIGN.md (planning owns
-         both; report what your diff falsifies).
+         pre-existing catch-alls (see receipt item 4), EXCEPT the two ruled below. DO NOT touch
+         AGENTS.md / DESIGN.md (planning owns both; report what your diff falsifies). The duplicated
+         non-FBS vocabulary is OUT of v4 and filed separately.
 CARRIES: NONE from the Item 87 campaign index, having checked. This is store-layer work.
 
          AGENTS.md invariant 8: "cache valid absence, never cache uncertainty." v4 satisfies it by
@@ -115,6 +119,67 @@ counts. Receipt item 3 asks you to name them, so the deletion is complete rather
 the plumbing v4 deletes. Carry the validator and the tests forward, not the history. Keep the old
 branch unmerged until v4 lands.
 
+## RECEIPT RULINGS, 2026-09-22
+
+**1. `startDate` is fixed IN v4, because without it v4 is unsafe.** Receipt item 2 found exactly what
+it was written to find. `cfbdSchedule.ts:732` stores `game.start_date ?? game.startDate ?? null`
+**raw**, while every other string field goes through `normalizeString` (`:192`). A non-string
+`start_date` from CFBD would be committed, and v4 would then take that season down on the next read.
+Normalize it to `string | null`, **with a string passed through UNCHANGED**: no trimming, and no
+turning `''` into `null`. Only a non-string becomes `null`. Its siblings' `normalizeString` returns
+`''` for a non-string, but this field is `string | null`, so it needs `null` instead. And anything that
+altered a string date would change a well-typed row, which acceptance 2 forbids. Reading the
+acceptance list back as a set is what caught this interaction between ruling 1 and acceptance 2.
+
+**This is not the coercion v4 forbids, and the distinction matters.** The WRITER is the
+provider-ingest boundary. Normalizing provider input is already its job for every other field, and
+happens once, at the source. The READER validates DURABLE data and must never reinterpret it.
+"No coercion" is a rule about the reader.
+
+**And pin it structurally, not by field.** Acceptance 8: adversarial provider input into
+`mapCfbdScheduleGame` always produces a row the SHIPPED validator accepts. Item 2 found `startDate` by
+reading every field. The next writer gap is found by this test instead of by someone re-reading the
+mapper. **Planning's claim in this prompt that "the writer cannot violate the contract" held for the
+closed unions and was false for `startDate`.** It was a claim about the fields planning had checked,
+stated as a claim about the writer.
+
+**2. The 35 broken tests: accept them as fixture completions, through ONE conforming-row builder.**
+Their fixtures seed rows the declared type says cannot exist. A shared builder, taking a well-typed
+default plus overrides, makes each fix one line and makes future fixtures conform by default.
+**Classify each one first**, per `AGENTS.md`'s intent-versus-mechanism rule. A fixture that was
+merely incomplete gets completed. A test that ASSERTED tolerance of a malformed row has had its
+intent superseded by fail-closed, so retarget it to expect the typed throw rather than completing
+its fixture into irrelevance. Report the final count and the sizing.
+
+**3. `VenueInfo` is checked field by field; `media` is an ordinary optional field.** The contract is
+the declared type **all the way down**. Special cases are how a hand-picked list gets back in. So
+`venue`'s inner fields are checked against `VenueInfo`. **They are UNMEASURED**: planning's
+22,760-row probe checked only that `venue` was an object, string or `null`. Acceptance 7's merge gate
+therefore measures them before merge. `media` is declared `ScheduleMediaItem[]` and optional, so it
+is either absent or well-typed, with **no extra "must be absent" rule**. Planning's probe found it
+absent or an array in all 22,760 rows.
+
+**4. The non-FBS vocabulary half of #813 is split out.** It is a different concern, and v3's
+implementation of it was review-clean and mutation-proven, so it ships as a small follow-on on its
+own. This slice has failed by widening four times. Keep v4 to fail-closed.
+
+**5. Provenance keeps the cause mapping.** Do NOT delete `'schedule-cache-unreadable'`. Analytics
+provenance is the one consumer whose job IS reporting the cause, and v4's whole purpose is a legible
+failure. Reporting `build-failed` for an unreadable schedule would make the one diagnostic built for
+legibility name the wrong cause.
+
+**6. `loadInsights` keeps v3's rethrow. The stop condition was right to fire.** This prompt's
+CARRIES block says v4 satisfies invariant 8 *"by construction: a consumer never holds partial data,
+so it cannot cache it."* `loadInsights` makes that claim false. It catches the throw into `[]`
+(`:283`), builds insights from no games, and caches that for 300s. The data isn't partial, it's
+EMPTY, built from a caught failure, and that is the same uncertainty. `main` does the same, so this
+is not a regression. But v4 claims invariant 8, and this is the counterexample. **Rethrow ONLY the
+typed non-conformance error**, so every other read failure keeps `main`'s behaviour. `unstable_cache`
+never stores a rejection, so the next request retries. It only fires for a malformed row, which a
+well-typed season never produces, so "no change for a well-typed row" still holds. **File** the
+remaining shape, where any OTHER read failure caches an empty-schedule build for 300s. It predates #813
+and is out of scope.
+
 ## Acceptance
 
 1. **Every non-conforming or non-object row throws the typed error at the canonical reader**, from
@@ -143,7 +208,14 @@ branch unmerged until v4 lands.
 7. **Merge gate: the shipped validator, run over every stored schedule row on the read-only rail,
    reports zero non-conforming rows, with a positive control showing it can flag a bad row.** Run it
    immediately before merging, record the counts in the closeout, and do not merge on a non-zero
-   result. A non-zero result means fail-closed would take that season down on promotion.
+   result. A non-zero result means fail-closed would take that season down on promotion. **It now
+   covers `VenueInfo`'s inner fields**, which planning's probe did not measure.
+8. **Every row the writer can produce passes the reader's validator.** Feed `mapCfbdScheduleGame`
+   adversarial provider input, with every field wrong-typed including `start_date`, and assert
+   that the SHIPPED validator accepts every row it returns. **This must fail on `main`**, where a
+   non-string `start_date` is stored raw. One validator, used on both sides.
+9. **`loadInsights` rethrows the typed error and caches nothing**; every other read failure keeps
+   `main`'s behaviour. **Provenance reports `'schedule-cache-unreadable'`, not `build-failed`.**
 
 ## Testing requirements, which are not negotiable on this project
 
