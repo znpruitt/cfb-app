@@ -14,12 +14,21 @@ CARRIES: NONE from the Item 87 campaign index, having checked — this is an Ove
          source, not scoreboard row anatomy.
 
          One standing obligation binds, from AGENTS.md: a claim in a comment needs a test asserting
-         the same behaviour. The selector's existing comment at `overview.ts:548-555` explains why
+         the same behaviour. The selector's existing comment at `overview.ts:549-556` explains why
          MOVEMENT is anchored on resolved weeks; after this slice it must not read as though the
          VALUES are too.
 ```
 
 ---
+
+**CITATIONS RE-DERIVED 2026-09-22, before dispatch**, per this prompt's own CARRIES rule. Since it
+was written, `main` has moved through #832's merge and several `DESIGN.md` rulings. Corrected in
+place: `CondensedStandingsTable` `:606` → **`:659`**, `deriveResolvedMovementStandings` `:134` →
+`:135`, and the anchor comment `:548-555` → `:549-556`. **Acceptance 3's `:1697-1704` no longer
+points at an Insights read** and is marked stale rather than guessed at. Confirmed unchanged:
+`overview.ts:555`, `:604` and `:621`; `OverviewPanel.tsx:1873` (`previousRows`); `selectPositionDeltas`
+at `:1802`; `StandingsPanel.tsx:205-221`; and the `DESIGN.md` rule *"Records are live, movement is
+resolved"*, now at `:632`.
 
 ## The defect, seen on production 2026-09-19
 
@@ -53,11 +62,11 @@ weeks, so a partial week never makes the comparison skip a boundary.
 
 - `resolvedCurrent = resolvedMovement.latest ?? standingsLeaders` (`overview.ts:555`) feeds
   `standingsTopN` (`:621`) and `standingsHasMore` (`:623`).
-- `deriveResolvedMovementStandings` (`overview.ts:134-153`) returns the latest and previous resolved
+- `deriveResolvedMovementStandings` (`overview.ts:135`) returns the latest and previous resolved
   weeks from `standingsHistory`.
-- The comment at `:548-555` justifies the anchor **for movement**, and says live-display surfaces
+- The comment at `:549-556` justifies the anchor **for movement**, and says live-display surfaces
   (the hero and the GB Race chart) already use `standingsLeaders` directly.
-- The table renders through `CondensedStandingsTable` (`OverviewPanel.tsx:606`), which takes
+- The table renders through `CondensedStandingsTable` (`OverviewPanel.tsx:659`), which takes
   `previousRows` (`:1873`), plus `deltaWeeks`/`deltasByOwner` from `positionDeltaData`
   (`:1800-1815`, via `selectPositionDeltas`).
 
@@ -80,7 +89,10 @@ same thing, and saying why they differ is part of the receipt.
    to match.
 2. **Movement stays anchored on resolved weeks**, and its meaning is stated in the header or the
    column's accessible label so a member is not left to infer it.
-3. **The Insights column still reads resolved standings** (`OverviewPanel.tsx:1697-1704`) — its claims
+3. **The Insights column still reads resolved standings.** **The citation this item carried,
+   `OverviewPanel.tsx:1697-1704`, is STALE:** re-derived 2026-09-22, it now points at
+   `ownersWithInProgressGames` and `selectOverviewViewModel`, not an Insights read. Locate the actual
+   read, cite it in the receipt, and pin it there. Its claims
    are week-over-week and genuinely need finished weeks. Pin that it did not change.
 4. The GB Race chart, the podium and the Standings page are unchanged, each pinned.
 5. The selector comment no longer reads as though the values are anchored too, and names the test that
