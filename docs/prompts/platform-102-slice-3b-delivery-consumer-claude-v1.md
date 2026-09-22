@@ -12,7 +12,7 @@ Read `AGENTS.md` first. Two rules there bind this slice hard and are not restate
   the **four inherited items**, and the **two-schedules-per-job** decision. The entry also records that
   slice 3 was split — slice 3a is merged; you are the second half.
 - `src/lib/server/pollingPlannerRecord.ts` — **what slice 3a shipped and you consume.** Read its
-  exports, especially `readPollingPlannerRuns` (four states) and `PollingPlannerRun` / 
+  exports, especially `readPollingPlannerRuns` (four states) and `PollingPlannerRun` /
   `PlannerScheduleRun`. **3a deliberately did NOT build your reader** — it owns storage and parsing;
   you own interpretation.
 - `src/lib/server/schedulerDeliveryHealth.ts` — the file you change. `previousScheduleSlotMs` (`:327`),
@@ -117,6 +117,7 @@ shape, or if threading the plan forces a change to any of the four `SchedulerDel
 </gate>
 
 <completeness_contract>
+
 - **The false-`late` case is asserted directly and is the headline test.** A game day following a
   differently-armed day must read `on-time`. Prove by MUTATION that restoring the extrapolation turns
   it red — that mutation is the whole slice.

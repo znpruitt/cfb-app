@@ -215,6 +215,7 @@ expects one.
 </gate>
 
 <completeness_contract>
+
 - **No surface renders `Ranked Team` or `Contender Watch`.** Assert against rendered output across
   every consumer, not a source grep.
 - **`Top 25 Matchup` renders where `Top 25` did**, on Schedule and Matchups both.

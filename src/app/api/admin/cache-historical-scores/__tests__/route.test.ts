@@ -16,6 +16,7 @@ import {
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
 import { seasonYearForToday } from '../../../../../lib/scores/normalizers.ts';
+import { conformingScheduleRow } from '../../../../../test/conformingScheduleRow.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-086F2C — the historical score repair records ONE truthful,
@@ -256,12 +257,12 @@ test('an empty partition over prior-good rows is rejected before any write', asy
 test('an empty partition with started schedule games is rejected as unexpected', async () => {
   await setAppState('schedule', `${YEAR}-all-all`, {
     items: [
-      {
+      conformingScheduleRow({
         week: 1,
         seasonType: 'postseason',
         startDate: `${YEAR}-12-20T00:00:00.000Z`,
         status: 'final',
-      },
+      }),
     ],
   });
   fetchPlan.postseason = () => okJson([]);
@@ -296,14 +297,14 @@ test('partition-only schedule layout still rejects an unexpected empty partition
   // Schedule exists ONLY under the postseason partition key — no `-all-all`.
   await setAppState('schedule', `${YEAR}-all-postseason`, {
     items: [
-      {
+      conformingScheduleRow({
         week: 1,
         seasonType: 'postseason',
         startDate: `${YEAR}-12-20T00:00:00.000Z`,
         status: 'final',
         homeTeam: 'Alpha U',
         awayTeam: 'Beta U',
-      },
+      }),
     ],
   });
   fetchPlan.postseason = () => okJson([]);

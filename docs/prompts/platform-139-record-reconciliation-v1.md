@@ -114,6 +114,7 @@ scores available at this seam.
 </gate>
 
 <completeness_contract>
+
 - **A final renders the record INCLUDING its own result.** The headline case; assert it directly.
 - **A record behind by more than one game folds all of them** — assert with a record three games
   behind, not one. A one-game fixture cannot distinguish "folds the current game" from "folds

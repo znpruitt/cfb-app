@@ -95,6 +95,7 @@ Settled 2026-09-05. Do not re-derive or re-litigate these.
 </owner_decisions>
 
 <completeness_contract>
+
 - **Ships dormant. Nothing calls the synthesizer.** The delivery-expectation change must be a
   provable no-op against production: with no windows supplied, `schedulerDeliveryPolicy` returns
   byte-identical values for all nine jobs. Prove it by MUTATION — break the fallback and show a

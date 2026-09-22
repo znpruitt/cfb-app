@@ -71,6 +71,7 @@ STOP and report if any comment turns out to describe a behaviour the guard does 
 </gate>
 
 <completeness_contract>
+
 - **The authoritative note carries the measurement, its date, and both populations** — a note saying "rare" rather than "never observed across 22,760 schedule rows and 20,424 score values" is the vague claim this replaces.
 - **No comment restates the measurement.** Assert this by reading, and say how you checked.
 - **No behaviour changed**, demonstrated by an unchanged test count and an unchanged failure set.
@@ -98,7 +99,6 @@ Closeout is a separate pre-merge commit after review convergence. **`Closes #661
 Merge is delegated to this lane under `CLAUDE.md` → **Worktrees and session roles**, including the four
 conditions. **Verify the remote ref moved before reporting a push.**
 </output_contract>
-
 
 ## RULINGS 2026-09-11, from this prompt's read receipt
 

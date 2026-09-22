@@ -42,6 +42,15 @@ CARRIES: NONE from the Item 87 campaign index, having checked. This is scheduler
 
 ## Why, measured
 
+**CITATIONS RE-DERIVED 2026-09-22 before dispatch**, after #813 v4 merged and touched several of the
+files named here. Eleven of twelve hold exactly. **One moved: the `/api/schedule` inline presentation
+call is now `:482`, not `:482`** — v4's admin fall-through shifted that route. Confirmed unchanged:
+`cron/schedule-refresh` `:548`, `:596`, `:634`; `cron/season-transition` `:58`, `:429`, `:588`;
+`schedulePresentationRefresh` `:709-710`; `EXTERNAL_SCHEDULER_JOBS` at `schedulerExecutionStatus:102`;
+the per-job policies at `schedulerDeliveryHealth:144`; and `PROVIDER_USAGE_MAX_OBSERVATIONS` at
+`providerUsageSeries:48`. **Re-derive them again yourself** — #813 v4 also rewrote
+`fullSeasonScheduleRefresh.ts`, which this slice's worst-case arithmetic depends on.
+
 **The ceiling cannot be raised.** The team plan is `hobby`. Vercel's limits table says *"Hobby: 300s
 default and maximum."* The owner ruled Pro cost-prohibitive, so no `maxDuration` fixes this.
 
@@ -91,7 +100,7 @@ from data. It is the only thing that can justify a second weekly run later.
 - **Write its receipt even when the provider hangs.** That is the property #757 is about, so this job
   must have it from its first commit, not gain it later. **Planning read the per-attempt timeout
   and it covers the body, not just the headers:** `fetchUpstream.ts` passes the timeout signal to
-  `fetch` (`:390`), reads the body through `consumeClassified` at `:426`/`:440` INSIDE the timed
+  `fetch` (`:390`), reads the body through `consumeClassified` at `:426`/`:482` INSIDE the timed
   `try` (`:374`–`:471`), and clears the timeout in the `finally` only after the read. So a stalled
   body is aborted at the per-attempt bound, and this job's worst case, two sites at about 242s, is
   bounded by the code's structure below 300s. *That is structural reasoning, not a measurement,
@@ -101,6 +110,52 @@ from data. It is the only thing that can justify a second weekly run later.
 - **Record media changes per commit** in a bounded series, trimmed on every write, following
   `providerUsageSeries.ts` (`PROVIDER_USAGE_MAX_OBSERVATIONS`, `:48`, trimmed on write so no cleanup
   job exists to forget). Media only. Venues change too rarely to be worth recording.
+
+## RECEIPT RULINGS, 2026-09-22 — all four asks approved, and two corrections are planning's
+
+**1. Year selection: MOVE it.** Relocate the body of `selectRankingsTargetYears` to a lifecycle-neutral
+module and re-export it from `rankings/automaticContext.ts`. A pure relocation, covered by the
+rankings tests as they stand. Importing a presentation job's year set under a `rankings` name cements
+a wrong name and invites a fourth spelling. **SCOPE is widened for this relocation only** — no
+behaviour change, and the rankings tests must pass untouched. **The cron's own inline copy
+(`schedule-refresh/route.ts:~250-281`) is NOT unified here**; that is filed separately.
+
+**2. Trigger: ADD `'presentation-weekly'`.** SCOPE is widened for this one additive union member.
+Reusing `'weekly'` would make standalone and inline runs indistinguishable **in exactly the overlap
+window this slice exists to observe**, which defeats its own purpose.
+
+**3. Settings gate: YES, the job honours global pause and the Schedule toggle**, reporting
+`automation-paused-or-disabled`. **This is the receipt's most important finding and the prompt missed
+it entirely.** Verified: `schedule-refresh/route.ts:429` computes
+`isAutoRefreshAllowedBySettings(settings, 'schedule')`, and `:593` states that gated years never
+reach the presentation call. So the operator's pause covers presentation today, indirectly but
+completely. **A standalone job that ignored it would call CFBD while the operator had paused schedule
+auto-refresh** — a silent loss of operator control, introduced by the slice meant to be additive.
+Preserve the existing asymmetry: lifecycle-critical paths bypass the gate today and continue to.
+
+**4. Split: APPROVED, and the owner approved slice A's size** (~26 files, ~1,500 lines, both
+stop-and-reassess signals) on 2026-09-22, because most of the count is type-forced one-line edits to
+exhaustive `Record` maps plus the runbook sweep. **Record that approval and the real diffstat.**
+**Acceptance 6 (the change history) moves to 757a2**, before 757b. It still records at the commit
+whichever slice ships it, so no caller coverage is lost.
+
+**CORRECTION 1 — the worst-case arithmetic was single-year and it is per-year.** Verified:
+`schedule-refresh/route.ts:447` is `for (const candidate of candidates)`, with the refresh AND the
+presentation call inside it. So the existing cron is roughly `N × (121 + 242)`, and **N = 2 is a
+normal configuration** (a preseason league at one year beside a season league at another). **#757 is
+worse than this prompt said: about 726s at N=2, not 363s.** Carry that number into 757b.
+
+**CORRECTION 2 — a job budget is REQUIRED, not insurance.** This prompt called it your call. At N ≥ 2
+the job would be killed and lose its own receipt, reproducing #757 inside the job built to fix it.
+Implement the receipt's design: a budget checked BEFORE each year, years ordered **most-stale media
+first** so a truncated run always advances the year that needs it most, the receipt naming the years
+skipped for budget, and `maxDuration = 300` declared explicitly on the route.
+
+**Two notes that need no ruling.** The synthetic composite `id` path (`cfbdSchedule.ts:735`) has
+**never fired in production**: 0 of 22,760 stored schedule rows across all seven seasons carry a
+non-numeric id (planning's measurement, 2026-09-20 for #653). Record that beside the graceful
+degradation rather than treating it as a live hazard. And the `no-usable-ids` coupling that suppresses
+the **venue** part is filed separately; do not change it here.
 
 ## Acceptance
 
@@ -130,7 +185,17 @@ from data. It is the only thing that can justify a second weekly run later.
    zero. #804 is a live example of a count whose failure and whose real zero look identical. Do not
    build a second one.
 7. **The QStash schedule has a manage script and a runbook entry.** Installing it in production is
-   an owner step. The closeout gives the exact command and says who runs it.
+   an owner step. The closeout gives the exact command and says who runs it. **The runbook sweep is
+   part of this slice:** an eleventh job falsifies about ten statements in `deployment-runbook.md`
+   and a comment in five `manage-*.ts` scripts.
+8. **The job honours global pause and the Schedule toggle**, reporting
+   `automation-paused-or-disabled` and making no provider call when either is closed. Pinned by a
+   test. Ruled at the receipt; see ruling 3.
+9. **The job cannot be killed by its own budget.** A budget is checked before each year, years run
+   most-stale-media first, the receipt names any year skipped for budget, and `maxDuration = 300` is
+   declared. A test drives N = 2 with a stalled provider and asserts the receipt exists and names the
+   skipped year.
+10. **Acceptance 6 is DEFERRED to 757a2** and is not implemented here.
 
 ## Testing requirements, which are not negotiable on this project
 

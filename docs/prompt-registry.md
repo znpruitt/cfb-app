@@ -129,6 +129,146 @@ These consolidate recurring historical observations, not new project-governance 
 - Review / verification: Both owner-invoked reviewers completed on `4cba1014`; Claude returned four lows, Codex clean. The separate approval-blocked CLI attempt is not counted as a review. Full tests, `lint:all`, types and required browser tests passed at that SHA. The partial-week regression failed before the fix; the accessibility role/name observer failed while the old attribute observer stayed green. [Acceptance 1–6 and review provenance](campaigns/platform-827-overview-live-records-closeout.md) record exact evidence and limitations; closeout is re-gated at its own commit.
 - Status: Implemented and reviewed on `codex/platform-827-overview-live-records`; pre-merge closeout. Not merged or deployed.
 
+### PLATFORM-813-FAIL-CLOSED-CLAUDE-v4
+
+- Purpose: a durable schedule row that does not conform to `ScheduleWireItem` made the build throw an
+  unattributable `TypeError`. v4 makes the canonical reader throw a TYPED error naming the durable key,
+  the row and the field, so no consumer ever receives partial data. Refs
+  [#813](https://github.com/znpruitt/cfb-app/issues/813).
+- Scope: the durable-row validator, both construction paths of `loadCanonicalScheduleEntry`, the two
+  draft surfaces, `/api/schedule`, `mapCfbdScheduleGame`'s `startDate`, and their tests.
+- Outcome: merged. 27 files, +2,242/-149, net 2,093 (production 9 files / net 425; tests 18 / net
+  1,668). `npm test` 5499/5499.
+- Review / verification: two rounds of both reviewers, then a confirming pass — Codex clean, three
+  lows reported under `AGENTS.md` step 7 and filed.
+- Status: Merged ([PR #854](https://github.com/znpruitt/cfb-app/pull/854), `32694720`, 2026-09-22);
+  merged tree `6ce980ef` identical to the gated branch tip. NOT promoted.
+
+**ACCEPTANCE 4 IS THE RESULT THAT JUSTIFIES THE RECONSTRUCTION, AND IT NEEDED NO ODDS CODE CHANGE.** A
+season holding a malformed row beside prior-good odds, with an empty provider response, erased those
+odds at `8578ad38` (v3: HTTP 200, cache cleared) and retains them here (502, untouched) — with
+`src/lib/odds/**` byte-identical between the two. `gatherEmptyOddsScheduleEvidence` catches a failed
+read into `scheduleItems = null`, and `emptyOddsClassifier.ts:201-202` treats null as "the schedule read FAILED (unavailability is never
+evidence)". **The odds path was already safe on a failed read;
+v3 broke it by making a failed read look like a successful partial one.** v4 restored a failed read to
+looking like one, and the existing branch did the rest.
+
+**WHY v1-v3 WENT BACK: EVERY HOLE WAS PARTIAL DATA REACHING A CONSUMER THAT ASSUMED COMPLETENESS.** v2
+coerced fields and counted drops; v3 deleted the counts and read the build's `issues`. Six review
+rounds each found the next consumer, because each fix was built from a list somebody had already
+checked — of fields, then of loss sites, then of writers. `main` ALREADY failed closed; its defect was
+that the failure was unattributable. v4 keeps the failure and makes it legible, which is a smaller
+change than either predecessor.
+
+**THE CONTRACT IS COMPILE-ENFORCED AGAINST THE TYPE, WHICH IS WHAT BREAKS THE LIST HABIT.**
+`ROW_CONTRACT` is keyed by every property of `ScheduleWireItem` (`{ [K in keyof Required<...>]: … }`),
+so adding a field to the type fails `tsc` until it has a spec; the closed unions are
+`Record<Literal, true>`, so a missing or extra literal is a compile error; nested types are checked all
+the way down. The test file mirrors both devices — per-field values keyed to the same type, and
+adversarial provider input keyed to all 66 fields of `CfbdScheduleGame`.
+
+**ACCEPTANCE 7, THE MERGE GATE, RUN IMMEDIATELY BEFORE MERGE WITH THE SHIPPED VALIDATOR:** 7 stored
+`schedule` records, **22,760 rows, 0 non-conforming**, on the read-only rail. Positive control in the
+same run: 7 of 7 synthetic bad records flagged (a null row, a numeric `homeTeam`, a null
+`homeConference`, a missing `status`, `homeClassification: 'FBS'`, an unknown `playoffRoundSource`, a
+string `startTimeTBD`) and a clean row passed. Per-key counts matched planning's independent
+hand-written probe exactly. **A zero from a checker that never looked reads the same as a zero from one
+that looked**, which is why the control shares the run.
+
+**THE WRITER GAP THE RECEIPT FOUND, WHICH IS WHAT MADE v4 SAFE TO SHIP.** `mapCfbdScheduleGame` stored
+`startDate` raw — the one string field it did not normalise — so a non-string provider value would have
+made a whole season unreadable on the next upstream change. Fixed at the writer, where provider input
+arrives: a string passes through UNCHANGED (not trimmed, `''` not made null), and only a non-string
+becomes null. Acceptance 8 then guards the class structurally rather than the instance: adversarial
+values over every provider field, asserting every returned row conforms. It fails with the fix
+reverted (66 rows, naming `startDate`).
+
+**BEHAVIOUR CHANGE, MEASURED RATHER THAN ASSERTED:** a stored `items: null` read as `[]` on `main`
+(`value.items ?? []`) and now throws. An ABSENT `items` still reads as `[]`. This reaches no stored
+data — all 7 stored schedule records hold arrays (acceptance 7 above, and planning's probe).
+
+**RECOVERY IS PART OF FAIL-CLOSED, AND IT WAS MISSING FROM THE PROMPT.** A fail-closed reader with no
+working repair path means down until someone edits the database. An admin load of a non-conforming
+season now falls through to the full-season refresh (members still get a shaped 503 with the row-naming
+`detail`, and the error is logged before the fall-through). Both refresh paths overwrite a row missing a
+field and a null row; **the scheduled refresh cannot repair a non-array container** — its own classifier
+refuses that as unusable context before any provider work — so only the admin path repairs that,
+tracked by [#849](https://github.com/znpruitt/cfb-app/issues/849) and pinned as the named exception so
+it cannot change silently.
+
+**AND THE REPAIR PATH REINSTATED THE DEFECT ONCE, WHICH ROUND 2 CLOSED.** The writer's observation
+ordering kept ANY prior stamped at/after its own observation, including a non-conforming one, returned
+`stale-observation`, and that branch copied the record's unvalidated rows into `SCHEDULE_ROUTE_CACHE` —
+served to members in place of the validating reader until the TTL. Both reviewers found it
+independently. A non-conforming prior now counts as NO prior, whatever its `at`, so both refresh paths
+repair it; conforming priors follow the ordering rule exactly as before (PLATFORM-086E1A finding 3),
+and an all-empty provider result still writes nothing, so a bad record survives rather than being
+replaced by an empty season.
+
+**THE BEST FINDING OF THE SLICE WAS A TEST THAT PASSED ON THE WRONG PATH, AND NO RED TEST COULD HAVE
+SHOWN IT.** The rollover route's "R4 regression: the unexpected-error 500 still reports refusals" seeded
+`{ items: 'not-an-array' }` to make resolution throw. Under v4 (and under v2 before it) that fixture
+fails the READ instead, the route records `read-failed`, and the test's single assertion — a count —
+still held on that different response. **It was green while testing a path it was never written for.**
+Found by logging every validator throw across the whole suite and comparing against the failures, not
+by a failing test. That is `AGENTS.md`'s killed-test rule catching something the red list could not:
+retargeted to a malformed score, with the 500 now pinned.
+
+**THE 35 BROKEN TESTS, CLASSIFIED BEFORE BEING TOUCHED (owner condition).** 34 were incomplete
+fixtures, completed through one conforming-row builder; 1 (rollover receipts, `[null]`) had its vehicle
+superseded and was retargeted, with a new test asserting `read-failed` names key, row and field; plus
+R4 above. **Each builder default is the value that behaves as the field's absence did** — `startDate:
+null`, `''` for strings, `false` for booleans — so completing a fixture is a no-op for the test's
+behaviour rather than new data it never asked for.
+
+**ROUND 2 BROKE A SECOND, DISJOINT FIXTURE SET, AND WHY THE FIRST SWEEP MISSED IT IS THE LESSON.** 13
+tests across 5 files seed a prior for the WRITER, not rows for the canonical READER, so they only broke
+once the writer began validating its prior. Their intent is the ordering rule and empty-replacement
+rejection **on good data**, which is the round-2 condition itself; with incomplete fixtures each prior
+read as "no prior" and the tests would have stopped checking the rule while still passing — the R4 trap
+again. Completed, not retargeted, and the evidence is a mutation: removing the ordering check reddens
+all four ordering tests, so they demonstrably take the prior-exists branch. **One fixture is
+deliberately malformed and stayed so** ("a malformed prior kickoff cannot abort or roll back the
+schedule commit"): it is about a prior the producer contract says cannot exist. A wrap script completed
+it and destroyed its premise; only the failing test revealed that, and the lane's own report had
+asserted that no test in the set asserted tolerance of a malformed prior.
+
+**COVERAGE IS ENUMERATED, NOT COUNTED FROM THE READS IN HAND.** Planning published a wrong coverage
+count twice in this family ("13 consumers", then "14 of 14"). The replacement is
+`scheduleReadEnumeration.test.ts`: every durable `schedule` read in `src/`, resolved by the TypeScript
+checker through imports, against an allowlist carrying a reason and a site count per file, plus a check
+that the checked program holds every non-test source file. It found 11 files reading around the
+boundary; none is a durable writer, and each field-level read there is type-guarded. Its first version
+filtered on an identifier's local spelling, so `getAppState as readState` escaped it (a sweep measuring
+its own syntax, again); readers are now matched by resolved declaration, with an in-memory aliased
+import compiled into the same program as the positive control.
+
+- Owner approvals recorded (`AGENTS.md` scope-and-sizing signals): **~20 files against the 15-file
+  signal, and 1,597 net lines against the 1,500-line signal (2026-09-22)**, then the round-2 fixture
+  files. Reason: production is 425 net lines; the overage is test tables keyed to every field of
+  `ScheduleWireItem` and all 66 provider fields, which is the mechanism that stops v4 repeating the
+  hand-picked-list failure behind v1-v3. Cutting a test to meet a number would have traded that
+  protection for the number. Actual diffstat from the committed tree: **27 files, +2,242/-149, net
+  2,093**.
+- Filed, not fixed: [#847](https://github.com/znpruitt/cfb-app/issues/847) (insights caches an empty
+  build for 300s on any other read failure),
+  [#848](https://github.com/znpruitt/cfb-app/issues/848) (a non-string provider `name`/`notes` crashes
+  the mapper loudly; the pinned throwing set is exactly those two),
+  [#849](https://github.com/znpruitt/cfb-app/issues/849) (the scheduled refresh cannot repair a
+  non-array container, and the admin path repairs only the aggregate key),
+  [#852](https://github.com/znpruitt/cfb-app/issues/852) (the scores routes collapse a failed schedule
+  read into `[]`, which then reads as evidence of no started games — the lane's own receipt called that
+  site safe, having considered only the prior-good case),
+  [#853](https://github.com/znpruitt/cfb-app/issues/853) (`canonicalScheduleAggregateServes` and the
+  reader now disagree for a populated non-conforming aggregate, visible in disappearance reporting
+  during a repair). **The predicate's docstring, which this branch falsified, is corrected in the
+  closeout commit** — a diff that falsifies a comment owns it — while the divergence itself is left to
+  #853, because restoring the call would be a behaviour change step 7 does not allow.
+- Unresolved risk kept as unresolved: fail-closed trades availability for correctness during a
+  corruption, on every consumer of that season. The corruption has never occurred in production
+  (22,760 rows, 0 non-conforming), the draft surfaces already rendered empty on a failed load before
+  this slice, and recovery without a database edit holds for every case except #849's.
+
 ### PLATFORM-832-ABBREVIATION-FALLBACK-CODEX-v2
 
 - Purpose: consume the [#831](https://github.com/znpruitt/cfb-app/issues/831) lookup in

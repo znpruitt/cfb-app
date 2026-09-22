@@ -181,6 +181,7 @@ if giving the caller the status label forces a change to a shared type.
 </gate>
 
 <completeness_contract>
+
 - **A tagged row and an untagged row are the same height.** The headline defect; assert it directly on
   rendered output, not on class names.
 - **The tag is at the right edge when the row overflows**, not only when it is roomy. **Mutation-prove

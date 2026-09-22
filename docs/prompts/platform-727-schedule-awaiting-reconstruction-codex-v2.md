@@ -105,6 +105,7 @@ STOP and report if the table turns out to be incomplete — a missing row is a d
 </gate>
 
 <completeness_contract>
+
 - **All three evidence-beats-gate cases get their own test — as REGRESSION GUARDS, not fixes.** Corrected 2026-09-11: this prompt said "two reachable cases" above and "each of the three" here, which contradicted itself. **All three already render correctly on current `main`** — the placeholder regression existed only on the stopped `80c6b6c2`. So the tests exist to stop the reconstruction re-breaking what v1 broke, and **the placeholder case specifically guards the regression v1 created.** One test covering all three proves none of them.
 - **The disrupted case is labelled SYNTHETIC forward-looking guard coverage**, in the test name or a comment beside it. It is not production coverage and must not read as though it were.
 - **Each is mutation-proven**, and the report names **which side stayed green** — `AGENTS.md` binds this.

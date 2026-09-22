@@ -76,6 +76,7 @@ store once on the Item 210 branch. **The sandbox precedes the mutation, not the 
 </gate>
 
 <completeness_contract>
+
 - **Each seam refuses independently**, asserted per seam — one test covering all three proves none of
   them.
 - **Each refusal is proven by mutation, and the report says WHICH SIDE STAYED GREEN** — `AGENTS.md`

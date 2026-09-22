@@ -220,6 +220,7 @@ STOP and report if any ruling cannot be built as stated.
 </gate>
 
 <completeness_contract>
+
 - **A live row renders its broadcast; a final row does not.** Assert both, on rendered output. **A
   test that only covers live proves half the rule.**
 - **The watchlist reason label renders as a pill**, matching the tag treatment. Assert equality of the

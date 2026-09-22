@@ -25,6 +25,7 @@ import {
   loadCachedScheduleItems,
   loadPostseasonOverrides,
 } from '@/lib/server/canonicalScheduleCache';
+import { ScheduleRowNonConformanceError } from '@/lib/server/durableScheduleRow';
 import { buildScheduleFromApi, type AppGame } from '@/lib/schedule';
 import type { AliasMap } from '@/lib/teamNames';
 import {
@@ -280,7 +281,18 @@ export async function buildLeagueInsightContext(
     confirmedRoster,
     draftRecord,
   ] = await Promise.all([
-    loadCachedScheduleItems(resolvedYear).catch(() => []),
+    // PLATFORM-813: a NON-CONFORMING season propagates; every other read failure keeps
+    // `main`'s `[]`. This build is cached by `unstable_cache` for
+    // `INSIGHTS_CACHE_TTL_SECONDS`, so catching the typed throw into `[]` would cache
+    // insights computed from no games — the same uncertainty as partial data, reached
+    // through a catch. `unstable_cache` never stores a rejection, and a well-typed season
+    // never throws this, so nothing changes for a conforming season. The remaining case —
+    // any OTHER read failure caching an empty build — predates #813 and is filed as #847.
+    // Asserted by `loadInsights.test.ts` "a non-conforming season is not cached as empty".
+    loadCachedScheduleItems(resolvedYear).catch((error: unknown) => {
+      if (error instanceof ScheduleRowNonConformanceError) throw error;
+      return [];
+    }),
     getTeamDatabaseItems().catch(() => [] as Awaited<ReturnType<typeof getTeamDatabaseItems>>),
     getScopedAliasMap(slug, resolvedYear).catch(() => ({}) as AliasMap),
     loadPostseasonOverrides(slug, resolvedYear).catch(() => ({})),

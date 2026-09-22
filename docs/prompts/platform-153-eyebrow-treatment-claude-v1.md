@@ -115,6 +115,7 @@ rendered output rather than only in expression, that is a decision, not a cleanu
 </gate>
 
 <completeness_contract>
+
 - **No blue eyebrow remains on any surface.** Assert against the rendered element, not a class-name
   string match — a test keyed on a label rather than the element has shipped in this campaign before.
 - **All three surfaces render the same treatment.** Assert equality of the rendered result across the

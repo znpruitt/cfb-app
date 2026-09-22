@@ -24,6 +24,9 @@ import {
 } from '../../../../lib/server/providerRefreshStatus.ts';
 import { yearScope } from '../../../../lib/providerRefreshScope.ts';
 import { acquireScheduleRefreshLease } from '../../../../lib/schedule/scheduleRefreshLease.ts';
+import { conformingScheduleRow } from '../../../../test/conformingScheduleRow.ts';
+import { loadCanonicalScheduleEntry } from '../../../../lib/server/canonicalScheduleCache.ts';
+import { ScheduleRowNonConformanceError } from '../../../../lib/server/durableScheduleRow.ts';
 
 // PLATFORM-663: every refresh this route can reach is a WHOLE-SEASON refresh
 // through the shared authority, so the year rollup is the only status scope it
@@ -352,7 +355,7 @@ test('a prior-cache read failure while classifying an empty response resolves th
   await setAppState('schedule', '2027-all-all', {
     at: 1,
     items: [
-      {
+      conformingScheduleRow({
         id: 'prior',
         week: 1,
         startDate: '2027-09-01T00:00:00.000Z',
@@ -363,7 +366,7 @@ test('a prior-cache read failure while classifying an empty response resolves th
         homeConference: 'Big 12',
         awayConference: 'American',
         status: 'scheduled',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -435,7 +438,7 @@ test('an unexpected all-empty refresh does NOT overwrite a populated durable sch
   await setAppState('schedule', '2027-all-all', {
     at: 1,
     items: [
-      {
+      conformingScheduleRow({
         id: 'prior',
         week: 1,
         startDate: '2027-09-01T00:00:00.000Z',
@@ -446,7 +449,7 @@ test('an unexpected all-empty refresh does NOT overwrite a populated durable sch
         homeConference: 'Big 12',
         awayConference: 'American',
         status: 'scheduled',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -523,7 +526,14 @@ test('schedule route serves stale shared cache to non-admin requests instead of 
 
   await setAppState('schedule', '2026-all-regular', {
     at: Date.now() - 10 * 60 * 60 * 1000,
-    items: [{ week: 1, homeTeam: 'Stale Home', awayTeam: 'Away', seasonType: 'regular' }],
+    items: [
+      conformingScheduleRow({
+        week: 1,
+        homeTeam: 'Stale Home',
+        awayTeam: 'Away',
+        seasonType: 'regular',
+      }),
+    ],
     partialFailure: false,
     failedSeasonTypes: [],
   });
@@ -540,6 +550,209 @@ test('schedule route serves stale shared cache to non-admin requests instead of 
   assert.equal(json.meta.stale, true);
   assert.equal(json.meta.rebuildRequired, true);
   assert.equal(json.items[0].homeTeam, 'Stale Home');
+});
+
+test('a non-conforming stored season answers a shaped 503 naming the row', async () => {
+  // PLATFORM-813 v4, acceptance 6. On `main` this read had no validation, so the route
+  // served the malformed row with a 200 and the client crashed building it. The reader now
+  // throws `ScheduleRowNonConformanceError`, and without a handler that escaped as Next's
+  // bare 500. The body names what is wrong and where; nothing is served, and nothing enters
+  // the route's process cache. A MEMBER request: the admin token is configured and not sent.
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  await setAppState('schedule', '2026-all-all', {
+    at: Date.now(),
+    items: [
+      conformingScheduleRow({ id: 'g1', homeTeam: 'A', awayTeam: 'B' }),
+      { id: 'g2', week: 1 },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  setMockFetch(async () => {
+    throw new Error('a non-admin read must not reach the provider');
+  });
+
+  const res = await GET(new Request('http://localhost/api/schedule?year=2026'));
+  assert.equal(res.status, 503);
+  const json = (await res.json()) as { code?: string; detail?: string; items?: unknown };
+  assert.equal(json.code, 'schedule-cache-nonconforming');
+  assert.match(json.detail ?? '', /schedule 2026-all-all: row #1 \(id "g2"\) startDate is absent/);
+  assert.equal(json.items, undefined, 'no rows are served');
+  assert.equal(SCHEDULE_ROUTE_CACHE['2026-all-all'], undefined, 'nothing enters the process cache');
+});
+
+test('an admin load REBUILDS a non-conforming season, and the next read is clean', async () => {
+  // PLATFORM-813 v4, acceptance 10 (admin half). Fail-closed with no recovery path means
+  // down until someone edits the database. On `main` an admin load of a stale season fell
+  // through to the refresh; v4's first handler answered the admin with the member's 503.
+  // The seeded record is FRESH, so only the non-conformance — not staleness — can send the
+  // admin to the refresh. Fails against `4038fdeb` (503).
+  //
+  // Seeded a minute in the PAST, as a real stored record is: the writer keeps a prior
+  // observed at/after its own observation (`fullSeasonScheduleRefresh.ts:147`), so a seed
+  // stamped `Date.now()` lost that race whenever both landed in the same millisecond — the
+  // first version of this test was flaky for exactly that reason.
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    const body =
+      url.pathname === '/games' && url.searchParams.get('seasonType') === 'regular'
+        ? [
+            {
+              week: 1,
+              home_team: 'Texas',
+              away_team: 'Rice',
+              id: 7,
+              start_date: '2026-09-05T00:00:00Z',
+            },
+          ]
+        : [];
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+
+  const BAD_RECORDS: Array<[string, unknown]> = [
+    ['a row missing a required field', [{ id: 'g-bad', week: 1 }]],
+    ['a null row', [null]],
+    ['a non-array container', 'not-an-array'],
+  ];
+  for (const [name, items] of BAD_RECORDS) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    resetScheduleRouteCacheForTests();
+    await setAppState('schedule', '2026-all-all', {
+      at: Date.now() - 60_000,
+      items,
+      partialFailure: false,
+      failedSeasonTypes: [],
+    });
+    await assert.rejects(
+      () => loadCanonicalScheduleEntry(2026),
+      ScheduleRowNonConformanceError,
+      `${name}: seeded non-conforming`
+    );
+
+    const res = await GET(
+      new Request('http://localhost/api/schedule?year=2026', {
+        headers: { 'x-admin-token': 'admin-token' },
+      })
+    );
+    assert.equal(res.status, 200, `${name}: the admin is rebuilt, not refused`);
+
+    // The typed error stops on the NEXT read: a conforming aggregate replaced the bad one.
+    const entry = await loadCanonicalScheduleEntry(2026);
+    assert.deepEqual(
+      entry?.items.map((item) => item.id),
+      ['7'],
+      `${name}: the next read is clean`
+    );
+  }
+});
+
+test('a non-conforming record stamped in the FUTURE is still overwritten, and never served', async () => {
+  // PLATFORM-813 v4 round 2. Both reviewers found this independently: the writer's
+  // observation ordering kept ANY prior stamped at/after its own observation, including a
+  // non-conforming one, returned `stale-observation`, and that branch copied the record's
+  // UNVALIDATED rows into `SCHEDULE_ROUTE_CACHE` — where members were served them in place
+  // of the validating reader until the TTL. A non-conforming prior now counts as no prior.
+  // Fails against `f4a58040` (the bad rows are cached and served).
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  await setAppState('schedule', '2026-all-all', {
+    at: Date.now() + 10 * 60 * 1000, // stamped in the FUTURE: clock skew, or a bad `at`
+    items: [{ id: 'g-bad', week: 1 }],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    const body =
+      url.pathname === '/games' && url.searchParams.get('seasonType') === 'regular'
+        ? [
+            {
+              week: 1,
+              home_team: 'Texas',
+              away_team: 'Rice',
+              id: 7,
+              start_date: '2026-09-05T00:00:00Z',
+            },
+          ]
+        : [];
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+
+  const res = await GET(
+    new Request('http://localhost/api/schedule?year=2026', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
+  );
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { items: Array<{ id: string }> };
+  assert.deepEqual(
+    body.items.map((item) => item.id),
+    ['7'],
+    'the response carries the rebuilt season, never the bad rows'
+  );
+
+  const entry = await loadCanonicalScheduleEntry(2026);
+  assert.deepEqual(
+    entry?.items.map((item) => item.id),
+    ['7'],
+    'the durable record was replaced'
+  );
+  assert.deepEqual(
+    SCHEDULE_ROUTE_CACHE['2026-all-all']?.items.map((item) => (item as { id: string }).id),
+    ['7'],
+    'the process cache never holds the unvalidated rows'
+  );
+});
+
+test('an all-empty refresh never replaces a non-conforming record', async () => {
+  // The case "no prior" could go wrong: with the bad record discounted, an all-empty
+  // provider result must still write NOTHING, so the bad record survives and keeps failing
+  // closed rather than being replaced by an empty season.
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  const bad = {
+    at: Date.now() - 60_000,
+    items: [{ id: 'g-bad', week: 1 }],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  };
+  await setAppState('schedule', '2026-all-all', bad);
+  setMockFetch(
+    async () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+
+  await GET(
+    new Request('http://localhost/api/schedule?year=2026', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
+  );
+
+  const stored = await getAppState<{ items: unknown[] }>('schedule', '2026-all-all');
+  assert.deepEqual(
+    stored?.value,
+    bad,
+    'the record is untouched — an empty season never replaces it'
+  );
+  await assert.rejects(
+    () => loadCanonicalScheduleEntry(2026),
+    ScheduleRowNonConformanceError,
+    'and it still fails closed'
+  );
+  assert.equal(SCHEDULE_ROUTE_CACHE['2026-all-all'], undefined, 'nothing cached');
 });
 
 // ---------------------------------------------------------------------------
@@ -753,7 +966,12 @@ test('a window refresh and a whole-season read agree about the same game', async
   // repaired — the exact pre-#663 divergence setup.
   await setAppState('schedule', P663_AGGREGATE_KEY, {
     at: 1,
-    items: [{ ...p663Row('9001', 1, 'regular'), startDate: `${P663_YEAR}-09-01T17:00:00.000Z` }],
+    items: [
+      conformingScheduleRow({
+        ...p663Row('9001', 1, 'regular'),
+        startDate: `${P663_YEAR}-09-01T17:00:00.000Z`,
+      }),
+    ],
     partialFailure: false,
     failedSeasonTypes: [],
   });
@@ -1012,7 +1230,12 @@ test('an ADMIN request with a stale aggregate and no bypassCache refreshes and r
   // branch got more load-bearing in the same slice that removed its coverage.
   await setAppState('schedule', P663_AGGREGATE_KEY, {
     at: Date.now() - 3_601_000,
-    items: [{ ...p663Row('stale', 1, 'regular'), startDate: `${P663_YEAR}-10-05T00:00:00.000Z` }],
+    items: [
+      conformingScheduleRow({
+        ...p663Row('stale', 1, 'regular'),
+        startDate: `${P663_YEAR}-10-05T00:00:00.000Z`,
+      }),
+    ],
     partialFailure: false,
     failedSeasonTypes: [],
   });

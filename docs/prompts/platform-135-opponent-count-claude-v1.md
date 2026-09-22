@@ -126,6 +126,7 @@ data fetch or a widened payload.
 </gate>
 
 <completeness_contract>
+
 - A test that FAILS on the current code: a slate with N distinct unowned FBS opponents must count N,
   not 1. Same for FCS. Show it red before the fix, green after — that is the whole point of this item,
   so a test that cannot demonstrate the bug is not evidence.

@@ -140,6 +140,7 @@ harness change under a flaky-test item is how an unrelated regression enters the
 </gate>
 
 <completeness_contract>
+
 - **A failing settings read no longer reports `plan-held`.** Assert on the distinguishable result, and
   prove by mutation that a GENUINE operator hold still reports `no-op`/`plan-held` and still raises
   nothing — restore the conflation and show a named test go red.

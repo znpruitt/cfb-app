@@ -108,6 +108,7 @@ line is a data finding, not something to paper over in presentation.
 </gate>
 
 <completeness_contract>
+
 - **Every deleted behaviour is deliberate and tested.** `cardEmphasisClasses` deletion in particular:
   assert no amber border renders for an `upset` card, and prove by MUTATION that the assertion can
   fail — restore the class and show a SPECIFIC named test going red.

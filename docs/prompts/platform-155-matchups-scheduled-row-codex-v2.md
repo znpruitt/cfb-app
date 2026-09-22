@@ -153,6 +153,7 @@ threading them forces a change to a shared type.
 </gate>
 
 <completeness_contract>
+
 - **A scheduled row renders the record as its right-edge anchor.** The headline; assert it directly.
 - **A live and a final row render the record INLINE**, not in the anchor — the anchor holds the score.
   Assert both states; a scheduled-only fixture proves a third of the rule.

@@ -8,7 +8,8 @@ import { getAppState } from '@/lib/server/appStateStore';
 import { resolveDraftScheduleGames } from './draftSchedule';
 import { draftScope, type DraftState } from '@/lib/draft';
 import { loadSeasonRankings } from '@/lib/server/rankings';
-import type { AppGame, ScheduleWireItem } from '@/lib/schedule';
+import type { AppGame } from '@/lib/schedule';
+import { loadCachedScheduleItems } from '@/lib/server/canonicalScheduleCache';
 import { selectDraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
 import type { ApPollEntry } from '@/lib/selectors/draftTeamInsights';
 import {
@@ -66,8 +67,11 @@ export default async function DraftBoardPage({
   // Load schedule for home/away/neutral counts and ranked opponent detection
   let games: AppGame[] = [];
   try {
-    const schedRecord = await getAppState<{ items: unknown[] }>('schedule', `${year}-all-all`);
-    const schedItems = (schedRecord?.value?.items ?? []) as ScheduleWireItem[];
+    // PLATFORM-813: through the canonical reader, not a direct durable read — the same
+    // member-facing draft surface as the spectator board. A non-conforming season throws
+    // here, and the `catch` below renders zero counts exactly as it did for `main`'s
+    // `TypeError`; a notice instead is #844.
+    const schedItems = await loadCachedScheduleItems(year);
     if (schedItems.length > 0) {
       // Effective resolution via getScopedAliasMap — the same map canonical/live
       // paths use, so draft-board game identity matches.
@@ -102,11 +106,10 @@ export default async function DraftBoardPage({
   let priorYearScoresByKey: Record<string, ScorePack> | undefined;
   try {
     const priorYear = year - 1;
-    const priorSchedRecord = await getAppState<{ items: unknown[] }>(
-      'schedule',
-      `${priorYear}-all-all`
-    );
-    const priorSchedItems = (priorSchedRecord?.value?.items ?? []) as ScheduleWireItem[];
+    // The PRIOR season, read the same way. A non-conforming prior year throws here and is
+    // caught by this block's own `catch`, so last-season records go absent while the page
+    // still renders — the prior year is supplementary, unlike the current one.
+    const priorSchedItems = await loadCachedScheduleItems(priorYear);
     if (priorSchedItems.length > 0) {
       // Same effective resolution as the current year (for prior season record
       // derivation), so identity matches canonical. Reuse the

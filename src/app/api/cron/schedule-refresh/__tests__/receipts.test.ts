@@ -32,6 +32,7 @@ import {
 } from '../../../../../lib/server/__tests__/schedulerReceiptTestHarness.ts';
 import type { ScheduleRefreshCronExecutionEvent } from '../../../../../lib/schedule/cronExecutionLog.ts';
 import { legacyYearOutcome } from '../../../../../test/schedulerYearOutcomeFixtures.ts';
+import { conformingScheduleRow } from '../../../../../test/conformingScheduleRow.ts';
 
 // PLATFORM-086F2E1 — durable execution receipts for the weekly schedule cron.
 // The runtime event, responses, aggregation, and provider semantics stay pinned
@@ -80,7 +81,7 @@ async function seedSchedule(year: number, kickoff: string): Promise<void> {
   await setAppState('schedule', `${year}-all-all`, {
     at: 1,
     items: [
-      {
+      conformingScheduleRow({
         id: `${year}-1`,
         week: 1,
         startDate: '2020-09-01T00:00:00.000Z',
@@ -88,8 +89,8 @@ async function seedSchedule(year: number, kickoff: string): Promise<void> {
         awayTeam: 'Rice',
         status: 'scheduled',
         seasonType: 'regular',
-      },
-      {
+      }),
+      conformingScheduleRow({
         id: `${year}-2`,
         week: 14,
         startDate: kickoff,
@@ -97,7 +98,7 @@ async function seedSchedule(year: number, kickoff: string): Promise<void> {
         awayTeam: 'Michigan',
         status: 'scheduled',
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -373,7 +374,7 @@ test('score repairs, immutable-score differences, and kickoff changes reach the 
   await setAppState('schedule', `${year}-all-all`, {
     at: 1,
     items: [
-      {
+      conformingScheduleRow({
         id: String(year * 10 + 1),
         week: 1,
         startDate: CRITICAL_KICKOFF,
@@ -381,8 +382,8 @@ test('score repairs, immutable-score differences, and kickoff changes reach the 
         awayTeam: 'Rice',
         status: 'scheduled',
         seasonType: 'regular',
-      },
-      {
+      }),
+      conformingScheduleRow({
         id: String(year * 10 + 2),
         week: 2,
         startDate: '2020-12-05T20:00:00.000Z',
@@ -390,7 +391,7 @@ test('score repairs, immutable-score differences, and kickoff changes reach the 
         awayTeam: 'Michigan',
         status: 'scheduled',
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],

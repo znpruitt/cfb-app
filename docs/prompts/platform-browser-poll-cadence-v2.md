@@ -68,6 +68,7 @@ prove the fast cadence is selected for a game that has kicked off and has NO sco
 </critical_implementation_risk>
 
 <completeness_contract>
+
 - Both cadences reachable and asserted, including the just-kicked-off no-score-pack case above.
 - The full eligible partition set is passed on BOTH cadences. Assert the request set is identical to
   `main`'s — this prompt changes only *when*, never *what*.

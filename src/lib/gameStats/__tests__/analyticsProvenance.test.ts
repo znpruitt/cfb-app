@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { assembleArchiveAnalyticsProvenance } from '../analyticsProvenance.ts';
+import {
+  assembleArchiveAnalyticsProvenance,
+  assembleLiveAnalyticsProvenance,
+} from '../analyticsProvenance.ts';
+import {
+  __deleteAppStateFileForTests,
+  __resetAppStateForTests,
+  setAppState,
+} from '../../server/appStateStore.ts';
 import { buildGameStatSlateSnapshot } from '../slateSnapshot.ts';
 import { buildScheduleFromApi } from '../../schedule.ts';
 import type { SeasonArchive } from '../../seasonArchive.ts';
@@ -131,4 +139,35 @@ test('a malformed score ENTRY marks the whole map malformed — never a downstre
     })
   );
   assert.equal(ok.status, 'available');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-813 v4 — live provenance names the ACTUAL cause of an unreadable season.
+// ---------------------------------------------------------------------------
+
+test('a NON-CONFORMING stored season is reported as unreadable, not as a build failure', async () => {
+  // Provenance is the one consumer whose job is naming the cause. The canonical reader
+  // throws `ScheduleRowNonConformanceError`; before v4 this surfaced as `build-failed`,
+  // which sends an operator to the build when the stored row is what is broken.
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  await setAppState('schedule', '2031-all-all', { items: [{ id: 'g1', week: 1 }] });
+  const result = await assembleLiveAnalyticsProvenance({
+    leagueSlug: 'alpha',
+    year: 2031,
+    now: new Date('2031-12-31T00:00:00.000Z'),
+  });
+  assert.deepEqual(result, { status: 'unavailable', reason: 'schedule-cache-unreadable' });
+});
+
+test('an ABSENT season keeps its own distinct reason — the control for the test above', async () => {
+  // Without this, a mapping that reported "unreadable" for every failure would pass.
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  const result = await assembleLiveAnalyticsProvenance({
+    leagueSlug: 'alpha',
+    year: 2031,
+    now: new Date('2031-12-31T00:00:00.000Z'),
+  });
+  assert.deepEqual(result, { status: 'unavailable', reason: 'schedule-cache-unavailable' });
 });

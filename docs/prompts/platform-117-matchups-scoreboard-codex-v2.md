@@ -151,6 +151,7 @@ contradicts `DESIGN.md` on anything beyond the known-stale card-owner section.
 </gate>
 
 <completeness_contract>
+
 - **The owner→team mapping is asserted directly** — a test that fails if the card cannot distinguish
   which participant belongs to the card owner. This is the defect; assert it, do not infer it from
   class names.

@@ -142,6 +142,7 @@ shape, or if the two jobs' fault taxonomies do not actually unify.
 </gate>
 
 <completeness_contract>
+
 - **A multi-year run with ONE failing year names that year and its reason.** The headline; assert it
   directly, with a run spanning at least three years so a single-year fixture cannot pass by accident.
 - **Each of the FIVE upstream classes survives to the durable record**, asserted per class. A test

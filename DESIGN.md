@@ -517,6 +517,19 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   mobile. The Overview disclosure always stacks them and caps the complete highlight list at three,
   after record changes have taken priority, so expansion remains a summary rather than a second
   full recap.
+- **"Live" means BEING PLAYED, so it ends at 8 hours. An owner's game is never dropped; it is
+  relabelled.** Owner ruling 2026-09-22 on
+  [#787](https://github.com/znpruitt/cfb-app/issues/787). The Members live COUNT and the "Live"
+  LABEL use the 8-hour bound (`GAME_MAX_DURATION_MS`), so a scoreless game ten hours past kickoff is
+  no longer called live. **The game stays in the owner's slate**, under "Awaiting result". **Two
+  constants were answering two different questions and the count used the wrong one:** 8 hours is a
+  fact about the world — no football game lasts that long — while 24 hours
+  (`POLLING_WINDOW_AFTER_KICKOFF_MS`) is a fact about our system, that the score pipeline has stopped
+  trying. "Is this being played right now?" is the first; "is a result still expected?" is the
+  second. **Overview and Members do NOT converge here, deliberately:** Overview is a curated feed and
+  may drop an abandoned row, while Members is an owner's slate and must show every game the owner
+  holds. Before this ruling the two disagreed for the 16 hours between the bounds — counted and
+  listed as live on Members, absent from Overview.
 
 ## Containerization
 

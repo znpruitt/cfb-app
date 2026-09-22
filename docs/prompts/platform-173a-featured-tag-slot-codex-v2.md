@@ -128,6 +128,7 @@ STOP and report if passing Featured's tags requires any selector change at all.
 </gate>
 
 <completeness_contract>
+
 - **A Featured game carrying a highlight tag renders it in the status row.** Mutation-prove it.
 - **Featured's badge renders IN the status row with its RENDERED METRICS unchanged** — colour, border,
   fill, typography, padding and line-height. **A class-string assertion does not satisfy this**; the

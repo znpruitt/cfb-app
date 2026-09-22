@@ -96,8 +96,8 @@ extrapolating. Nothing writes a record and no schedule is planner-owned. **This 
 
    **VERIFIED against Upstash's documentation 2026-09-07 — and it supports MORE than the decision
    assumed:**
-   - `POST /v2/schedules/{scheduleId}/pause` and `/resume` exist. A paused schedule _"remains in the
-     system and stays retrievable"_, and pausing an already-paused schedule _"has no effect"_ — so
+   - `POST /v2/schedules/{scheduleId}/pause` and `/resume` exist. A paused schedule *"remains in the
+     system and stays retrievable"*, and pausing an already-paused schedule *"has no effect"* — so
      the daily run is naturally idempotent and needs no read-before-write to avoid double-pausing.
    - **`GET /v2/schedules/{scheduleId}` returns an `isPaused` boolean.** The decision assumed only
      that `inspect` could still FIND a paused schedule. It can do better: it can read whether the
@@ -150,9 +150,9 @@ extrapolating. Nothing writes a record and no schedule is planner-owned. **This 
      diagnosis. On `upsert` it means never retrying the one operation whose outcome is unknown, so a
      single exit 4 wedges it until a human intervenes. **VERIFIED against Upstash's documentation
      2026-09-07 — you do not need to re-derive this, but do not widen it either:** the create
-     endpoint (`POST /v2/schedules/{destination}`) states of `Upstash-Schedule-Id` that _"if a
+     endpoint (`POST /v2/schedules/{destination}`) states of `Upstash-Schedule-Id` that *"if a
      schedule with the provided ID exists, the settings of the existing schedule will be updated with
-     the new settings."_ Re-issuing is an update, not a duplicate. A per-action divergence in how one
+     the new settings."* Re-issuing is an update, not a duplicate. A per-action divergence in how one
      refusal reason is treated must be explicit in the code, not implicit in a call order.
 
 4. **`QSTASH_TOKEN` into the Vercel environment — collision 3.** **Check first whether QStash offers a
@@ -200,8 +200,8 @@ extrapolating. Nothing writes a record and no schedule is planner-owned. **This 
    **Slice 3b's final review filed exactly this**, and it named the target: **`PanelStatus` already
    has `gray`.** Its argument is the one that matters — the row renders a yellow dot while the page
    reads healthy and the issues list is EMPTY, arriving on cutover morning on a shape `slowHoursFor`
-   emits routinely. _"A dashboard that renders yellow for routine states teaches operators to ignore
-   yellow, which is worse than the false `late` this whole item exists to prevent."_
+   emits routinely. *"A dashboard that renders yellow for routine states teaches operators to ignore
+   yellow, which is worse than the false `late` this whole item exists to prevent."*
 
    **The owner's word was "green"; `gray` may serve the decision better** — the ruling was that a
    healthy idle job must not read as a fault, not that it must be the same green as a measured on-time
@@ -214,8 +214,8 @@ extrapolating. Nothing writes a record and no schedule is planner-owned. **This 
 
 ## Carried forward from slice 3b — READ THIS, it is most of the risk
 
-Slice 3b filed **seven follow-ups**, all recorded on Item 102 and all classified _ordinary, not
-blocking_ **at the time**. That classification was made against a `main` where **nothing writes a
+Slice 3b filed **seven follow-ups**, all recorded on Item 102 and all classified *ordinary, not
+blocking* **at the time**. That classification was made against a `main` where **nothing writes a
 planner record**. You are the slice that makes records exist, so several of them stop being
 theoretical the moment this ships. Judge each against the world AFTER your cutover, not the world
 that filed it.
@@ -291,6 +291,7 @@ primary documentation saying otherwise**, in which case stop and report rather t
 </gate>
 
 <completeness_contract>
+
 - **The three schedule states are each asserted end to end** — games today, tail only, nothing at all —
   against what is actually sent to QStash, with the request builder exercised rather than mocked away.
 - **Pause is proven not to be delete.** After a pause, `inspect` still finds the schedule and still
@@ -340,8 +341,8 @@ planner matches those, and if not why.
 **Report October separately from the annual figure, and do not lead with the annual one.** The
 annual saving is ~87%; October is ~60%, because the 24-hour tail means one Saturday game arms all of
 Sunday (74% of October hours armed, against 17% for the year). October is the binding month — the
-Hobby allowance is monthly. Item 102's entry is explicit that this is built _"for the ~83% annual
-saving and the manual pause it retires — not as the fix for in-season pressure."_ A report quoting
+Hobby allowance is monthly. Item 102's entry is explicit that this is built *"for the ~83% annual
+saving and the manual pause it retires — not as the fix for in-season pressure."* A report quoting
 only the annual number would overstate what an operator sees in October.
 
 **The pause-on-dead-day rule should improve on 63.2.** Slice 2's figure predates it. Report the

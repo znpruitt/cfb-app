@@ -1,0 +1,38 @@
+// Shared markdownlint rules for the whole repository.
+// Lifted out of `.markdownlint-cli2.jsonc` 2026-09-22 so that `docs/prompts/`
+// can disable ONE rule by extending these rather than restating them: a
+// directory config REPLACES its parent, and a second copy of this block would
+// drift the moment either changed (#842).
+{
+
+    "default": true,
+
+    // Line length is capped at 1000 characters — not a style preference, a
+    // readability floor. AGENTS.md:148 reached 17,005 characters carrying the
+    // whole provider-refresh scope contract, and it was still growing: the
+    // week-reconciliation description was appended to a 16,000-character line
+    // without anyone noticing (#705). The limit is deliberately generous so
+    // ordinary long prose lines stay legal; it exists to stop the pathological
+    // case becoming unreviewable. Tables and code blocks are exempt because
+    // wrapping either changes what they mean.
+    "MD013": {
+      "line_length": 1000,
+      "tables": false,
+      "code_blocks": false,
+      "headings": false
+    },
+
+    // Allow duplicate headings under different parent sections.
+    "MD024": {
+      "siblings_only": true
+    },
+
+    // Permit files that begin with PROMPT_ID or other required preambles.
+    "MD041": false,
+
+    // Defer repository-wide table formatting.
+    "MD060": false,
+
+    // Standalone bold labels are used intentionally in some project docs.
+    "MD036": false
+}

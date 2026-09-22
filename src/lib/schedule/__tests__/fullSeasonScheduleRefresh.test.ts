@@ -27,6 +27,7 @@ import {
 import type { CacheEntry } from '../../../app/api/schedule/cache.ts';
 import type { CacheEntry as ScoreCacheEntry } from '../../scores/cache.ts';
 import { EMPTY_FINAL_SCORE_SWEEP_RESULT } from '../finalScoreSweep.ts';
+import { conformingScheduleRow } from '../../../test/conformingScheduleRow.ts';
 
 const YEAR = 2031;
 const T0 = Date.parse('2031-08-01T12:00:00.000Z');
@@ -165,7 +166,15 @@ test('regular and postseason success commits one complete aggregate', async () =
 test('a thrown partition preserves prior-good and records failure', async () => {
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: T0 - 100_000,
-    items: [{ id: 'prior', week: 1, homeTeam: 'Texas', awayTeam: 'Rice', status: 'scheduled' }],
+    items: [
+      conformingScheduleRow({
+        id: 'prior',
+        week: 1,
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'scheduled',
+      }),
+    ],
     partialFailure: false,
     failedSeasonTypes: [],
   });
@@ -192,7 +201,15 @@ test('a thrown partition preserves prior-good and records failure', async () => 
 test('a non-array partition is invalid payload and preserves prior-good', async () => {
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: T0 - 100_000,
-    items: [{ id: 'prior', week: 1, homeTeam: 'Texas', awayTeam: 'Rice', status: 'scheduled' }],
+    items: [
+      conformingScheduleRow({
+        id: 'prior',
+        week: 1,
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'scheduled',
+      }),
+    ],
     partialFailure: false,
     failedSeasonTypes: [],
   });
@@ -245,7 +262,15 @@ test('an empty postseason partition plus a valid regular season commits (valid a
 test('an all-empty result over populated prior-good is rejected', async () => {
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: T0 - 100_000,
-    items: [{ id: 'prior', week: 1, homeTeam: 'Texas', awayTeam: 'Rice', status: 'scheduled' }],
+    items: [
+      conformingScheduleRow({
+        id: 'prior',
+        week: 1,
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'scheduled',
+      }),
+    ],
     partialFailure: false,
     failedSeasonTypes: [],
   });
@@ -279,7 +304,15 @@ test('an older observation cannot overwrite newer durable state', async () => {
   // Prior durable observed AFTER this refresh's `now`.
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: T0 + 100_000,
-    items: [{ id: 'newer', week: 1, homeTeam: 'Texas', awayTeam: 'Rice', status: 'scheduled' }],
+    items: [
+      conformingScheduleRow({
+        id: 'newer',
+        week: 1,
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'scheduled',
+      }),
+    ],
     partialFailure: false,
     failedSeasonTypes: [],
   });
@@ -296,7 +329,15 @@ test('an older observation cannot overwrite newer durable state', async () => {
 test('an equal observation preserves the prior winner', async () => {
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: T0,
-    items: [{ id: 'prior', week: 1, homeTeam: 'Texas', awayTeam: 'Rice', status: 'scheduled' }],
+    items: [
+      conformingScheduleRow({
+        id: 'prior',
+        week: 1,
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'scheduled',
+      }),
+    ],
     partialFailure: false,
     failedSeasonTypes: [],
   });
@@ -635,7 +676,7 @@ test('a changed kickoff is counted by game identity without persisting score fie
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: T0 - 60_000,
     items: [
-      {
+      conformingScheduleRow({
         id: '301',
         week: 5,
         startDate: '2031-09-25T23:00:00Z',
@@ -643,7 +684,7 @@ test('a changed kickoff is counted by game identity without persisting score fie
         awayTeam: 'Rice',
         status: 'scheduled',
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -663,7 +704,7 @@ test('a transaction-fresh aggregate wins over distinguishable partition fallback
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: T0 - 60_000,
     items: [
-      {
+      conformingScheduleRow({
         id: '601',
         week: 5,
         startDate: '2031-09-25T23:00:00Z',
@@ -671,14 +712,16 @@ test('a transaction-fresh aggregate wins over distinguishable partition fallback
         awayTeam: 'Rice',
         status: 'scheduled',
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
   });
   await setAppState('schedule', `${YEAR}-all-regular`, {
     at: T0 - 30_000,
-    items: [{ id: '701', week: 5, homeTeam: 'Georgia', awayTeam: 'Florida' }],
+    items: [
+      conformingScheduleRow({ id: '701', week: 5, homeTeam: 'Georgia', awayTeam: 'Florida' }),
+    ],
   });
   await setAppState('schedule', `${YEAR}-all-postseason`, {
     at: T0 - 30_000,
@@ -706,7 +749,7 @@ test('partition-only prior is logged on first aggregate commit even when its at 
   await setAppState('schedule', `${YEAR}-all-regular`, {
     at: T0 + 3_600_000,
     items: [
-      {
+      conformingScheduleRow({
         id: '701',
         week: 5,
         startDate: '2031-09-25T23:00:00Z',
@@ -714,7 +757,7 @@ test('partition-only prior is logged on first aggregate commit even when its at 
         awayTeam: 'Rice',
         status: 'scheduled',
         seasonType: 'regular',
-      },
+      }),
     ],
   });
   await setAppState('schedule', `${YEAR}-all-postseason`, {
@@ -743,7 +786,7 @@ test('partition fallback is observability-only and does not redefine the kickoff
   await setAppState('schedule', `${YEAR}-all-regular`, {
     at: T0 - 60_000,
     items: [
-      {
+      conformingScheduleRow({
         id: '731',
         week: 5,
         startDate: '2031-09-25T23:00:00Z',
@@ -751,7 +794,7 @@ test('partition fallback is observability-only and does not redefine the kickoff
         awayTeam: 'Rice',
         status: 'scheduled',
         seasonType: 'regular',
-      },
+      }),
     ],
   });
   await setAppState('schedule', `${YEAR}-all-postseason`, { at: T0 - 60_000, items: [] });
@@ -766,7 +809,7 @@ test('same-id kickoff rewrites stay silent with a later numeric-id disappearance
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: T0 - 60_000,
     items: [
-      {
+      conformingScheduleRow({
         id: '741',
         week: 5,
         startDate: '2031-09-25T23:00:00Z',
@@ -774,7 +817,7 @@ test('same-id kickoff rewrites stay silent with a later numeric-id disappearance
         awayTeam: 'Rice',
         status: 'scheduled',
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -815,14 +858,14 @@ test('an empty aggregate falls back to the partition snapshot', async () => {
   await setAppState('schedule', `${YEAR}-all-regular`, {
     at: T0 - 30_000,
     items: [
-      {
+      conformingScheduleRow({
         id: '711',
         week: 5,
         startDate: '2031-09-25T23:00:00Z',
         homeTeam: 'Texas',
         awayTeam: 'Rice',
         seasonType: 'regular',
-      },
+      }),
     ],
   });
   await setAppState('schedule', `${YEAR}-all-postseason`, { at: T0 - 30_000, items: [] });
@@ -846,14 +889,14 @@ test('a child written after the pre-provider snapshot is not reported as vanishe
   await setAppState('schedule', `${positiveYear}-all-regular`, {
     at: T0 - 60_000,
     items: [
-      {
+      conformingScheduleRow({
         id: '761',
         week: 5,
         startDate: '2031-09-25T23:00:00Z',
         homeTeam: 'Texas',
         awayTeam: 'Rice',
         seasonType: 'regular',
-      },
+      }),
     ],
   });
   await setAppState('schedule', `${positiveYear}-all-postseason`, {
@@ -869,7 +912,7 @@ test('a child written after the pre-provider snapshot is not reported as vanishe
       }
       await setAppState('schedule', `${YEAR}-all-regular`, {
         at: T0 + 1_000,
-        items: [{ id: '751', week: 5, homeTeam: 'Texas', awayTeam: 'Rice' }],
+        items: [conformingScheduleRow({ id: '751', week: 5, homeTeam: 'Texas', awayTeam: 'Rice' })],
       });
       return new Response(game(5, 'Ohio State', 'Michigan', '2031-09-25T23:00:00Z', 752), {
         status: 200,
@@ -903,14 +946,14 @@ test('non-written aggregate outcomes emit nothing with a written path positive c
     await setAppState('schedule', `${year}-all-all`, {
       at,
       items: [
-        {
+        conformingScheduleRow({
           id: String(id),
           week: 5,
           startDate: '2031-09-25T23:00:00Z',
           homeTeam: 'Texas',
           awayTeam: 'Rice',
           seasonType: 'regular',
-        },
+        }),
       ],
       partialFailure: false,
       failedSeasonTypes: [],
@@ -958,14 +1001,14 @@ test('partition failure and empty response stay silent until a written fallback 
   await setAppState('schedule', `${YEAR}-all-regular`, {
     at: T0 - 60_000,
     items: [
-      {
+      conformingScheduleRow({
         id: '821',
         week: 5,
         startDate: '2031-09-25T23:00:00Z',
         homeTeam: 'Texas',
         awayTeam: 'Rice',
         seasonType: 'regular',
-      },
+      }),
     ],
   });
   await setAppState('schedule', `${YEAR}-all-postseason`, { at: T0 - 60_000, items: [] });
@@ -999,14 +1042,14 @@ test('a failed durable commit emits nothing before a later written positive cont
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: T0 - 60_000,
     items: [
-      {
+      conformingScheduleRow({
         id: '831',
         week: 5,
         startDate: '2031-09-25T23:00:00Z',
         homeTeam: 'Texas',
         awayTeam: 'Rice',
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -1038,10 +1081,13 @@ test('a malformed prior kickoff cannot abort or roll back the schedule commit', 
     at: T0 - 60_000,
     items: [
       {
+        // DELIBERATELY malformed, and NOT completed through the builder: this test is about
+        // a prior the producer contract says cannot exist. PLATFORM-813 v4 round 2 changed
+        // what that means for the commit — such a prior now counts as NO prior — but the
+        // intent is unchanged and still asserted below: the commit proceeds and writes,
+        // rather than aborting or rolling back on bad prior data.
         id: '401',
         week: 6,
-        // Deliberately missing startDate: durable JSON is untrusted even though
-        // the TypeScript producer contract requires this field.
         homeTeam: 'Texas',
         awayTeam: 'Rice',
         status: 'scheduled',

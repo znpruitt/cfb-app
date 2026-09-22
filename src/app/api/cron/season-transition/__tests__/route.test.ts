@@ -18,6 +18,7 @@ import {
 } from '../../../../../lib/server/appStateStore.ts';
 import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
 import { yearScope } from '../../../../../lib/providerRefreshScope.ts';
+import { conformingScheduleRow } from '../../../../../test/conformingScheduleRow.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-071 — cron season-transition must invalidate standings for each
@@ -185,7 +186,7 @@ test('an empty cron probe OVER a populated prior-good schedule is rejected, not 
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: 1,
     items: [
-      {
+      conformingScheduleRow({
         id: 'prior',
         week: 1,
         startDate: '2023-08-26T00:00:00.000Z',
@@ -193,7 +194,7 @@ test('an empty cron probe OVER a populated prior-good schedule is rejected, not 
         awayTeam: 'Rice',
         status: 'scheduled',
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -240,7 +241,7 @@ test('a prior-cache read failure while classifying an empty probe resolves the a
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: 1,
     items: [
-      {
+      conformingScheduleRow({
         id: 'prior',
         week: 1,
         startDate: '2023-08-26T00:00:00.000Z',
@@ -248,7 +249,7 @@ test('a prior-cache read failure while classifying an empty probe resolves the a
         awayTeam: 'Rice',
         status: 'scheduled',
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -393,7 +394,7 @@ test('a partial transition fetch retains prior-good durable schedule', async () 
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: 1,
     items: [
-      {
+      conformingScheduleRow({
         id: 'prior',
         week: 1,
         startDate: '2099-09-01T00:00:00.000Z',
@@ -401,7 +402,7 @@ test('a partial transition fetch retains prior-good durable schedule', async () 
         awayTeam: 'Rice',
         status: 'scheduled',
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -887,7 +888,7 @@ test('non-qualifying season-transition paths never invoke presentation', async (
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: Date.now() + 1_000_000_000,
     items: [
-      {
+      conformingScheduleRow({
         id: String(YEAR * 10 + 1),
         week: 1,
         startDate: '2023-08-26T00:00:00.000Z',
@@ -897,7 +898,7 @@ test('non-qualifying season-transition paths never invoke presentation', async (
         awayConference: 'American',
         status: 'scheduled',
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
