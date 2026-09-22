@@ -7,8 +7,9 @@ PURPOSE: v2's boundary coercion is right and stays. Its REPORTING is wrong: it i
          into a silent discard in the durable path. Delete the parallel channel, read the existing
          one, and cover the consumer that bypasses the boundary entirely.
 SCOPE:   src/lib/server/canonicalScheduleCache.ts, src/lib/seasonBuild.ts,
-         src/app/league/[slug]/draft/board/boardData.ts (the bypass), the durable writers the
-         receipt identifies, and their tests. DO NOT re-litigate WHERE validation happens — the
+         src/app/league/[slug]/draft/board/boardData.ts and src/app/league/[slug]/draft/page.tsx
+         (the row-consuming bypasses, ruled in scope 2026-09-21), the durable writers the receipt
+         identifies, and their tests. DO NOT re-litigate WHERE validation happens — the
          boundary is settled and uncontested by both reviewers across two rounds. DO NOT change the
          aggregate-only contract, AGENTS.md or DESIGN.md (planning owns both; report what your diff
          falsifies).
@@ -76,12 +77,56 @@ directly** and feeds the raw items into `buildScheduleFromApi` at `:26`, bypassi
 `loadCachedScheduleItems` entirely. It is the spectator **draft board** — member-facing, and a
 corrupted row renders a wrong board during a live draft.
 
-**Owner decision 2026-09-21: it moves onto the canonical reader.** One read changes; the boundary
-then covers 14 of 14. This touches a draft surface, so state in the receipt what else that file's
-behaviour depends on before changing it — `:7-14`'s comment explains why it reads the way it does
-and whether that reason survives is receipt item 4.
+**Owner decision 2026-09-21: it moves onto the canonical reader.** This touches a draft surface, so
+state in the receipt what else that file's behaviour depends on before changing it — `:7-14`'s
+comment explains why it reads the way it does, and the v3 receipt established that the reason is
+about ALIAS RESOLUTION, not about the read, so it survives the move. **Two behaviours do change: the
+partition-pair fallback becomes available to the board, and "returns `[]` when no schedule is
+cached" becomes conditional.** Both belong in the closeout.
 
-`scheduleDisappearanceBaseline.ts:53-54` stays out, as in v2 — it bypasses deliberately and says why.
+**This paragraph originally said the boundary would then cover "14 of 14". It does not — see the
+ruling below.**
+
+`scheduleDisappearanceBaseline.ts` stays out, as in v2 — it bypasses deliberately and says why at
+`:28-45` (the prompt previously cited `:53-54`, which are the partition reads, not the justification).
+
+**RULED 2026-09-21 from the v3 receipt — and "14 of 14" was wrong, which is the SECOND premise error
+in this prompt family. Both were mine, and both were a count of what I had looked at presented as a
+count of what exists.**
+
+1. **`draft/page.tsx:69` and `:105` are IN SCOPE.** Both read the durable key directly and feed
+   `resolveDraftScheduleGames`, so they are row consumers on the **same member-facing draft surface**
+   as `boardData`. Fixing the board and leaving the page beside it is fixing one instance of a class,
+   which is precisely what failed in v1 and again in v2. **`:105` reads `year - 1`, so the fix covers
+   two years** — state what an unreadable prior season does to the page.
+2. **`providerDataDiagnostics:391`/`:483` are FILED, not fixed, and the reason is a real design
+   question rather than scope management.** That module exists to REPORT on provider data health. A
+   diagnostic reading through a sanitizing boundary may hide the very corruption it was built to
+   surface. Decide it on its own terms, with its own measurement; do not fold it in here.
+3. **Do not restate a coverage count you have not enumerated.** The closeout states the final
+   enumeration with its own derivation. Planning has now published a wrong one twice in this family
+   ("13 consumers, validating once covers all", then "14 of 14"), both times by counting the reads
+   in hand rather than the reads that exist.
+
+**Per-writer dispositions, ruled:**
+
+- **Archive — REFUSE**, as the receipt proposes. The cron's existing `catch` records a per-league
+  error and skips the write, the loop continues, and the archive has nowhere to carry "except the
+  ones we dropped". No new plumbing.
+- **`leagueStandings` — REFUSE, by propagating.** Invariant 8 is binding and `revalidate: false` is
+  exactly its subject: a swallowed error caches a lie that persists until a tag bust, while a
+  propagated one is never persisted and the next request recomputes. **The decisive practical point
+  is that this state is unreachable in production**, so strictness costs approximately nothing and
+  silence costs correctness permanently. **If the standings surface has no shaped error state, stop
+  and report before building one** — that is UI work under `DESIGN.md`, which planning owns.
+- **Recap and `analyticsProvenance` — RECORD, do not refuse**, as proposed.
+- **Draft board and draft page — PROPAGATE.** An empty board with no notice asserts "no games",
+  which is false and is the collapse this slice exists to remove. A notice is a better answer and it
+  is `DESIGN.md` UI work on a draft surface; it is filed, not built here.
+
+**`/api/schedule` — shaped 503**, matching `route.ts:360`. An opaque Next 500 with no body is
+inconsistent with every other failure this route returns and tells a caller nothing about whether to
+retry.
 
 ## Acceptance
 
