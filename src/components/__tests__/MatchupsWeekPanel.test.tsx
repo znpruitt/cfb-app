@@ -1102,7 +1102,7 @@ test('the final scoreboard in each owner game list drops its trailing divider', 
 
   const laneCard = ownerCardMarkup(html, 'Lane');
   assert.match(laneCard, /<ul[^>]*border-b-0[^>]*>/);
-  assert.match(scoreboardMarkup(laneCard, 'Iowa @ Nebraska'), /class="border-b py-3/);
+  assert.match(scoreboardMarkup(laneCard, 'Iowa @ Nebraska'), /class="[^"]*border-b py-3/);
 });
 
 test('every rendered eyebrow tag uses the settled bronze hairline treatment with no fill', () => {

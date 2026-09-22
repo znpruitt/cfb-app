@@ -807,11 +807,11 @@ test('overview scoreboards keep current records across scheduled, live, and fina
   );
   assert.match(
     html,
-    /data-scoreboard-state="live"[\s\S]*data-scoreboard-team="away">Georgia<\/span><span[^>]*data-scoreboard-record="away">\(2–0\)<\/span><span[^>]*data-scoreboard-owner="away">Alice<\/span>[\s\S]*data-scoreboard-value-kind="score" data-scoreboard-value="away">7<\//
+    /data-scoreboard-state="live"[\s\S]*?data-scoreboard-team="away">Georgia<\/span>[\s\S]*?data-scoreboard-record="away">\(2–0\)<\/span><span[^>]*data-scoreboard-owner="away">Alice<\/span>[\s\S]*?data-scoreboard-value-kind="score" data-scoreboard-value="away">7<\//
   );
   assert.match(
     html,
-    /data-scoreboard-state="final"[\s\S]*data-scoreboard-team="away">Texas<\/span><span[^>]*data-scoreboard-record="away">\(3–0\)<\/span><span[^>]*data-scoreboard-owner="away">Alice<\/span>[\s\S]*data-scoreboard-value-kind="score" data-scoreboard-value="away">31<\//
+    /data-scoreboard-state="final"[\s\S]*?data-scoreboard-team="away">Texas<\/span>[\s\S]*?data-scoreboard-record="away">\(3–0\)<\/span><span[^>]*data-scoreboard-owner="away">Alice<\/span>[\s\S]*?data-scoreboard-value-kind="score" data-scoreboard-value="away">31<\//
   );
   assert.equal(
     (html.match(/data-scoreboard-team-logo=/g) ?? []).length,

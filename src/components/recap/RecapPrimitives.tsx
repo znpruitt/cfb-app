@@ -4,6 +4,9 @@ import type {
   WeeklyRecapRecordChangeLine,
   WeeklyRecapTileHighlight,
 } from '@/lib/recap/composeWeeklyRecap';
+import { getTeamAbbreviation } from '@/lib/teamAbbreviations';
+
+import ScoreboardTeamName from '../ScoreboardTeamName';
 
 type RecapHeaderProps = Pick<AvailableWeeklyRecapViewModel, 'headline' | 'weekLabel'> & {
   headingId: string;
@@ -284,23 +287,32 @@ function GameScoreboard({
   const side = (
     entry: WeeklyRecapGameLine['winner'] | WeeklyRecapGameLine['loser'],
     winner: boolean
-  ): React.ReactElement => (
-    <div
-      className={`flex items-baseline justify-between gap-3 py-px ${
-        compact ? 'text-[13.5px]' : 'text-sm'
-      } ${winner ? 'font-medium text-zinc-100' : 'text-zinc-400'}`}
-    >
-      <span className="flex min-w-0 items-baseline gap-2">
-        <span className={`truncate ${winner ? '' : 'text-zinc-400'}`}>{entry.team}</span>
-        {entry.owner ? (
-          <span className="shrink-0 text-[12.5px] font-normal text-zinc-400">{entry.owner}</span>
-        ) : null}
-      </span>
-      <span className={`shrink-0 tabular-nums ${winner ? 'font-semibold' : ''}`}>
-        {entry.score}
-      </span>
-    </div>
-  );
+  ): React.ReactElement => {
+    const teamAbbreviation = getTeamAbbreviation(entry.team);
+    return (
+      <div
+        className={`flex items-baseline justify-between gap-3 py-px ${
+          compact ? 'text-[13.5px]' : 'text-sm'
+        } ${winner ? 'font-medium text-zinc-100' : 'text-zinc-400'}`}
+      >
+        <span className="flex min-w-0 flex-1 items-baseline gap-2">
+          <ScoreboardTeamName
+            abbreviation={teamAbbreviation}
+            marker={winner ? 'winner' : 'loser'}
+            teamName={entry.team}
+          />
+          {entry.owner ? (
+            <span className="min-w-0 truncate text-[12.5px] font-normal text-zinc-400">
+              {entry.owner}
+            </span>
+          ) : null}
+        </span>
+        <span className={`shrink-0 tabular-nums ${winner ? 'font-semibold' : ''}`}>
+          {entry.score}
+        </span>
+      </div>
+    );
+  };
 
   return (
     <article className={compact ? 'py-2' : 'py-2.5'}>

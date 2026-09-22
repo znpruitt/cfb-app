@@ -770,8 +770,8 @@ test('rankings render when lookup keys use canonical team ids instead of canonic
     />
   );
 
-  assert.match(html, />#12<\/span>[^<]*<span[^>]*>[^<]*<span data-scoreboard-team="away">Ole Miss/);
-  assert.match(html, />#3<\/span>[^<]*<span[^>]*>[^<]*<span data-scoreboard-team="home">Texas/);
+  assert.match(html, />#12<\/span>[\s\S]*?data-scoreboard-team="away">Ole Miss/);
+  assert.match(html, />#3<\/span>[\s\S]*?data-scoreboard-team="home">Texas/);
 });
 
 test('shared scoreboard renders team rows, rankings, scores, and final status', () => {

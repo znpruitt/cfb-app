@@ -121,6 +121,49 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-832-ABBREVIATION-FALLBACK-CODEX-v2
+
+- Purpose: consume the [#831](https://github.com/znpruitt/cfb-app/issues/831) lookup in
+  [#832](https://github.com/znpruitt/cfb-app/issues/832) without ever truncating a team name.
+- Scope: compact scoreboard and recap renderers share one measured label; no lookup/artifact,
+  selector, column-tier, or constant changes. Server markup starts abbreviated; hydrated clients
+  upgrade to a fitting full name. The accessible full name stays unchanged; no-JS stays abbreviated.
+- Outcome: the visual variant alone occupies layout flow, the name box sizes from the row after
+  suffix reservation, and the parts give way in the owner-ruled order (`DESIGN.md`, "the whole
+  priority order"): the FULL team name gives way first, so a tight line reads `SEMO (3-1) Pruitt`
+  with the owner whole; the owner truncates next, and only when the abbreviation, record and full
+  owner cannot all fit; the abbreviation and record never give way. Measured floor:
+  219px viewport for the ranked-final fixture; below it, record clipping is accepted per
+  `DESIGN.md`, not open work. Null-lookup names wrap. The lookup adds about 32 KB raw / 8 KB gzip
+  to a client chunk used by six league routes; owner accepted this cost.
+- Review / verification: round 5 reviewed `3187d7ef` against `488aec0b0ffe`:
+  `/code-review` found only the accepted below-floor LOW; Codex found no actionable production
+  issue, exited 0, and its banner/target and 24 of 26 `git diff` lines named that base (two
+  lines truncated before the hash). Hydrated controls proved owner priority and single-line
+  abbreviation. A final overlap assertion measures name and score edges at 390px card, 272px
+  viewport, and the 219px floor; a deliberate 170px name floor made it fail at 272px
+  (246.234px name right > 228.813px score left), then the reviewed layout passed.
+  **Run of record, on the closeout commit `f14e169a`:** browser 7/7, components 718/718, full suite
+  5,482/5,482, and lint, TypeScript, build and diff check all exited 0. A default-sandbox component
+  run failed seven browser-capability cases; the authorized rerun passed. That was the environment,
+  not the code. **The merged tree matches the gated `0508c6c6` tree** (`bb23a341`).
+- Status: **MERGED `a1d0f3e9` ([PR #850](https://github.com/znpruitt/cfb-app/pull/850)) 2026-09-22;
+  #832 closed. **LIVE 2026-09-22** as `dpl_4eZ4C9b29fJTVMCQgPLkxugdagsU`, verified from the live league bundle: `data-scoreboard-team-accessible`, `"SEMO"` and `Southeast Missouri State` present, all three absent before promotion, and the bundle up ~35 KB against the measured ~32 KB lookup cost.** Post-merge flip by planning, which also added the
+  normal-width half of the priority order and the run of record above, both missing from the
+  pre-merge closeout.
+
+### PLATFORM-832-ABBREVIATION-FALLBACK-CODEX-v1
+
+- Purpose: first consumer design for [#832](https://github.com/znpruitt/cfb-app/issues/832).
+- Scope: breakpoint-based substitution across the compact scoreboard and recap.
+- Outcome: withdrawn. Three measurement rounds exposed predicates that described narrower
+  populations than their claims: row overflow, a name box retaining suffix width, and assumed
+  font metrics. The shipped system font varies by viewer, so a server threshold cannot enforce
+  the no-truncation rule.
+- Review / verification: review of `e4493121` found early/late swaps and a wider `IOWA`
+  substitution; the subsequent measured iteration still let suffixes collapse to zero width.
+- Status: Superseded/unimplemented by `PLATFORM-832-ABBREVIATION-FALLBACK-CODEX-v2`.
+
 ### PLATFORM-833-813-794-TRUST-CLEANUP-CLAUDE-v1
 
 - Purpose: three bounded cleanups sharing one root — a reader consuming a value it never validated, or

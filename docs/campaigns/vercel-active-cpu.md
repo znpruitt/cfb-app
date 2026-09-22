@@ -9,11 +9,41 @@ resumes the dense jobs itself. The 2026-09-08 audit observed it planning Septemb
 schedules, zero failures, both dense jobs intentionally paused for an empty window and both slow jobs
 active.
 
-**The savings figures in this document remain PROJECTIONS.** No invoice or billing record has been
+**SUPERSEDED 2026-09-22: the savings are now MEASURED. See "MEASURED 2026-09-22" below, which also shows these projections were about 3× too optimistic.** The paragraph that follows is kept as the record of what was claimed before measurement. **The savings figures in this document remain PROJECTIONS.** No invoice or billing record has been
 compared against them, and historical Vercel CPU queries for September 1-8 were rejected with
 `payment_required` (Observability Plus required). **Do not cite them as realized savings** — obtaining
 actual cost evidence is a standing validation gate in
 [`docs/next-tasks.md`](../next-tasks.md) → the audit-first dispatch order.
+
+**MEASURED 2026-09-22 — the savings are now realized, not projected, and the planner alone fits Hobby.**
+This discharges the "obtain actual cost evidence" gate above. Figures read by the owner from the
+Vercel usage dashboard and the Neon console, and cross-checked by planning.
+
+- **Vercel Active CPU, steady state.** Daily usage for the 11 complete planner-era days (09-11 to
+  09-21, two Saturdays) totals **75 minutes, or 6.8 min/day, about 3h25m per 30 days** against the
+  4h Hobby allowance (8 min/day sustainable). Reweighted to a normal month's mix of Saturdays, it is
+  **about 3h13m to 3h20m.** Saturdays run about 14–15 min, other game days 6–9, quiet days 3–5. The
+  rolling total of **5h19m on 09-22 is August still in the window**, and it should settle near the
+  steady state once August ages out. The daily bars were read from the dashboard chart, so allow a
+  minute or so per day either way.
+- **This document's projections were about 3× too optimistic. Use the measurement instead.** #604
+  cites the planner as bringing usage to "~1.1 h/30d," leaving about 2.9h of headroom. The measured
+  headroom is **about 35–45 minutes, roughly 15%.**
+- **Neon compute** fell from 373.7 CU-h in August ($39.61, 12.1/day) to 64.1 CU-h over September's
+  first 22 days (2.9/day, a pace of about $10/month). **There are two causes, not one.** The
+  read-only replica was set to *never* suspend until 2026-08-31, costing about $19/month idle
+  (`deployment-runbook.md:252`), roughly half of August. The rest is windowed polling: paused by
+  hand per game window from 09-01, then by the planner from about 09-11.
+- **CFBD quota is not binding:** 675 of 5,000 used on 09-22, projected at about 19% for the month
+  (#655).
+
+**The per-run optimization (skipping the full-season rebuild when nothing changed) is now an
+opportunity, not an emergency.** **Trigger to act:** the planner-era daily Active CPU average stays
+above about **8 min/day across any 7–14 day stretch**. The daily bars show that well before the
+rolling total catches up. **Risks to the ~15% headroom:** November weeknight games (more game days),
+conference championship week and the bowl season, and Insights traffic (about 3.3s per request at
+last measurement). **Do not spend the headroom on a faster live-score cadence without re-measuring;**
+see #604.
 
 **Owner decision, revised 2026-09-02 after the complete reader audit:** remediate with an
 FBS-relevance filter at the live-score and game-stats canonical builds (Item 99) plus a
