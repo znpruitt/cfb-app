@@ -574,7 +574,7 @@ test('every scoreboard state joins both tinted rows without overlap or separatio
   }
 });
 
-test('live scoreboard keeps its header and long team-owner identities on one clipped line', () => {
+test('live scoreboard clips metadata and owner suffixes while wrapping the team name in its own box', () => {
   const html = renderScoreboard({
     clock: 'Q4 10:59',
     away: {
@@ -590,12 +590,17 @@ test('live scoreboard keeps its header and long team-owner identities on one cli
     html,
     /overflow-hidden whitespace-nowrap text-xs dark:text-zinc-400" data-scoreboard-header/
   );
-  assert.match(html, /flex min-w-0 items-baseline gap-1\.5 overflow-hidden whitespace-nowrap/);
   assert.match(html, /title="CFP rank #24"/);
-  assert.match(
-    html,
-    /class="min-w-0 truncate"><span data-scoreboard-team="away">Middle Tennessee State University/
-  );
+  const document = new JSDOM(html).window.document;
+  const name = document.querySelector('[data-scoreboard-team="away"]');
+  const suffix = document.querySelector('[data-scoreboard-suffix="away"]');
+  assert.ok(name && suffix);
+  assert.match(name.className, /overflow-hidden/);
+  assert.match(name.className, /whitespace-normal break-words/);
+  assert.doesNotMatch(name.className, /truncate/);
+  assert.match(suffix.className, /truncate/);
+  assert.equal(name.parentElement, suffix.parentElement);
+  assert.equal(name.contains(suffix), false);
 });
 
 test('overflowing status rows keep equal structure and preserve the fixed tag edge', () => {

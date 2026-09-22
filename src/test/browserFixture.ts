@@ -25,6 +25,7 @@ type BrowserTestContext = {
 
 export type BrowserFixturePage = {
   evaluate: <T>(expression: string) => Promise<T>;
+  setViewport: (width: number, height: number) => Promise<void>;
 };
 
 type BrowserFixtureOptions = {
@@ -125,6 +126,15 @@ class CdpClient implements BrowserFixturePage {
       throw new Error('Browser evaluation returned no serializable value');
     }
     return response.result.value as T;
+  }
+
+  async setViewport(width: number, height: number): Promise<void> {
+    await this.command('Emulation.setDeviceMetricsOverride', {
+      width,
+      height,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
   }
 
   close(): void {

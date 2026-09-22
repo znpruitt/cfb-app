@@ -46,6 +46,10 @@ type LayoutMeasurement = {
   cardRects: Array<{ left: number; top: number; width: number }>;
   firstRowInterCardGap: number | null;
   stressLabelClipped: boolean;
+  stressNameWrapped: boolean;
+  stressVisibleText: string;
+  stressVisibleVisibility: string;
+  stressProbeVisibility: string;
   stressLabelWidth: number;
   stressLabelContentWidth: number;
   stressLabelSlack: number;
@@ -62,7 +66,9 @@ async function compileFixtureStyles(): Promise<string> {
     "@import 'tailwindcss' source(none);"
   )}
     @source '../components/OverviewPanel.tsx';
+    @source '../components/LeaguePageShell.tsx';
     @source '../components/CompactGameScoreboard.tsx';
+    @source '../components/ScoreboardTeamName.tsx';
     @source '../lib/teamLogos.ts';
   `;
   const result = await postcss([tailwindcss()]).process(source, { from });
@@ -91,19 +97,32 @@ function fixtureMarkup(styles: string): string {
     />
   ));
   const body = renderToStaticMarkup(
-    <div data-layout-container style={{ width: REQUIRED_WIDTHS[0] }}>
-      <hr data-layout-divider />
-      <section className="@container" data-layout-section>
-        <div data-layout-header>Featured games</div>
-        <div
-          className={OVERVIEW_SCOREBOARD_GRID_CLASSES}
-          style={OVERVIEW_SCOREBOARD_GRID_STYLE}
-          data-layout-grid
-        >
-          {scoreboards}
-        </div>
-      </section>
-    </div>
+    <>
+      <div data-layout-container style={{ width: REQUIRED_WIDTHS[0] }}>
+        <hr data-layout-divider />
+        <section className="@container" data-layout-section>
+          <div data-layout-header>Featured games</div>
+          <div
+            className={OVERVIEW_SCOREBOARD_GRID_CLASSES}
+            style={OVERVIEW_SCOREBOARD_GRID_STYLE}
+            data-layout-grid
+          >
+            {scoreboards}
+          </div>
+        </section>
+      </div>
+      <div className="p-4 sm:p-6" data-production-viewport>
+        <section className="@container">
+          <div
+            className={OVERVIEW_SCOREBOARD_GRID_CLASSES}
+            style={OVERVIEW_SCOREBOARD_GRID_STYLE}
+            data-production-grid
+          >
+            {scoreboards[0]}
+          </div>
+        </section>
+      </div>
+    </>
   );
   return `<!doctype html><html><head><meta charset="utf-8"><style>${styles}</style></head><body>${body}</body></html>`;
 }
@@ -155,23 +174,33 @@ async function measureWidths(
             width: round(rect.width),
           };
         });
-        const stressTeam = grid.querySelector('[data-scoreboard-team="away"]');
+        const stressTeam = grid.querySelector('[data-scoreboard-team-label="away"]');
+        const visibleStressTeam = stressTeam?.querySelector('[data-scoreboard-team-visible="away"]');
+        const abbreviationProbe = stressTeam?.querySelector(
+          '[data-scoreboard-team-abbreviation="away"]'
+        );
         const stressLabel = stressTeam?.parentElement;
         const stressRow = stressTeam?.closest('[data-scoreboard-side="away"]');
         const stressValue = stressRow?.querySelector('[data-scoreboard-value="away"]');
+        const stressContentEnd =
+          stressRow?.querySelector('[data-scoreboard-owner="away"]') ??
+          stressRow?.querySelector('[data-scoreboard-record="away"]') ??
+          visibleStressTeam;
         if (
+          !(visibleStressTeam instanceof HTMLElement) ||
+          !(abbreviationProbe instanceof HTMLElement) ||
           !(stressLabel instanceof HTMLElement) ||
           !(stressRow instanceof HTMLElement) ||
-          !(stressValue instanceof HTMLElement)
+          !(stressValue instanceof HTMLElement) ||
+          !(stressContentEnd instanceof HTMLElement)
         ) {
           throw new Error('stress row did not render');
         }
-        const stressContentRange = document.createRange();
-        stressContentRange.selectNodeContents(stressLabel);
-        const stressContentRect = stressContentRange.getBoundingClientRect();
+        const visibleStressTeamRect = visibleStressTeam.getBoundingClientRect();
+        const stressContentEndRect = stressContentEnd.getBoundingClientRect();
         const stressLabelRect = stressLabel.getBoundingClientRect();
         const stressValueRect = stressValue.getBoundingClientRect();
-        const stressLabelContentWidth = stressContentRect.width;
+        const stressLabelContentWidth = stressContentEndRect.right - visibleStressTeamRect.left;
         const stressLabelWidth = stressLabelRect.width;
         const firstRowInterCardGap =
           cards.length >= 2 && Math.abs(cards[0].top - cards[1].top) <= 0.1
@@ -198,10 +227,15 @@ async function measureWidths(
           cardRects: cards,
           firstRowInterCardGap,
           stressLabelClipped: stressLabelContentWidth > stressLabelWidth + 0.5,
+          stressNameWrapped:
+            visibleStressTeamRect.height > abbreviationProbe.getBoundingClientRect().height + 0.5,
+          stressVisibleText: visibleStressTeam.textContent ?? '',
+          stressVisibleVisibility: getComputedStyle(visibleStressTeam).visibility,
+          stressProbeVisibility: getComputedStyle(abbreviationProbe).visibility,
           stressLabelWidth: round(stressLabelWidth),
           stressLabelContentWidth: round(stressLabelContentWidth),
           stressLabelSlack: round(stressLabelWidth - stressLabelContentWidth),
-          stressContentToScoreGap: round(stressValueRect.left - stressContentRect.right),
+          stressContentToScoreGap: round(stressValueRect.left - stressContentEndRect.right),
           stressRowPaddingLeft: round(parseFloat(getComputedStyle(stressRow).paddingLeft)),
           computedFontFamily: getComputedStyle(document.body).fontFamily,
         });
@@ -281,6 +315,15 @@ test('Overview scoreboard grid renders its measured tiers and derived grid cap',
         /^ui-sans-serif, system-ui/,
         'the fixture must inherit the production body font stack from globals.css'
       );
+      for (const measurement of measurements) {
+        assert.equal(measurement.stressVisibleText, 'SEMO');
+        assert.equal(measurement.stressVisibleVisibility, 'visible');
+        assert.equal(
+          measurement.stressProbeVisibility,
+          'hidden',
+          'the Overview gate must not mistake an out-of-flow probe for the visible name'
+        );
+      }
       assert.equal(atThree.stressRowPaddingLeft, SCOREBOARD_TEAM_LOGO_SLOT.widthPx);
       assert.equal(
         atThree.columnGap,
@@ -406,25 +449,176 @@ test('Overview scoreboard grid renders its measured tiers and derived grid cap',
           `${width}px must retain the measured minimum score gap`
         );
       }
+      assert.equal(atThree.stressNameWrapped, false);
       assert.ok(
-        atThree.stressContentToScoreGap >=
-          OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX +
-            OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX / OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT -
-            0.5,
-        'the stress content must retain the 12px score gap plus its per-column font allowance'
+        atThree.stressContentToScoreGap >= OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX - 0.5,
+        'the SSR abbreviation and its suffix must retain the fixed score gap; grid headroom is pinned by track geometry above'
       );
       assert.equal(
         clippingControl.stressLabelClipped,
-        true,
-        'the clipping observer needs a control'
+        false,
+        'the 240px row must contain the visible abbreviation and suffix rather than clip the label'
+      );
+      assert.equal(clippingControl.stressNameWrapped, false);
+      assert.ok(
+        clippingControl.stressContentToScoreGap >= 0,
+        'the one-line abbreviation must not collide with the score anchor'
+      );
+      const productionWidths = [];
+      for (const viewport of [320, 280, 272, 225, 224, 219, 218]) {
+        await page.setViewport(viewport, 800);
+        productionWidths.push(
+          await page.evaluate<{
+            viewport: number;
+            shellPadding: string;
+            card: number;
+            box: number;
+            abbreviation: number;
+            abbreviationHeight: number;
+            visibleScroll: number;
+            visibleClient: number;
+            visibleHeight: number;
+            ownerWidth: number;
+            ownerClient: number;
+            ownerScroll: number;
+            ownerTextOverflow: string;
+            recordWidth: number;
+            recordVisible: number;
+            scoreWidth: number;
+            scoreVisible: number;
+          }>(`
+            (async () => {
+              await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+              const shell = document.querySelector('[data-production-viewport]');
+              const card = document.querySelector('[data-production-grid] [data-game-scoreboard]');
+              const box = card?.querySelector('[data-scoreboard-team-label="away"]');
+              const visible = box?.querySelector('[data-scoreboard-team-visible="away"]');
+              const abbreviation = box?.querySelector('[data-scoreboard-team-abbreviation="away"]');
+              const suffix = card?.querySelector('[data-scoreboard-suffix="away"]');
+              const record = card?.querySelector('[data-scoreboard-record="away"]');
+              const owner = card?.querySelector('[data-scoreboard-owner="away"]');
+              const score = card?.querySelector('[data-scoreboard-value="away"]');
+              const row = card?.querySelector('[data-scoreboard-side="away"]');
+              if (!(shell instanceof HTMLElement) || !(card instanceof HTMLElement) ||
+                  !(box instanceof HTMLElement) || !(visible instanceof HTMLElement) ||
+                  !(abbreviation instanceof HTMLElement) || !(suffix instanceof HTMLElement) ||
+                  !(record instanceof HTMLElement) || !(owner instanceof HTMLElement) ||
+                  !(score instanceof HTMLElement) || !(row instanceof HTMLElement)) {
+                throw new Error('production-width fixture missing');
+              }
+              const visibleWithin = (child, parent) => {
+                const childRect = child.getBoundingClientRect();
+                const parentRect = parent.getBoundingClientRect();
+                return Math.max(0, Math.min(childRect.right, parentRect.right) -
+                  Math.max(childRect.left, parentRect.left));
+              };
+              return { viewport: window.innerWidth, shellPadding: getComputedStyle(shell).paddingLeft,
+                card: card.getBoundingClientRect().width, box: box.getBoundingClientRect().width,
+                abbreviation: abbreviation.getBoundingClientRect().width,
+                abbreviationHeight: abbreviation.getBoundingClientRect().height,
+                visibleScroll: visible.scrollWidth, visibleClient: visible.clientWidth,
+                visibleHeight: visible.getBoundingClientRect().height,
+                ownerWidth: visibleWithin(owner, suffix), ownerClient: owner.clientWidth,
+                ownerScroll: owner.scrollWidth,
+                ownerTextOverflow: getComputedStyle(owner).textOverflow,
+                recordWidth: record.getBoundingClientRect().width,
+                recordVisible: visibleWithin(record, suffix),
+                scoreWidth: score.getBoundingClientRect().width,
+                scoreVisible: visibleWithin(score, row) };
+            })()
+          `)
+        );
+      }
+      t.diagnostic(`Production Overview shell widths: ${JSON.stringify(productionWidths)}`);
+      const narrowProduction = productionWidths[2];
+      assert.ok(narrowProduction);
+      assert.equal(narrowProduction.viewport, 272);
+      assertNear(narrowProduction.card, 240, 'the 272px mobile Overview card must reach 240px');
+      assertNear(
+        narrowProduction.box,
+        narrowProduction.abbreviation,
+        'the 272px mobile name box must reach the abbreviation-width floor'
       );
       assert.ok(
-        clippingControl.stressLabelContentWidth > clippingControl.stressLabelWidth + 0.5,
-        'the text-range observer must measure a real overrun in the clipping control'
+        narrowProduction.visibleScroll <= narrowProduction.visibleClient,
+        'the mobile Overview abbreviation must fit inside its visible span without wrapping'
       );
-      assert.ok(
-        clippingControl.stressContentToScoreGap < 0,
-        'the clipping control must make the untruncated text collide with the score'
+      assert.equal(
+        narrowProduction.visibleHeight,
+        narrowProduction.abbreviationHeight,
+        'the 272px production viewport must keep the abbreviation on one line'
+      );
+      assert.ok(narrowProduction.ownerWidth > 0);
+      assert.ok(narrowProduction.ownerScroll > narrowProduction.ownerClient);
+      assert.equal(narrowProduction.ownerTextOverflow, 'ellipsis');
+      assertNear(
+        narrowProduction.recordVisible,
+        narrowProduction.recordWidth,
+        'the 272px production viewport must keep the record whole'
+      );
+      assertNear(
+        narrowProduction.scoreVisible,
+        narrowProduction.scoreWidth,
+        'the 272px production viewport must keep the score whole'
+      );
+
+      // The owner reaches zero before the record. Remove only that optional node
+      // to measure the actual abbreviation + record + score floor, separately from
+      // the production row's still-present owner gap.
+      await page.evaluate(`
+        (() => {
+          const owner = document.querySelector(
+            '[data-production-grid] [data-scoreboard-owner="away"]'
+          );
+          if (!(owner instanceof HTMLElement)) throw new Error('production owner missing');
+          owner.remove();
+          return true;
+        })()
+      `);
+      const withoutOwnerWidths = [];
+      for (const viewport of [221, 220, 219, 218, 217, 216, 215]) {
+        await page.setViewport(viewport, 800);
+        withoutOwnerWidths.push(
+          await page.evaluate<{
+            viewport: number;
+            card: number;
+            nameWidth: number;
+            recordWidth: number;
+            recordVisible: number;
+            scoreWidth: number;
+            scoreVisible: number;
+          }>(`
+            (async () => {
+              await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+              const card = document.querySelector('[data-production-grid] [data-game-scoreboard]');
+              const row = card?.querySelector('[data-scoreboard-side="away"]');
+              const name = row?.querySelector('[data-scoreboard-team-label="away"]');
+              const suffix = row?.querySelector('[data-scoreboard-suffix="away"]');
+              const record = row?.querySelector('[data-scoreboard-record="away"]');
+              const score = row?.querySelector('[data-scoreboard-value="away"]');
+              if (!(card instanceof HTMLElement) || !(row instanceof HTMLElement) ||
+                  !(name instanceof HTMLElement) || !(suffix instanceof HTMLElement) ||
+                  !(record instanceof HTMLElement) || !(score instanceof HTMLElement)) {
+                throw new Error('owner-free production row missing');
+              }
+              const visibleWithin = (child, parent) => {
+                const childRect = child.getBoundingClientRect();
+                const parentRect = parent.getBoundingClientRect();
+                return Math.max(0, Math.min(childRect.right, parentRect.right) -
+                  Math.max(childRect.left, parentRect.left));
+              };
+              return { viewport: window.innerWidth, card: card.getBoundingClientRect().width,
+                nameWidth: name.getBoundingClientRect().width,
+                recordWidth: record.getBoundingClientRect().width,
+                recordVisible: visibleWithin(record, suffix),
+                scoreWidth: score.getBoundingClientRect().width,
+                scoreVisible: visibleWithin(score, row) };
+            })()
+          `)
+        );
+      }
+      t.diagnostic(
+        `Owner-free abbreviation + record + score: ${JSON.stringify(withoutOwnerWidths)}`
       );
 
       assert.equal(OVERVIEW_RESULTS_LIMIT, 4, 'Featured keeps its owner-approved four-item cap');

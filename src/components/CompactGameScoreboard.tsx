@@ -14,6 +14,8 @@ import {
   SCOREBOARD_TEAM_LOGO_SLOT,
   type ScoreboardTeamLogo,
 } from '../lib/teamLogos';
+import { getTeamAbbreviation } from '../lib/teamAbbreviations';
+import ScoreboardTeamName from './ScoreboardTeamName';
 
 export type CompactScoreboardParticipant = {
   teamName: string;
@@ -284,6 +286,7 @@ export default function CompactGameScoreboard({
       {participants.map(({ side, participant }) => {
         const isLeading = leader === side;
         const owner = participant.owner?.trim() || null;
+        const teamAbbreviation = getTeamAbbreviation(participant.teamName);
         const teamRecord = recordLabel(participant.record);
         const rankTitle =
           participant.rank != null && participant.rankSource
@@ -315,7 +318,7 @@ export default function CompactGameScoreboard({
               />
             ) : null}
             {/* The slot remains reserved when artwork is unavailable so both rows stay aligned. */}
-            <span className="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap">
+            <span className="flex min-w-0 flex-1 items-baseline gap-1.5 whitespace-nowrap">
               {participant.rank !== null && participant.rank !== undefined ? (
                 <span className="shrink-0 text-xs font-normal dark:text-zinc-400" title={rankTitle}>
                   #{participant.rank}
@@ -328,19 +331,36 @@ export default function CompactGameScoreboard({
                   FCS
                 </span>
               ) : null}
-              <span className="min-w-0 truncate">
-                <span data-scoreboard-team={side}>{participant.teamName}</span>
+              <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                <ScoreboardTeamName
+                  abbreviation={teamAbbreviation}
+                  marker={side}
+                  teamName={participant.teamName}
+                />
                 {showsInlineRecord && teamRecord ? (
                   <span
-                    className="ml-1.5 text-[12.5px] font-normal tabular-nums dark:text-zinc-400"
-                    data-scoreboard-record={side}
+                    className="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap"
+                    data-scoreboard-suffix={side}
                   >
-                    ({teamRecord})
+                    <span
+                      className="shrink-0 text-[12.5px] font-normal tabular-nums dark:text-zinc-400"
+                      data-scoreboard-record={side}
+                    >
+                      ({teamRecord})
+                    </span>
+                    {owner ? (
+                      <span
+                        className="min-w-0 truncate text-[12.5px] font-normal dark:text-zinc-400"
+                        data-scoreboard-owner={side}
+                      >
+                        {owner}
+                      </span>
+                    ) : null}
                   </span>
-                ) : null}
-                {owner ? (
+                ) : owner ? (
                   <span
-                    className="ml-1.5 text-[12.5px] font-normal dark:text-zinc-400"
+                    className="min-w-0 truncate text-[12.5px] font-normal dark:text-zinc-400"
+                    data-scoreboard-suffix={side}
                     data-scoreboard-owner={side}
                   >
                     {owner}
