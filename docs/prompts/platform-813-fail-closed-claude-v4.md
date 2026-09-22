@@ -219,6 +219,29 @@ more file is still within "about 20" and does not need a fresh approval.
 round alone adds more than about 300 net lines, stop and report**: that would mean scope growth
 rather than fixes. Record the final diffstat either way.
 
+## ROUND 2, owner-approved 2026-09-22 (`AGENTS.md` step 6), against `f4a58040`
+
+**Both reviewers independently found one medium defect, caused directly by round 1's change B.** At
+`f4a58040`, `fullSeasonScheduleRefresh.ts:147` returns `stale-observation` for any prior record with
+`at >= observedAtMs`, **without asking whether that record conforms**. The `stale-observation` branch
+then copies it into `SCHEDULE_ROUTE_CACHE` when it is newer than the local entry. That in-memory copy
+is served instead of the validating reader until its TTL, so the 503 never fires. Round 1 routed a
+known-bad record into a rule that assumes a newer record is newer GOOD state.
+
+**Fix it in the writer, not the route.** Validating only in the route would leave the writer copying
+bad rows into the cache. In `commitFullSeasonSchedule`, a prior record that fails validation counts
+as **no prior**, whatever its `at`, so the refresh overwrites it. **The ordering rule keeps its
+reason** (PLATFORM-086E1A finding 3: never overwrite newer good state with an older observation), and
+conforming priors follow it exactly as now. **One case must still hold:** with no prior, an all-empty
+provider result resolves to `empty-response`, which **writes nothing**. The bad record then survives
+and keeps failing closed, and is never replaced by emptiness. Pin that too. Also **log the typed
+error, with its row-naming detail, before the admin falls through**, so a failed repair still tells
+the operator what was broken.
+
+This adds one production file (`fullSeasonScheduleRefresh.ts`) outside the original scope, and the
+approval covers it. **This is the last remediation round.** Under step 7, anything the confirming
+pass finds after it is reported, not patched, and the owner decides.
+
 ## Acceptance
 
 1. **Every non-conforming or non-object row throws the typed error at the canonical reader**, from
@@ -261,6 +284,12 @@ rather than fixes. Record the final diffstat either way.
     the refresh commits. **This must fail against a version where the admin GET's validating read
     blocks the refresh**, which is what `4038fdeb` does. Added at round 1 (finding B). The prompt
     never asked for recovery, and fail-closed without it is an outage with no way out.
+    **Amended at round 2:** the cases include a non-conforming record stamped at or after the
+    refresh's observation time. It must be overwritten, never copied into `SCHEDULE_ROUTE_CACHE`,
+    and the test must fail at `f4a58040`. **Exception, by owner decision:** a record whose `items` is
+    present but not an array can be repaired only by the ADMIN refresh, because the scheduled
+    refresh's classifier refuses before the writer runs. That is filed as #849. Recovery without a
+    database edit still holds.
 
 ## Testing requirements, which are not negotiable on this project
 
