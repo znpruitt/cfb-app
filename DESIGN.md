@@ -321,7 +321,20 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   characters. Implementation is [#832](https://github.com/znpruitt/cfb-app/issues/832) (the fallback)
   and [#831](https://github.com/znpruitt/cfb-app/issues/831) (the lookup, which must NOT widen the
   138-team draft catalog); [#726](https://github.com/znpruitt/cfb-app/issues/726) re-derives the
-  column thresholds once it ships.
+  column thresholds once it ships. A team outside the catalog and a TBD placeholder go
+  through that same field. **CLARIFIED 2026-09-20, because this sentence predates the #821 fallback
+  and read two ways:** it governs the name SOURCE — no surface takes a name from a different field —
+  and says nothing about the width fallback. **The fallback is PER LABEL: a row may show one team
+  abbreviated and its opponent in full.** Owner ruling on
+  [#832](https://github.com/znpruitt/cfb-app/issues/832)'s read receipt, which established that a
+  row-wide rule cannot hold: when one side has no abbreviation, keeping the row whole either mixes it
+  anyway or leaves the long sibling to clip, and a short name abbreviating because its opponent is
+  long loses information for nothing. Governs every
+  scoreboard surface: Overview, Matchups, Schedule and the Postseason tab it renders, and the recap.
+  **Added 2026-09-16** by owner decision on #729. This file was silent; Overview and Matchups already
+  rendered provider names, while Schedule rendered an abbreviation for every FBS team — the team
+  catalog carries no short name (0 of 138, measured on production), so its label chain fell through
+  to `abbreviation`. The recap was not measured. Source: `item-87-reference-game-row.md` → _Team name_
 
   **HOW THE SWAP DECIDES — owner ruling 2026-09-20, after #832 failed three review rounds on one
   class. THE CLIENT MEASURES; THE SERVER ABBREVIATES CONSERVATIVELY.** The server renders the
@@ -371,20 +384,18 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 
   **So: never-wider binds wherever measurement is available, and nowhere else.** State the exemption
   where it is implemented rather than leaving a reader to reconcile two rules that appear to
-  conflict. A team outside the catalog and a TBD placeholder go
-  through that same field. **CLARIFIED 2026-09-20, because this sentence predates the #821 fallback
-  and read two ways:** it governs the name SOURCE — no surface takes a name from a different field —
-  and says nothing about the width fallback. **The fallback is PER LABEL: a row may show one team
-  abbreviated and its opponent in full.** Owner ruling on
-  [#832](https://github.com/znpruitt/cfb-app/issues/832)'s read receipt, which established that a
-  row-wide rule cannot hold: when one side has no abbreviation, keeping the row whole either mixes it
-  anyway or leaves the long sibling to clip, and a short name abbreviating because its opponent is
-  long loses information for nothing. Governs every
-  scoreboard surface: Overview, Matchups, Schedule and the Postseason tab it renders, and the recap.
-  **Added 2026-09-16** by owner decision on #729. This file was silent; Overview and Matchups already
-  rendered provider names, while Schedule rendered an abbreviation for every FBS team — the team
-  catalog carries no short name (0 of 138, measured on production), so its label chain fell through
-  to `abbreviation`. The recap was not measured. Source: `item-87-reference-game-row.md` → _Team name_
+  conflict.
+
+  **AT NARROW WIDTHS THE OWNER YIELDS, NOT THE TEAM NAME — owner ruling 2026-09-22.** On a 272–280px
+  viewport the first #832 re-derivation let the name box shrink to one character (`min-w-[1em]`) and
+  let the abbreviation break between any two letters, so `SEMO` stacked one letter per line and the
+  row grew to about 80px. Nothing was truncated, and the rule above was met to the letter, but the
+  team name gave way before the owner did, which is backwards. **Ruled:** the abbreviation never
+  breaks mid-word (it is 2–4 characters, and splitting it ruins it); the name box's minimum width is
+  the abbreviation's own width; the **owner name truncates first**, with an ellipsis; the record stays
+  whole. **The rule above protects TEAM names. Owner names are not covered by it.** Letter-stacking
+  is rejected. Below the width at which even the abbreviation, record and score cannot fit, the
+  behaviour is not yet specified; #832 measures that width.
 - Use W16 CFP rankings for postseason game cards — not Final Poll rankings
 - CFP round badges use full words — "CFP Quarterfinal" not "CFP QF"
 - Conference championship badges include the conference name — "SEC Champ"
