@@ -32,6 +32,25 @@ export function ScoreboardTeamNameHydrationFixture(): React.ReactElement {
           }}
         />
       </div>
+      <div data-scheduled-case style={{ width: 200 }}>
+        <CompactGameScoreboard
+          state="scheduled"
+          matchupLabel="Southeast Missouri State at Ohio State"
+          away={{
+            teamName: 'Southeast Missouri State',
+            owner: 'Mastromatteo',
+            rank: 25,
+            record: { wins: 12, losses: 0 },
+            score: null,
+          }}
+          home={{
+            teamName: 'Ohio State',
+            owner: 'Chamness',
+            record: { wins: 12, losses: 0 },
+            score: null,
+          }}
+        />
+      </div>
       <div className="flex" data-resize-case style={{ width: 80 }}>
         <ScoreboardTeamName
           abbreviation="SEMO"
@@ -55,7 +74,7 @@ export function ScoreboardTeamNameHydrationFixture(): React.ReactElement {
 
 export function ScoreboardTeamNameNoJavaScriptFixture(): React.ReactElement {
   return (
-    <div className="flex" data-no-js-case style={{ width: 20 }}>
+    <div className="flex" data-no-js-case style={{ width: 80 }}>
       <ScoreboardTeamName abbreviation="SEMO" marker="no-js" teamName="Southeast Missouri State" />
     </div>
   );

@@ -37,6 +37,7 @@ test('SSR starts each measured label at one visible abbreviation with one stable
     assert.match(label.className, /flex-1/);
     assert.match(label.className, /overflow-hidden/);
     assert.doesNotMatch(label.className, /truncate|shrink-0/);
+    assert.equal(label.getAttribute('style'), 'min-width:max-content');
     assert.equal(accessible.textContent, fullName);
     assert.ok(accessible.classList.contains('sr-only'));
     assert.equal(accessible.getAttribute('aria-hidden'), null);
@@ -52,7 +53,8 @@ test('SSR starts each measured label at one visible abbreviation with one stable
     assert.equal(visible.getAttribute('aria-hidden'), 'true');
     assert.equal(visible.getAttribute('data-scoreboard-team-visual'), 'abbreviation');
     assert.doesNotMatch(visible.className, /absolute|invisible|truncate/);
-    assert.match(visible.className, /whitespace-normal break-words/);
+    assert.match(visible.className, /whitespace-nowrap/);
+    assert.doesNotMatch(visible.className, /break-words/);
     assert.equal(label.querySelectorAll('.sr-only').length, 1);
     assert.equal(label.getAttribute('aria-live'), null);
   }
@@ -96,5 +98,5 @@ test('shipped fallback code has no threshold, surface calibration, or font-weigh
   assert.doesNotMatch(source, /minimumNameLength/i);
   assert.doesNotMatch(source, /fontWeight|font-weight/);
   assert.doesNotMatch(source, /suppressHydrationWarning/);
-  assert.match(source, /abbreviationWidth >= fullNameWidth \|\| fullNameWidth <= boxWidth/);
+  assert.match(source, /measuredAbbreviationWidth >= fullNameWidth \|\| fullNameWidth <= boxWidth/);
 });

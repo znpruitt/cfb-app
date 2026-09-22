@@ -31,6 +31,11 @@ type LabelMeasurement = {
   textOverflow: string;
   visibleText: string;
   visibleHeight: number;
+  visibleClientWidth: number;
+  visibleScrollWidth: number;
+  visibleClientHeight: number;
+  visibleScrollHeight: number;
+  visibleLineWidths: number[];
   visibleVariant: string | null;
   visibleVisibility: string;
   visibleWidth: number;
@@ -46,7 +51,14 @@ type BrowserReport = {
   compactByWidth: Array<{
     away: LabelMeasurement;
     home: LabelMeasurement;
+    ownerClientWidth: number;
+    ownerScrollWidth: number;
+    ownerTextOverflow: string;
     ownerVisibleWidth: number;
+    ownerWidth: number;
+    recordClientWidth: number;
+    recordScrollWidth: number;
+    recordWidth: number;
     recordVisibleWidth: number;
     suffixWidth: number;
   }>;
@@ -61,6 +73,17 @@ type BrowserReport = {
   resizeAfterGrow: LabelMeasurement;
   resizeAfterShrink: LabelMeasurement;
   resizeBefore: LabelMeasurement;
+  scheduled: {
+    abbreviationHeight: number;
+    nameHeight: number;
+    ownerClientWidth: number;
+    ownerScrollWidth: number;
+    ownerTextOverflow: string;
+    ownerVisibleWidth: number;
+    recordVisibleWidth: number;
+    recordWidth: number;
+    valueKind: string | null;
+  };
   userAgent: string;
 };
 
@@ -162,6 +185,8 @@ async function collectReport(page: BrowserFixturePage): Promise<BrowserReport> {
         }
         const display = label.dataset.scoreboardTeamDisplay;
         const style = getComputedStyle(label);
+        const visibleTextRange = document.createRange();
+        visibleTextRange.selectNodeContents(visible);
         return {
           abbreviationAriaHidden: abbreviation.getAttribute('aria-hidden'),
           abbreviationHeight: round(abbreviation.getBoundingClientRect().height),
@@ -179,6 +204,11 @@ async function collectReport(page: BrowserFixturePage): Promise<BrowserReport> {
           textOverflow: style.textOverflow,
           visibleText: visible.textContent ?? '',
           visibleHeight: round(visible.getBoundingClientRect().height),
+          visibleClientWidth: visible.clientWidth,
+          visibleScrollWidth: visible.scrollWidth,
+          visibleClientHeight: visible.clientHeight,
+          visibleScrollHeight: visible.scrollHeight,
+          visibleLineWidths: Array.from(visibleTextRange.getClientRects(), (rect) => round(rect.width)),
           visibleVariant: visible.dataset.scoreboardTeamVisual ?? null,
           visibleVisibility: getComputedStyle(visible).visibility,
           visibleWidth: round(visible.getBoundingClientRect().width),
@@ -209,7 +239,14 @@ async function collectReport(page: BrowserFixturePage): Promise<BrowserReport> {
         compactByWidth.push({
           away: measure('away'),
           home: measure('home'),
+          ownerClientWidth: owner.clientWidth,
+          ownerScrollWidth: owner.scrollWidth,
+          ownerTextOverflow: getComputedStyle(owner).textOverflow,
           ownerVisibleWidth: visibleWidth(owner),
+          ownerWidth: round(owner.getBoundingClientRect().width),
+          recordClientWidth: record.clientWidth,
+          recordScrollWidth: record.scrollWidth,
+          recordWidth: round(record.getBoundingClientRect().width),
           recordVisibleWidth: visibleWidth(record),
           suffixWidth: round(suffixRect.width),
         });
@@ -255,6 +292,45 @@ async function collectReport(page: BrowserFixturePage): Promise<BrowserReport> {
       await settle();
       const resizeAfterShrink = measure('resize');
 
+      // Temporarily remove the name floor only in this control. This forces a real
+      // rendered box narrower than both names so the measured never-wider branch,
+      // rather than the ordinary fit branch, decides Berry versus BERR.
+      const neverWiderBox = document.querySelector('[data-scoreboard-team-label="never-wider"]');
+      if (!(neverWiderBox instanceof HTMLElement)) throw new Error('never-wider control missing');
+      neverWiderBox.style.minWidth = '0px';
+      await settle();
+      const neverWider = measure('never-wider');
+
+      const scheduled = document.querySelector('[data-scheduled-case]');
+      const scheduledRow = scheduled?.querySelector('[data-scoreboard-side="away"]');
+      const scheduledName = scheduledRow?.querySelector('[data-scoreboard-team-visible="away"]');
+      const scheduledAbbreviation = scheduledRow?.querySelector(
+        '[data-scoreboard-team-abbreviation="away"]'
+      );
+      const scheduledOwner = scheduledRow?.querySelector('[data-scoreboard-owner="away"]');
+      const scheduledRecord = scheduledRow?.querySelector('[data-scoreboard-value="away"]');
+      if (!(scheduledRow instanceof HTMLElement) || !(scheduledName instanceof HTMLElement) ||
+          !(scheduledAbbreviation instanceof HTMLElement) ||
+          !(scheduledOwner instanceof HTMLElement) || !(scheduledRecord instanceof HTMLElement)) {
+        throw new Error('scheduled scoreboard control did not render');
+      }
+      const scheduledRowRect = scheduledRow.getBoundingClientRect();
+      const scheduledOwnerRect = scheduledOwner.getBoundingClientRect();
+      const scheduledRecordRect = scheduledRecord.getBoundingClientRect();
+      const scheduledMeasurement = {
+        abbreviationHeight: round(scheduledAbbreviation.getBoundingClientRect().height),
+        nameHeight: round(scheduledName.getBoundingClientRect().height),
+        ownerClientWidth: scheduledOwner.clientWidth,
+        ownerScrollWidth: scheduledOwner.scrollWidth,
+        ownerTextOverflow: getComputedStyle(scheduledOwner).textOverflow,
+        ownerVisibleWidth: round(Math.max(0, Math.min(scheduledOwnerRect.right,
+          scheduledRowRect.right) - Math.max(scheduledOwnerRect.left, scheduledRowRect.left))),
+        recordVisibleWidth: round(Math.max(0, Math.min(scheduledRecordRect.right,
+          scheduledRowRect.right) - Math.max(scheduledRecordRect.left, scheduledRowRect.left))),
+        recordWidth: round(scheduledRecordRect.width),
+        valueKind: scheduledRecord.dataset.scoreboardValueKind ?? null,
+      };
+
       const fontTarget = document.querySelector('[data-scoreboard-team-label="away"]');
       if (!(fontTarget instanceof HTMLElement)) throw new Error('font target missing');
       const fontStyle = getComputedStyle(fontTarget);
@@ -271,16 +347,85 @@ async function collectReport(page: BrowserFixturePage): Promise<BrowserReport> {
         hiddenBeforeReveal,
         mismatch: measure('mismatch'),
         mismatchErrors: window.__scoreboardMismatchErrors ?? [],
-        neverWider: measure('never-wider'),
+        neverWider,
         noJavaScript: measure('no-js'),
         resizeAfterGrow,
         resizeAfterShrink,
         resizeBefore,
+        scheduled: scheduledMeasurement,
         userAgent: navigator.userAgent,
       };
     })()
   `);
 }
+
+test('the full owner outranks the full team name in their measured fit band', async (t) => {
+  await withBrowserFixture(
+    t,
+    { directoryPrefix: 'cfb-scoreboard-owner-priority-', markup: fixtureMarkup },
+    async (page) => {
+      const report = await collectReport(page);
+      const at390 = report.compactByWidth[1];
+      assert.ok(at390);
+      t.diagnostic(`390px owner-priority band: ${JSON.stringify(at390)}`);
+      assert.equal(
+        at390.ownerScrollWidth,
+        at390.ownerClientWidth,
+        'the owner must stay whole when the full team name alone cannot fit'
+      );
+      assert.ok(
+        at390.ownerVisibleWidth >= at390.ownerWidth - 0.5,
+        'the full owner must remain visible before the full team name is considered'
+      );
+      assert.ok(
+        at390.away.fullWidth > at390.away.boxWidth,
+        'the full team name must not fit beside the full record and owner'
+      );
+      assert.ok(at390.away.abbreviationWidth <= at390.away.boxWidth);
+      assert.ok(at390.recordVisibleWidth >= at390.recordWidth - 0.5);
+      assert.equal(at390.away.display, 'abbreviation');
+      assert.equal(at390.away.visibleText, 'SEMO');
+    }
+  );
+});
+
+test('272px viewport equivalent keeps SEMO on one line and gives owner the squeeze', async (t) => {
+  await withBrowserFixture(
+    t,
+    { directoryPrefix: 'cfb-scoreboard-name-single-line-', markup: fixtureMarkup },
+    async (page) => {
+      const report = await collectReport(page);
+      const at240Card = report.compactByWidth[3];
+      assert.ok(at240Card);
+      t.diagnostic(`240px card at a 272px padded viewport: ${JSON.stringify(at240Card)}`);
+      assert.equal(at240Card.away.display, 'abbreviation');
+      assert.equal(
+        at240Card.away.visibleHeight,
+        at240Card.away.abbreviationHeight,
+        'the visible SEMO must occupy one line, not four stacked letters'
+      );
+      assert.ok(at240Card.away.visibleScrollWidth <= at240Card.away.visibleClientWidth);
+      assert.ok(at240Card.ownerVisibleWidth > 0, 'owner must remain present');
+      assert.ok(
+        at240Card.ownerScrollWidth > at240Card.ownerClientWidth,
+        'owner must yield by truncating before the abbreviation or record does'
+      );
+      assert.equal(at240Card.ownerTextOverflow, 'ellipsis');
+      assert.ok(
+        at240Card.recordVisibleWidth >= at240Card.recordWidth - 0.5,
+        'record must remain whole'
+      );
+      assert.ok(at240Card.recordScrollWidth <= at240Card.recordClientWidth);
+      t.diagnostic(`scheduled control: ${JSON.stringify(report.scheduled)}`);
+      assert.equal(report.scheduled.nameHeight, report.scheduled.abbreviationHeight);
+      assert.ok(report.scheduled.ownerVisibleWidth > 0);
+      assert.ok(report.scheduled.ownerScrollWidth > report.scheduled.ownerClientWidth);
+      assert.equal(report.scheduled.ownerTextOverflow, 'ellipsis');
+      assert.equal(report.scheduled.valueKind, 'record');
+      assert.equal(report.scheduled.recordVisibleWidth, report.scheduled.recordWidth);
+    }
+  );
+});
 
 test('SSR and no-JS keep a single untruncated abbreviation', async (t) => {
   await withBrowserFixture(
@@ -301,20 +446,15 @@ test('SSR and no-JS keep a single untruncated abbreviation', async (t) => {
       assert.equal(noJavaScript.accessibleText, 'Southeast Missouri State');
       assert.equal(noJavaScript.fullAriaHidden, 'true');
       assert.equal(noJavaScript.abbreviationAriaHidden, 'true');
-      assert.ok(
-        noJavaScript.abbreviationWidth > noJavaScript.boxWidth,
-        'the no-JS control must force the unwrapped abbreviation beyond its own box'
-      );
+      assert.ok(noJavaScript.fullWidth > noJavaScript.boxWidth);
+      assert.ok(noJavaScript.abbreviationWidth <= noJavaScript.boxWidth);
       assert.equal(
         noJavaScript.overflowX,
         'hidden',
-        'the no-JS box must contain its overflowing abbreviation rather than emit page overflow'
+        'the no-JS box must contain text overflow rather than emit page overflow'
       );
-      assert.equal(noJavaScript.whiteSpace, 'normal', 'the overflowing abbreviation must wrap');
-      assert.ok(
-        noJavaScript.visibleHeight > noJavaScript.abbreviationHeight,
-        'the full abbreviation must occupy multiple lines instead of being clipped'
-      );
+      assert.equal(noJavaScript.whiteSpace, 'nowrap', 'the no-JS abbreviation stays on one line');
+      assert.equal(noJavaScript.visibleHeight, noJavaScript.abbreviationHeight);
       assert.ok(noJavaScript.visibleWidth <= noJavaScript.boxWidth);
       assert.ok(noJavaScript.boxRight <= noJavaScript.containerRight);
       assert.equal(
@@ -420,6 +560,14 @@ test('fit, overflow, never-wider, and resize decisions use the rendered name box
         mixed.ownerVisibleWidth > 0,
         'the 240px owner must retain visible width after abbreviation'
       );
+      assert.ok(
+        mixed.away.visibleScrollWidth <= mixed.away.visibleClientWidth,
+        'the visible 240px abbreviation must not be clipped horizontally'
+      );
+      assert.ok(
+        mixed.away.visibleScrollHeight <= mixed.away.visibleClientHeight,
+        'the visible 240px abbreviation must not be clipped vertically'
+      );
       assert.equal(
         mixed.home.display,
         'full',
@@ -427,10 +575,7 @@ test('fit, overflow, never-wider, and resize decisions use the rendered name box
       );
       assert.ok(mixed.home.fullWidth <= mixed.home.boxWidth);
 
-      assert.ok(
-        report.neverWider.fullWidth > report.neverWider.boxWidth,
-        'the never-wider control must force the full name beyond its box'
-      );
+      assert.ok(report.neverWider.fullWidth > report.neverWider.boxWidth);
       assert.ok(
         report.neverWider.abbreviationWidth >= report.neverWider.fullWidth,
         'the current viewer must actually render BERR at least as wide as Berry'
@@ -488,6 +633,7 @@ test('fit, overflow, never-wider, and resize decisions use the rendered name box
           )
           .join('; ')
       );
+      t.diagnostic(`240px visible span: ${JSON.stringify(report.compactByWidth[3]?.away)}`);
     }
   );
 });

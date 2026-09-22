@@ -58,6 +58,7 @@ function MeasuredScoreboardTeamName({
   const fullNameRef = React.useRef<HTMLSpanElement>(null);
   const abbreviationRef = React.useRef<HTMLSpanElement>(null);
   const [showFullName, setShowFullName] = React.useState(false);
+  const [abbreviationWidth, setAbbreviationWidth] = React.useState<number | null>(null);
 
   const measureFit = React.useCallback(() => {
     const box = boxRef.current;
@@ -67,12 +68,16 @@ function MeasuredScoreboardTeamName({
 
     const boxWidth = box.getBoundingClientRect().width;
     const fullNameWidth = fullName.getBoundingClientRect().width;
-    const abbreviationWidth = abbreviationProbe.getBoundingClientRect().width;
+    const measuredAbbreviationWidth = abbreviationProbe.getBoundingClientRect().width;
     // Hidden recap panels have no laid-out box. Keep SSR's abbreviation until the
     // shared observer sees real dimensions; 0 >= 0 is not a never-wider result.
     // The hidden-before/after-reveal control in ScoreboardTeamNameFallback.browser.test.tsx pins this.
-    if (boxWidth === 0 || fullNameWidth === 0 || abbreviationWidth === 0) return;
-    const nextShowFullName = abbreviationWidth >= fullNameWidth || fullNameWidth <= boxWidth;
+    if (boxWidth === 0 || fullNameWidth === 0 || measuredAbbreviationWidth === 0) return;
+    setAbbreviationWidth((current) =>
+      current === measuredAbbreviationWidth ? current : measuredAbbreviationWidth
+    );
+    const nextShowFullName =
+      measuredAbbreviationWidth >= fullNameWidth || fullNameWidth <= boxWidth;
 
     setShowFullName((current) => (current === nextShowFullName ? current : nextShowFullName));
   }, []);
@@ -93,16 +98,20 @@ function MeasuredScoreboardTeamName({
    * viewer would measure it wider than the name: never-wider only binds after measurement.
    * The visible variant alone participates in layout. Both measurement probes are absolute,
    * so neither can set the box's width. The box is allocated by its flex row after suffixes,
-   * and text that cannot fit wraps inside it rather than escaping or being ellipsized.
+   * and the visible abbreviation sets its own no-JS max-content floor. Once a real
+   * measurement is available, that floor is its exact rendered width even when the
+   * full name upgrades. The owner yields before that floor; a full name that no longer
+   * fits wraps inside the box rather than being ellipsized.
    * "SSR and no-JS keep a single untruncated abbreviation" and "fit, overflow, never-wider,
    * and resize decisions use the rendered name box" pin those mechanisms in Chrome.
    */
   return (
     <span
-      className="relative block min-w-[1em] flex-1 overflow-hidden"
+      className="relative block flex-1 overflow-hidden"
       data-scoreboard-team-display={showFullName ? 'full' : 'abbreviation'}
       data-scoreboard-team-label={marker}
       ref={boxRef}
+      style={{ minWidth: abbreviationWidth === null ? 'max-content' : abbreviationWidth }}
     >
       <span className="sr-only" data-scoreboard-team-accessible={marker}>
         {teamName}
@@ -126,7 +135,7 @@ function MeasuredScoreboardTeamName({
       </span>
       <span
         aria-hidden="true"
-        className="block max-w-full whitespace-normal break-words"
+        className={`block max-w-full ${showFullName ? 'whitespace-normal break-words' : 'whitespace-nowrap'}`}
         data-scoreboard-team-visible={marker}
         data-scoreboard-team-visual={showFullName ? 'full' : 'abbreviation'}
       >
