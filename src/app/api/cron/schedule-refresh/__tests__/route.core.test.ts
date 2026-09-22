@@ -575,6 +575,27 @@ for (const [name, mangle] of [
   });
 }
 
+test('#813 v4 round 2: the scheduled refresh overwrites a non-conforming record stamped in the FUTURE', async () => {
+  // Observation ordering used to keep ANY prior stamped at/after the refresh, including a
+  // non-conforming one, and the `stale-observation` branch then copied its unvalidated rows
+  // into the route's process cache. A non-conforming prior is now no prior, so the repair
+  // happens on the scheduled path too, not only the admin one. Fails against `f4a58040`.
+  await seedSeasonLeague(2031);
+  await seedNonConforming(2031, (items) => [...items, { id: 'g-bad', week: 1 }]);
+  const stored = (await getAppState<{ items: unknown[] }>('schedule', '2031-all-all'))!.value!;
+  await setAppState('schedule', '2031-all-all', { ...stored, at: Date.now() + 10 * 60 * 1000 });
+  stubProvider({ 2031: { regular: gameBody(2031), postseason: '[]' } });
+
+  const { events } = await runRoute();
+  assert.equal(
+    events[0]!.years[0]!.reason,
+    'written-clean',
+    'the future stamp does not protect it'
+  );
+  const entry = await loadCanonicalScheduleEntry(2031);
+  assert.ok(entry && entry.items.length > 0, 'the next read is clean');
+});
+
 test('#813 v4: a NON-ARRAY container is the one case the scheduled refresh does not repair', async () => {
   // PINNED, NOT ENDORSED. The cron's classifier reads a non-array `items` as unusable
   // context and refuses before any provider work, so the season stays unreadable until an

@@ -31,6 +31,7 @@ import { acquireScheduleRefreshLease } from '../../../../../lib/schedule/schedul
 import { __resetSchedulePresentationMemoForTests } from '../../../../../lib/schedule/schedulePresentationJoin.ts';
 import { resetScheduleRouteCacheForTests } from '../../../schedule/cache.ts';
 import type { ScheduleRefreshCronExecutionEvent } from '../../../../../lib/schedule/cronExecutionLog.ts';
+import { conformingScheduleRow } from '../../../../../test/conformingScheduleRow.ts';
 
 const CRON_SECRET = 'test-cron-secret';
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
@@ -73,8 +74,12 @@ async function seedSchedule(
 ): Promise<void> {
   await setAppState('schedule', `${year}-all-all`, {
     at: options.at ?? 1,
+    // CONFORMING rows (PLATFORM-813 v4 round 2). The writer now treats a prior record that
+    // does not conform as NO prior, so a partial fixture here would make every test that
+    // depends on a prior — observation ordering, empty-replacement rejection — silently stop
+    // exercising it. The builder's defaults behave as the absent fields did.
     items: [
-      {
+      conformingScheduleRow({
         id: `${year}-1`,
         week: 1,
         startDate: '2020-09-01T00:00:00.000Z',
@@ -82,8 +87,8 @@ async function seedSchedule(
         awayTeam: 'Rice',
         status: 'scheduled',
         seasonType: 'regular',
-      },
-      {
+      }),
+      conformingScheduleRow({
         id: `${year}-2`,
         week: 14,
         startDate: kickoff,
@@ -91,7 +96,7 @@ async function seedSchedule(
         awayTeam: 'Michigan',
         status: 'scheduled',
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],

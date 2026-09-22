@@ -653,6 +653,108 @@ test('an admin load REBUILDS a non-conforming season, and the next read is clean
   }
 });
 
+test('a non-conforming record stamped in the FUTURE is still overwritten, and never served', async () => {
+  // PLATFORM-813 v4 round 2. Both reviewers found this independently: the writer's
+  // observation ordering kept ANY prior stamped at/after its own observation, including a
+  // non-conforming one, returned `stale-observation`, and that branch copied the record's
+  // UNVALIDATED rows into `SCHEDULE_ROUTE_CACHE` — where members were served them in place
+  // of the validating reader until the TTL. A non-conforming prior now counts as no prior.
+  // Fails against `f4a58040` (the bad rows are cached and served).
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  await setAppState('schedule', '2026-all-all', {
+    at: Date.now() + 10 * 60 * 1000, // stamped in the FUTURE: clock skew, or a bad `at`
+    items: [{ id: 'g-bad', week: 1 }],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    const body =
+      url.pathname === '/games' && url.searchParams.get('seasonType') === 'regular'
+        ? [
+            {
+              week: 1,
+              home_team: 'Texas',
+              away_team: 'Rice',
+              id: 7,
+              start_date: '2026-09-05T00:00:00Z',
+            },
+          ]
+        : [];
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+
+  const res = await GET(
+    new Request('http://localhost/api/schedule?year=2026', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
+  );
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { items: Array<{ id: string }> };
+  assert.deepEqual(
+    body.items.map((item) => item.id),
+    ['7'],
+    'the response carries the rebuilt season, never the bad rows'
+  );
+
+  const entry = await loadCanonicalScheduleEntry(2026);
+  assert.deepEqual(
+    entry?.items.map((item) => item.id),
+    ['7'],
+    'the durable record was replaced'
+  );
+  assert.deepEqual(
+    SCHEDULE_ROUTE_CACHE['2026-all-all']?.items.map((item) => (item as { id: string }).id),
+    ['7'],
+    'the process cache never holds the unvalidated rows'
+  );
+});
+
+test('an all-empty refresh never replaces a non-conforming record', async () => {
+  // The case "no prior" could go wrong: with the bad record discounted, an all-empty
+  // provider result must still write NOTHING, so the bad record survives and keeps failing
+  // closed rather than being replaced by an empty season.
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  const bad = {
+    at: Date.now() - 60_000,
+    items: [{ id: 'g-bad', week: 1 }],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  };
+  await setAppState('schedule', '2026-all-all', bad);
+  setMockFetch(
+    async () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+
+  await GET(
+    new Request('http://localhost/api/schedule?year=2026', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
+  );
+
+  const stored = await getAppState<{ items: unknown[] }>('schedule', '2026-all-all');
+  assert.deepEqual(
+    stored?.value,
+    bad,
+    'the record is untouched — an empty season never replaces it'
+  );
+  await assert.rejects(
+    () => loadCanonicalScheduleEntry(2026),
+    ScheduleRowNonConformanceError,
+    'and it still fails closed'
+  );
+  assert.equal(SCHEDULE_ROUTE_CACHE['2026-all-all'], undefined, 'nothing cached');
+});
+
 // ---------------------------------------------------------------------------
 // PLATFORM-086E1A — the full-year refresh flows through the shared authority; a
 // concurrent full-year refresh is a truthful 409 with no provider request.

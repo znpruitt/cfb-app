@@ -341,7 +341,16 @@ export async function GET(req: Request) {
           { status: 503 }
         );
       }
-      // Nothing readable is stored: the admin continues to the refresh below.
+      // Nothing readable is stored: the admin continues to the refresh below. Logged FIRST,
+      // with the row-naming detail, so a repair that then fails (a 409, a failed partition,
+      // an empty provider result) still tells the operator what was broken.
+      console.warn(
+        JSON.stringify({
+          event: 'schedule-nonconforming-admin-repair',
+          year,
+          detail: error.message,
+        })
+      );
       stored = null;
     }
     if (stored) {
