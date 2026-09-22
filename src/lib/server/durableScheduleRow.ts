@@ -110,27 +110,62 @@ export const METHOD_CALLED_FIELDS = [
 export type DurableRowValidation = {
   items: ScheduleWireItem[];
   /**
-   * How many individual FIELDS were coerced, or `null` when validation did not run.
+   * The container could not be read as a list of rows at all.
    *
-   * `number | null`, not `number`, and the distinction is load-bearing: a path that
-   * never validated and a row set that needed no coercion both produce `0`, and
-   * those are different facts. That collapse is #804's defect — a failed count
-   * publishing `0` is indistinguishable from a real zero — so `null` means "not
-   * measured here" and `0` means "measured, nothing wrong".
-   */
-  coercedFieldCount: number | null;
-  /**
-   * How many ROWS were dropped outright for not being objects, or `null` when
-   * validation did not run.
+   * A VERDICT, not a count — deliberately. PLATFORM-813 v2 carried
+   * `coercedFieldCount` and `droppedRowCount` here, a second and weaker record of a
+   * fact `buildScheduleFromApi` already publishes with reasons attached
+   * (`issues`, `schedule.ts:227/648/896`). Two sources of truth about one thing is the
+   * pattern this repo keeps paying for, and the counts reached no production consumer
+   * while the existing channel was being discarded. They are gone; this boolean is
+   * the one thing the counts were load-bearing for that `issues` cannot say, because
+   * it is about the CONTAINER rather than about any row.
    *
-   * SEPARATE from the field count on purpose: "six fields were repaired" and "six
-   * rows were discarded" are different questions with different consequences, and one
-   * number cannot carry both. A dropped row changes the season's CONTENT; a coerced
-   * field changes one value within a row that survives. The all-dropped throw in
-   * `loadCachedScheduleItems` keys on this one.
+   * True when `items` was not an array, or when a NON-EMPTY array validated down to
+   * nothing. Both mean "unreadable", which is distinct from a season that genuinely
+   * has no rows — the distinction invariant 8 turns on. v2's `Array.isArray` guard
+   * reported `0/0` for a non-array container and so recreated the very collapse it
+   * was added to fix.
    */
-  droppedRowCount: number | null;
+  unreadableContainer: boolean;
 };
+
+/** The prefix `buildScheduleFromApi` uses when it discards a row it could not classify. */
+export const INVALID_ROW_ISSUE_PREFIX = 'invalid-schedule-row:';
+
+/**
+ * The rows a completed build DISCARDED, read from the channel that already records
+ * them.
+ *
+ * `buildScheduleFromApi` pushes `invalid-schedule-row: <reason>` per dropped row and
+ * returns them on `issues`. That is strictly more information than a count — it says
+ * WHY — and it is computed on the build that actually happened rather than inferred
+ * from the read that preceded it. v2 invented a parallel count and then pointed the
+ * deciding consumer at the wrong one; this reads the real one.
+ */
+export function discardedRowIssues(issues: readonly string[]): string[] {
+  return issues.filter((issue) => issue.startsWith(INVALID_ROW_ISSUE_PREFIX));
+}
+
+/**
+ * A build completed, but rows were discarded — so its games are not the season.
+ *
+ * Thrown by consumers that would otherwise record or cache the result as complete.
+ * Distinct from `SeasonScheduleCacheUnavailableError` (nothing was cached) and from
+ * `SeasonScheduleUnreadableError` (the container could not be read): here the games
+ * are real, and what cannot be supported is the claim that they are ALL of them.
+ */
+export class SeasonScheduleIncompleteError extends Error {
+  constructor(
+    readonly year: number,
+    readonly discarded: readonly string[]
+  ) {
+    super(
+      `season ${year}: ${discarded.length} schedule row(s) were discarded by the build (${discarded.join('; ')}) — refusing to record or cache this season as complete`
+    );
+    this.name = 'SeasonScheduleIncompleteError';
+  }
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -151,19 +186,18 @@ export function validateDurableScheduleRows(items: unknown): DurableRowValidatio
   // record had previously returned an entry. A module written about not trusting the
   // declared type must not trust it either.
   if (!Array.isArray(items)) {
-    return { items: [], coercedFieldCount: 0, droppedRowCount: 0 };
+    // UNREADABLE, not empty. v2 returned `0/0` here, which `assertReadable` then read
+    // as "measured, nothing wrong" — a fix that recreated the collapse it fixed.
+    return { items: [], unreadableContainer: true };
   }
 
   const out: ScheduleWireItem[] = [];
-  let coerced = 0;
-  let dropped = 0;
 
   for (const raw of items) {
     if (!isPlainObject(raw)) {
       // A non-object row cannot be repaired into one, so it is DROPPED rather than
       // coerced — there is nothing to coerce — and counted separately, because a
       // discarded row changes the season's content while a repaired field does not.
-      dropped += 1;
       continue;
     }
 
@@ -176,7 +210,6 @@ export function validateDurableScheduleRows(items: unknown): DurableRowValidatio
       if (typeof raw[field] === 'string') continue;
       if (!next) next = { ...raw };
       next[field] = '';
-      coerced += 1;
     }
 
     // OPTIONAL: absence is a real state every consumer already handles, and coercing
@@ -187,7 +220,6 @@ export function validateDurableScheduleRows(items: unknown): DurableRowValidatio
       if (typeof value === 'string') continue;
       if (!next) next = { ...raw };
       next[field] = '';
-      coerced += 1;
     }
 
     // `venue` admits `VenueInfo | string | null`, so only a value that is neither a
@@ -201,11 +233,12 @@ export function validateDurableScheduleRows(items: unknown): DurableRowValidatio
     ) {
       if (!next) next = { ...raw };
       next.venue = null;
-      coerced += 1;
     }
 
     out.push((next ?? raw) as unknown as ScheduleWireItem);
   }
 
-  return { items: out, coercedFieldCount: coerced, droppedRowCount: dropped };
+  // A non-empty container that validated down to nothing is unreadable; an empty one
+  // is genuine absence.
+  return { items: out, unreadableContainer: items.length > 0 && out.length === 0 };
 }

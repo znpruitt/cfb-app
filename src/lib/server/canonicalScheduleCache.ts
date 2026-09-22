@@ -25,17 +25,16 @@ export type CanonicalScheduleEntry<T = ScheduleWireItem> = {
   failedSeasonTypes: string[];
   source: CanonicalScheduleEntrySource;
   /**
-   * How many durable row FIELDS this read had to coerce (PLATFORM-813), or `null`
-   * when the rows were not validated on this path.
+   * The stored container could not be read as a list of rows (PLATFORM-813 v3).
    *
-   * It rides on the entry rather than being logged because #693 binds: a reader that
-   * cannot say whether the season is fully accounted for must be able to REPORT
-   * that, and a count in a log line is not available to the consumer deciding.
-   * `null` vs `0` is deliberate — see `durableScheduleRow.ts`.
+   * This replaced `coercedFieldCount`/`droppedRowCount`, which were a second, weaker
+   * record of a fact `buildScheduleFromApi` already publishes on `issues` with reasons
+   * attached — and which no production consumer ever read while the real channel was
+   * being discarded. Row-level loss is read from `issues` by the consumers that must
+   * not record a season as complete; this flag is only the container verdict, which
+   * `issues` cannot express because it is not about any row.
    */
-  coercedFieldCount: number | null;
-  /** How many ROWS were discarded as unusable, or `null` when not validated. */
-  droppedRowCount: number | null;
+  unreadableContainer: boolean;
 };
 
 /** The durable app-state scope every canonical schedule key lives in. */
@@ -159,12 +158,9 @@ export function canonicalScheduleAggregateServes(value: unknown): boolean {
  * read. No consumer needed a change.
  */
 export class SeasonScheduleUnreadableError extends Error {
-  constructor(
-    readonly year: number,
-    readonly droppedRows: number
-  ) {
+  constructor(readonly year: number) {
     super(
-      `schedule ${year}: every stored row was unusable (${droppedRows} dropped) — the season is unreadable, not empty`
+      `schedule ${year}: the stored schedule container could not be read as rows — the season is unreadable, not empty`
     );
     this.name = 'SeasonScheduleUnreadableError';
   }
@@ -244,8 +240,7 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
         Array.isArray(value.failedSeasonTypes) ? value.failedSeasonTypes : []
       ),
       source: 'partition-pair',
-      coercedFieldCount: validated.coercedFieldCount,
-      droppedRowCount: validated.droppedRowCount,
+      unreadableContainer: validated.unreadableContainer,
     });
   }
 
@@ -276,15 +271,21 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
  * PARTIAL drop does NOT throw: the season is still usable, and continuing past a bad
  * row is the improvement #813 was filed for — `buildScheduleFromApi`'s per-row loop has
  * no try/catch, so one bad row already took down the whole build, and throwing here
- * would restore exactly that. Partial drops travel as `droppedRowCount` instead, for
- * consumers that write durable records.
+ * would restore exactly that. Partial drops travel on `issues` instead — the channel
+ * `buildScheduleFromApi` already publishes, read by the consumers that must not record
+ * or cache a season as complete.
  */
 function assertReadable<T>(
   year: number,
   entry: CanonicalScheduleEntry<T>
 ): CanonicalScheduleEntry<T> {
-  if (entry.items.length === 0 && (entry.droppedRowCount ?? 0) > 0) {
-    throw new SeasonScheduleUnreadableError(year, entry.droppedRowCount!);
+  // KEYED ON THE VERDICT, not on a count. The counts this used to read are deleted, and
+  // deleting them without replacing this predicate in the same change would have made
+  // the throw silently stop firing — a deletion that quietly removes a guard. Pinned by
+  // "a season whose EVERY row was dropped is unreadable, not empty", which fails if this
+  // predicate goes missing.
+  if (entry.unreadableContainer) {
+    throw new SeasonScheduleUnreadableError(year);
   }
   return entry;
 }
@@ -303,8 +304,7 @@ function normalizeEntry<T>(
     partialFailure: value.partialFailure === true,
     failedSeasonTypes: Array.isArray(value.failedSeasonTypes) ? value.failedSeasonTypes : [],
     source,
-    coercedFieldCount: validated.coercedFieldCount,
-    droppedRowCount: validated.droppedRowCount,
+    unreadableContainer: validated.unreadableContainer,
   };
 }
 

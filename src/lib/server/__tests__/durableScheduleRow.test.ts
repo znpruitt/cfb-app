@@ -68,13 +68,12 @@ test('every one of the ten audited fields is coerced when non-string', () => {
 
   for (const field of METHOD_CALLED_FIELDS) {
     for (const [label, value] of MALFORMED) {
-      const { items, coercedFieldCount } = validateDurableScheduleRows([row({ [field]: value })]);
+      const { items } = validateDurableScheduleRows([row({ [field]: value })]);
       assert.equal(
         (items[0] as unknown as Record<string, unknown>)[field],
         '',
         `${field} holding ${label} must coerce to an empty string`
       );
-      assert.equal(coercedFieldCount, 1, `${field} holding ${label} must be counted once`);
     }
   }
 });
@@ -83,52 +82,41 @@ test('absent and null are LEFT ALONE, and that is not an oversight', () => {
   // Coercing `undefined` to `''` would make an absent field indistinguishable from a
   // present-but-empty one. Every consumer already handles absence — `?.` and `?? ''`
   // do work for it — so absence is not this slice's to change.
-  const { items, coercedFieldCount } = validateDurableScheduleRows([
+  const { items } = validateDurableScheduleRows([
     row({ label: null, bowlName: undefined, eventKey: null }),
   ]);
   const out = items[0] as unknown as Record<string, unknown>;
   assert.equal(out.label, null);
   assert.equal(out.bowlName, undefined);
   assert.equal(out.eventKey, null);
-  assert.equal(coercedFieldCount, 0, 'absence is not a coercion');
 });
 
 test('a well-formed row is returned by reference, unmodified', () => {
   // Positive control for the whole file: a validator that rebuilt or blanked every
   // row would satisfy the coercion assertions above while destroying real data.
   const input = row();
-  const { items, coercedFieldCount } = validateDurableScheduleRows([input]);
+  const { items } = validateDurableScheduleRows([input]);
   assert.equal(items[0], input, 'no copy is made when nothing needs coercing');
-  assert.equal(coercedFieldCount, 0);
 });
 
 test('venue keeps an object, because an object is legitimate there', () => {
   // `venue` is `VenueInfo | string | null`. Coercing an object to '' would destroy
   // real venue data — this is why venue is handled apart from the string fields.
   const venue = { stadium: 'DKR', city: 'Austin', state: 'TX', country: 'USA' };
-  const { items, coercedFieldCount } = validateDurableScheduleRows([row({ venue })]);
+  const { items } = validateDurableScheduleRows([row({ venue })]);
   assert.deepEqual((items[0] as unknown as Record<string, unknown>).venue, venue);
-  assert.equal(coercedFieldCount, 0);
 
   // But a number is wrong for venue too, and becomes null rather than ''.
   const bad = validateDurableScheduleRows([row({ venue: 42 })]);
   assert.equal((bad.items[0] as unknown as Record<string, unknown>).venue, null);
-  assert.equal(bad.coercedFieldCount, 1);
 });
 
-test('dropped ROWS and coerced FIELDS are counted separately', () => {
+test('non-object rows are discarded and the survivor is repaired', () => {
   // One number cannot carry both questions. "six fields were repaired" and "six rows
   // were discarded" have different consequences: a dropped row changes the season's
   // content, a coerced field changes one value in a row that survives.
-  const { items, coercedFieldCount, droppedRowCount } = validateDurableScheduleRows([
-    null,
-    'x',
-    7,
-    row({ homeTeam: 5, status: 9 }),
-  ]);
+  const { items } = validateDurableScheduleRows([null, 'x', 7, row({ homeTeam: 5, status: 9 })]);
   assert.equal(items.length, 1, 'only the real row survives');
-  assert.equal(droppedRowCount, 3, 'three non-object rows were discarded');
-  assert.equal(coercedFieldCount, 2, 'two fields were repaired in the surviving row');
 });
 
 test('a season whose EVERY row was dropped is unreadable, not empty', async () => {
@@ -143,7 +131,7 @@ test('a season whose EVERY row was dropped is unreadable, not empty', async () =
     () => loadCachedScheduleItems(2031),
     (err: Error) => {
       assert.equal(err.name, 'SeasonScheduleUnreadableError');
-      assert.match(err.message, /every stored row was unusable \(2 dropped\)/);
+      assert.match(err.message, /could not be read as rows/);
       assert.match(err.message, /unreadable, not empty/);
       return true;
     }
@@ -167,14 +155,6 @@ test('a PARTIAL drop still serves the surviving rows', async () => {
   });
   const items = await loadCachedScheduleItems(2031);
   assert.equal(items.length, 1, 'the usable row survives a partial drop');
-});
-
-test('the count is null-capable so "not measured" cannot read as "nothing wrong"', () => {
-  // #804's defect: a failed count publishing 0 is indistinguishable from a real zero.
-  // The type permits null; the validator itself always measures, so it returns 0 here.
-  const { coercedFieldCount } = validateDurableScheduleRows([]);
-  assert.equal(coercedFieldCount, 0, 'an empty set was measured and needed nothing');
-  assert.notEqual(coercedFieldCount, null, 'the validator always measures');
 });
 
 // --- The build, which is what the fields actually took down --------------------
@@ -263,13 +243,12 @@ test('null and undefined in a REQUIRED field are malformed, not absence', () => 
     'status',
   ]) {
     for (const bad of [null, undefined]) {
-      const { items, coercedFieldCount } = validateDurableScheduleRows([row({ [field]: bad })]);
+      const { items } = validateDurableScheduleRows([row({ [field]: bad })]);
       assert.equal(
         (items[0] as unknown as Record<string, unknown>)[field],
         '',
         `${field} = ${String(bad)} must coerce, because the type says it is always present`
       );
-      assert.equal(coercedFieldCount, 1, `${field} = ${String(bad)} must be counted`);
     }
   }
 });
@@ -278,14 +257,13 @@ test('null in an OPTIONAL field is still left alone', () => {
   // The discriminating control for the split. A validator that coerced every
   // null/undefined would pass the test above while destroying the absent-vs-empty
   // distinction the optional fields depend on.
-  const { items, coercedFieldCount } = validateDurableScheduleRows([
+  const { items } = validateDurableScheduleRows([
     row({ label: null, eventKey: null, bowlName: undefined }),
   ]);
   const out = items[0] as unknown as Record<string, unknown>;
   assert.equal(out.label, null);
   assert.equal(out.eventKey, null);
   assert.equal(out.bowlName, undefined);
-  assert.equal(coercedFieldCount, 0);
 });
 
 test('a null homeTeam takes the existing drop path rather than the build down', () => {
@@ -304,15 +282,24 @@ test('a null homeTeam takes the existing drop path rather than the build down', 
   });
 });
 
-test('a NON-ARRAY items is handled, not thrown out of the boundary', () => {
-  // A regression this slice introduced: `for (const raw of items)` trusted
-  // `items?: T[]`, which is the same lie this module's header is about, and a stored
-  // `{a:1}` threw `items is not iterable` where it had previously returned an entry.
+test('a NON-ARRAY items is UNREADABLE, not an empty season', () => {
+  // v2 returned `0/0` here, which the boundary read as "measured, nothing wrong" — a fix
+  // that recreated the collapse it was added to fix. The verdict is what distinguishes a
+  // container that could not be read from a season that genuinely has no rows.
   for (const notAnArray of [{ a: 1 }, 'rows', 42, true]) {
     const result = validateDurableScheduleRows(notAnArray);
     assert.deepEqual(result.items, [], `${JSON.stringify(notAnArray)} yields no rows`);
-    assert.equal(result.droppedRowCount, 0, 'nothing was dropped — there was no array');
+    assert.equal(
+      result.unreadableContainer,
+      true,
+      `${JSON.stringify(notAnArray)} is unreadable, not empty`
+    );
   }
+
+  // The discriminating control: a genuinely empty array is NOT unreadable.
+  const empty = validateDurableScheduleRows([]);
+  assert.deepEqual(empty.items, []);
+  assert.equal(empty.unreadableContainer, false, 'an empty array is real absence');
 });
 
 test('the field lists cover every string-admitting field of the type', () => {
@@ -322,13 +309,12 @@ test('the field lists cover every string-admitting field of the type', () => {
   // `ProviderClassification` and `playoffRoundSource`'s union were never counted.
   // I measured the annotation, not the type.
   for (const field of ['homeClassification', 'awayClassification', 'playoffRoundSource']) {
-    const { items, coercedFieldCount } = validateDurableScheduleRows([row({ [field]: 7 })]);
+    const { items } = validateDurableScheduleRows([row({ [field]: 7 })]);
     assert.equal(
       (items[0] as unknown as Record<string, unknown>)[field],
       '',
       `${field} is string-typed and must be covered`
     );
-    assert.equal(coercedFieldCount, 1);
   }
 });
 

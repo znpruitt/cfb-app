@@ -340,7 +340,9 @@ test('the boundary returns COERCED rows and reports the count', async () => {
   assert.equal(first.homeTeam, '');
   assert.equal(first.status, '');
   assert.equal(first.eventKey, '');
-  assert.equal(entry!.coercedFieldCount, 4, 'each coerced field is counted, not each row');
+  // Coercion is asserted by the VALUES above, not by a count. v3 deleted the counts:
+  // they were a second, weaker record of a fact `buildScheduleFromApi` already
+  // publishes on `issues`, and no production consumer ever read them.
 
   // The well-formed row is untouched.
   const second = entry!.items[1] as unknown as Record<string, unknown>;
@@ -392,7 +394,6 @@ test('the partition-pair path validates too', async () => {
   const entry = await loadCanonicalScheduleEntry(YEAR);
   assert.equal(entry!.source, 'partition-pair');
   assert.equal((entry!.items[0] as unknown as Record<string, unknown>).homeTeam, '');
-  assert.equal(entry!.coercedFieldCount, 1);
 });
 
 test('all 13 consumers read through the boundary, and none reads around it', async () => {

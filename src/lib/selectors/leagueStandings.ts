@@ -9,6 +9,7 @@ import { parseOwnersCsv } from '../parseOwnersCsv.ts';
 import { getPreseasonOwners } from '../preseasonOwnerStore.ts';
 import type { AppGame } from '../schedule.ts';
 import { buildScheduleFromApi } from '../schedule.ts';
+import { discardedRowIssues, SeasonScheduleIncompleteError } from '../server/durableScheduleRow.ts';
 import {
   attachScoresToSchedule,
   buildScheduleIndex,
@@ -977,13 +978,30 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
   // fabricated snapshot would be indistinguishable from the valid no-schedule
   // state and would be persisted by the tag-only data cache, hiding the failure.
   // Let it propagate so the failure surfaces and nothing bogus is cached.
-  const { games } = buildScheduleFromApi({
+  const { games, issues } = buildScheduleFromApi({
     scheduleItems,
     teams,
     aliasMap,
     season: year,
     manualOverrides,
   });
+
+  // PLATFORM-813: REFUSE rather than cache an incomplete season.
+  //
+  // This cache is tag-only (`revalidate: false`), so a snapshot persists until a
+  // mutation busts its tag — which is exactly what AGENTS.md invariant 8 is about:
+  // "cache valid absence, never cache uncertainty". A standings snapshot built from a
+  // schedule whose rows were discarded IS uncertainty, and caching it would stick.
+  //
+  // Propagating is the mechanism, not merely the policy: `unstable_cache` never persists
+  // a rejected promise, so a throw surfaces and the next request recomputes, whereas a
+  // swallowed one caches a lie. The comment above already commits this function to
+  // letting build failures propagate for that reason; a discarded row is the same fact
+  // arriving on `issues` instead of as an exception.
+  const discardedRows = discardedRowIssues(issues);
+  if (discardedRows.length > 0) {
+    throw new SeasonScheduleIncompleteError(year, discardedRows);
+  }
 
   const providerNames = Array.from(
     new Set(

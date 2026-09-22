@@ -1,5 +1,6 @@
 import { getAppState } from './server/appStateStore.ts';
-import { loadCanonicalScheduleEntry } from './server/canonicalScheduleCache.ts';
+import { loadCachedScheduleItems } from './server/canonicalScheduleCache.ts';
+import { discardedRowIssues, SeasonScheduleIncompleteError } from './server/durableScheduleRow.ts';
 import { loadReconciledSeasonScoresByType } from './server/scoreCacheReader.ts';
 import { getScopedAliasMap } from './server/globalAliasStore.ts';
 import { getTeamDatabaseItems } from './server/teamDatabaseStore.ts';
@@ -61,25 +62,6 @@ function scoresCacheItemToNormalizedRow(
 }
 
 /** Typed absence: the full-season schedule cache is empty/missing for the year. */
-/**
- * The season is readable but INCOMPLETE — rows were discarded at the boundary.
- *
- * Distinct from `SeasonScheduleCacheUnavailableError`, which means nothing was
- * cached. Here the games are real; what cannot be supported is the claim that they
- * are ALL of them, and every consumer of this build presents them as exactly that.
- */
-export class SeasonScheduleIncompleteError extends Error {
-  constructor(
-    readonly year: number,
-    readonly droppedRows: number
-  ) {
-    super(
-      `season ${year}: ${droppedRows} durable schedule row(s) were unusable and discarded — refusing to build a season this build's consumers would record as complete`
-    );
-    this.name = 'SeasonScheduleIncompleteError';
-  }
-}
-
 export class SeasonScheduleCacheUnavailableError extends Error {
   constructor(year: number) {
     super(
@@ -115,27 +97,17 @@ export async function assembleSeasonScoredBuild(
   // which key serves, and the archive is the consumer where disagreeing is
   // durable — a wrong season gets written down rather than re-rendered.
   //
-  // PLATFORM-813: read the ENTRY, not the items, because this build is written down.
-  // `droppedRowCount` is the fact that separates "this season had 3,679 games" from
-  // "this season had 3,679 games and some were discarded on the way in" — and an
-  // archive is the consumer where the difference becomes permanent. A partial drop
-  // does not throw at the boundary (the season is still usable, and refusing it would
-  // restore the whole-build failure #813 exists to remove), so the refusal to record an
-  // unsupportable completeness belongs HERE, at the durable write.
-  const entry = await loadCanonicalScheduleEntry<ScheduleWireItem>(year);
-  const scheduleItems: ScheduleWireItem[] = entry?.items ?? [];
+  // PLATFORM-813 v3: the completeness check reads `issues` from the build BELOW, not a
+  // count from this read. v2 gated on `droppedRowCount`, which counts non-object rows —
+  // so the likelier corruption (an object row whose participant name is non-string,
+  // coerced to '' at the boundary and then discarded by `classifyScheduleRow`) passed the
+  // gate and this function recorded an incomplete season as complete. Both reviewers
+  // found that independently, and on `main` the same row threw, so v2 turned a loud
+  // failure into silent durable loss.
+  const scheduleItems: ScheduleWireItem[] = await loadCachedScheduleItems(year);
 
   if (scheduleItems.length === 0) {
     throw new SeasonScheduleCacheUnavailableError(year);
-  }
-
-  if ((entry?.droppedRowCount ?? 0) > 0) {
-    // Refusing is the honest answer rather than the cautious one: every consumer of
-    // this build — the season archive, the recap, analytics provenance — presents its
-    // games as the season's complete set, and none has anywhere to carry "except the
-    // ones we dropped". #693 binds: a reader that cannot say whether the season is
-    // complete reports that rather than assuming it.
-    throw new SeasonScheduleIncompleteError(year, entry!.droppedRowCount!);
   }
 
   // Load team database
@@ -158,13 +130,27 @@ export async function assembleSeasonScoredBuild(
     : {};
 
   // Build AppGame[] via the full schedule pipeline
-  const { games } = buildScheduleFromApi({
+  const { games, issues } = buildScheduleFromApi({
     scheduleItems,
     teams,
     aliasMap,
     season: year,
     manualOverrides,
   });
+
+  // REFUSE rather than record. Every consumer of this build presents its games as the
+  // season's complete set — the archive permanently, and it embeds the game-stat slate
+  // snapshot which independently asserts which games exist — and none has anywhere to
+  // carry "except the ones we dropped". #693 binds: a reader that cannot say whether the
+  // season is complete reports that rather than assuming it.
+  //
+  // The season-rollover cron already turns this into a recorded per-league error and
+  // skips `saveSeasonArchive` (`season-rollover/route.ts:292-301`), so the mechanism for
+  // refusing existed and simply never fired, because nothing threw.
+  const discarded = discardedRowIssues(issues);
+  if (discarded.length > 0) {
+    throw new SeasonScheduleIncompleteError(year, discarded);
+  }
 
   // Rebuild resolver with same observed names buildScheduleFromApi uses internally,
   // needed for score attachment (buildScheduleFromApi creates its own internal resolver)
