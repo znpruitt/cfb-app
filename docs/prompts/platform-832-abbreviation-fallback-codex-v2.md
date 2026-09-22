@@ -144,6 +144,62 @@ Client-safe matters now: the measurement runs in the browser and needs the looku
    pins that this slice moved none of them.
 10. **No threshold table, per-surface constant or font-weight assumption exists in the shipped code.**
    A test or a grep-backed assertion is fine; the point is that v1's shape cannot creep back.
+11. **The name box's width is not a function of the name it holds**, and a test proves it: the same
+    row renders the box at the same width with the abbreviation shown, the full name shown, and
+    both probes present. This is the invariant every item below is an instance of.
+12. **The record and owner suffixes survive.** A hydrated browser test measures each suffix's
+    rendered width as non-zero at the narrowest tier, and **it fails against `b2e4fba2`**, where the
+    measured suffix is 0px. That failure is the positive control; a suffix test that passes against
+    `b2e4fba2` is measuring something else.
+13. **No decision is made from a box that has not been laid out.** A zero-width box or probe — an
+    unmounted recap, a hidden ancestor, a collapsed container — leaves the label in its
+    conservative state, and the observer decides when real width arrives. At `0 ≥ 0` the
+    never-wider rule fires and upgrades to the full name; that is the premature-upgrade finding.
+14. **The browser gate observes the element that is actually visible**, and proves it can tell the
+    visible variant from the hidden one. The Overview probe in `b2e4fba2` selected the hidden
+    variant and passed; a gate that cannot distinguish the two is not a gate for this slice.
+
+## RE-DERIVATION, ruled 2026-09-21 — the LAYOUT MODEL, not the mechanism
+
+**The owner-ruled mechanism stands: the server abbreviates, the client measures and upgrades.** What
+failed in `b2e4fba2` is the layout the measurement runs inside, and planning read the commit rather
+than the report before ruling:
+
+| line in `b2e4fba2`'s `ScoreboardTeamName.tsx` | what it does | consequence |
+| --- | --- | --- |
+| `:107` | full name is `inline-block`, `invisible` when not shown | `visibility: hidden` keeps it **in layout flow** at full width, always |
+| `:116` | abbreviation is `absolute left-0 top-0` | **out of flow**, overlaid — occupies no space |
+| `:97` | box is `shrink-0 overflow-visible` | sized by its in-flow content, refuses to shrink, lets overflow escape |
+| `:68` | `box.getBoundingClientRect().width` | measures a box **whose width the full name set** |
+
+**The in-flow and out-of-flow roles are inverted, and that makes the predicate circular.** The box
+is always full-name-wide, so abbreviating frees no space; `shrink-0` means the suffixes give way
+instead, which is the 0px measurement; `overflow-visible` is the escape; and `:68` asks "does the full
+name fit a box the full name sized?", which is true by construction.
+
+**This is v1's class in a new costume**, and the lane was right to call it a re-derivation rather
+than a patch. v1 measured a population narrower than its claim. `b2e4fba2` measures a quantity its own
+apparatus produced. **Both are the measurement not being of the thing the rule is about.**
+
+**Two constraints to build from, stated as requirements rather than a design:**
+
+- **Exactly one visual variant is in layout flow — the one being shown.** The other is not rendered,
+  or is out of flow. The receipt's design put the PROBES out of flow; `b2e4fba2` put the full-name
+  VISUAL VARIANT in flow, and that is the entire defect.
+- **The box sizes from the row, not from its content.** Remaining space after the suffixes — a basis
+  independent of the text — and it contains its overflow rather than emitting it. Acceptance 5 asked
+  what happens on overflow; "it escapes the row" is now ruled out.
+
+**On the review evidence, because it shapes what counts as done here.** Two Codex runs came back
+clean without taking a layout measurement, and every gate passed. **A reviewer that cannot observe
+layout returns clean on a layout defect exactly as it would on a correct build** — that is the
+observer-without-a-positive-control shape, and it is why acceptance 12 must fail against `b2e4fba2`.
+For this slice, a clean code-reading review is not evidence of layout correctness; the hydrated
+browser gate is, once acceptance 14 proves it looks at the right element.
+
+**Correct the closeout's bundle claim with a measurement.** The report found the abbreviation
+artifact is in the shared client scoreboard path, not recap-only. Measure what it adds to the client
+bundle on a league page from the build output and state it; do not estimate it.
 
 ## Testing requirements, which are not negotiable on this project
 

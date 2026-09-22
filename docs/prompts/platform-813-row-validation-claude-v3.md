@@ -7,8 +7,9 @@ PURPOSE: v2's boundary coercion is right and stays. Its REPORTING is wrong: it i
          into a silent discard in the durable path. Delete the parallel channel, read the existing
          one, and cover the consumer that bypasses the boundary entirely.
 SCOPE:   src/lib/server/canonicalScheduleCache.ts, src/lib/seasonBuild.ts,
-         src/app/league/[slug]/draft/board/boardData.ts (the bypass), the durable writers the
-         receipt identifies, and their tests. DO NOT re-litigate WHERE validation happens — the
+         src/app/league/[slug]/draft/board/boardData.ts and src/app/league/[slug]/draft/page.tsx
+         (the row-consuming bypasses, ruled in scope 2026-09-21), the durable writers the receipt
+         identifies, and their tests. DO NOT re-litigate WHERE validation happens — the
          boundary is settled and uncontested by both reviewers across two rounds. DO NOT change the
          aggregate-only contract, AGENTS.md or DESIGN.md (planning owns both; report what your diff
          falsifies).
@@ -76,12 +77,127 @@ directly** and feeds the raw items into `buildScheduleFromApi` at `:26`, bypassi
 `loadCachedScheduleItems` entirely. It is the spectator **draft board** — member-facing, and a
 corrupted row renders a wrong board during a live draft.
 
-**Owner decision 2026-09-21: it moves onto the canonical reader.** One read changes; the boundary
-then covers 14 of 14. This touches a draft surface, so state in the receipt what else that file's
-behaviour depends on before changing it — `:7-14`'s comment explains why it reads the way it does
-and whether that reason survives is receipt item 4.
+**Owner decision 2026-09-21: it moves onto the canonical reader.** This touches a draft surface, so
+state in the receipt what else that file's behaviour depends on before changing it — `:7-14`'s
+comment explains why it reads the way it does, and the v3 receipt established that the reason is
+about ALIAS RESOLUTION, not about the read, so it survives the move. **Two behaviours do change: the
+partition-pair fallback becomes available to the board, and "returns `[]` when no schedule is
+cached" becomes conditional.** Both belong in the closeout.
 
-`scheduleDisappearanceBaseline.ts:53-54` stays out, as in v2 — it bypasses deliberately and says why.
+**This paragraph originally said the boundary would then cover "14 of 14". It does not — see the
+ruling below.**
+
+`scheduleDisappearanceBaseline.ts` stays out, as in v2 — it bypasses deliberately and says why at
+`:28-45` (the prompt previously cited `:53-54`, which are the partition reads, not the justification).
+
+**RULED 2026-09-21 from the v3 receipt — and "14 of 14" was wrong, which is the SECOND premise error
+in this prompt family. Both were mine, and both were a count of what I had looked at presented as a
+count of what exists.**
+
+1. **`draft/page.tsx:69` and `:105` are IN SCOPE.** Both read the durable key directly and feed
+   `resolveDraftScheduleGames`, so they are row consumers on the **same member-facing draft surface**
+   as `boardData`. Fixing the board and leaving the page beside it is fixing one instance of a class,
+   which is precisely what failed in v1 and again in v2. **`:105` reads `year - 1`, so the fix covers
+   two years** — state what an unreadable prior season does to the page.
+2. **`providerDataDiagnostics:391`/`:483` are FILED, not fixed, and the reason is a real design
+   question rather than scope management.** That module exists to REPORT on provider data health. A
+   diagnostic reading through a sanitizing boundary may hide the very corruption it was built to
+   surface. Decide it on its own terms, with its own measurement; do not fold it in here.
+3. **Do not restate a coverage count you have not enumerated.** The closeout states the final
+   enumeration with its own derivation. Planning has now published a wrong one twice in this family
+   ("13 consumers, validating once covers all", then "14 of 14"), both times by counting the reads
+   in hand rather than the reads that exist.
+
+**Per-writer dispositions, ruled:**
+
+- **Archive — REFUSE**, as the receipt proposes. The cron's existing `catch` records a per-league
+  error and skips the write, the loop continues, and the archive has nowhere to carry "except the
+  ones we dropped". No new plumbing.
+- **`leagueStandings` — REFUSE, by propagating.** Invariant 8 is binding and `revalidate: false` is
+  exactly its subject: a swallowed error caches a lie that persists until a tag bust, while a
+  propagated one is never persisted and the next request recomputes. **The decisive practical point
+  is that this state is unreachable in production**, so strictness costs approximately nothing and
+  silence costs correctness permanently. **If the standings surface has no shaped error state, stop
+  and report before building one** — that is UI work under `DESIGN.md`, which planning owns.
+- **Recap and `analyticsProvenance` — RECORD, do not refuse**, as proposed.
+- **Draft board and draft page — PROPAGATE.** An empty board with no notice asserts "no games",
+  which is false and is the collapse this slice exists to remove. A notice is a better answer and it
+  is `DESIGN.md` UI work on a draft surface; it is filed, not built here.
+
+  **CORRECTED 2026-09-21 at v3 round 1 — this ruling was made without reading the page callers, and
+  it is moot.** `draft/board/page.tsx:61-65` and `draft/page.tsx:84` wrap the load in a bare `catch`
+  that renders empty, and both date from `336050f99` (2026-04-03), long before this slice. So on
+  `main` a corrupted schedule ALREADY rendered as an empty board, the loader's throw never reaches a
+  member, and this slice did not regress the draft pages. Making the pages propagate would change
+  `main`'s behaviour on a draft surface; that is #844's decision, not this slice's. **Fourth time on
+  this slice planning ruled from the fact in hand without checking the one beside it.**
+
+**`/api/schedule` — shaped 503**, matching `route.ts:360`. An opaque Next 500 with no body is
+inconsistent with every other failure this route returns and tells a caller nothing about whether to
+retry.
+
+## ROUND 1, ruled 2026-09-21 — four findings, and the premise of this prompt covered one loss site in three
+
+**"The channel already exists — this is the whole slice" was wrong, and it was planning's.** Planning
+verified that `issues` exists and that one path writes `invalid-schedule-row`, and concluded it was
+THE record of row loss. It records one of three places a row is lost:
+
+| loss site | writes an issue? | seen by v3's gate |
+| --- | --- | --- |
+| regular-season row, blanked participant → `classifyScheduleRow` | yes | yes |
+| non-object row dropped at the boundary (`durableScheduleRow.ts:197`) | no | **no — F1** |
+| postseason / conference-championship row, blanked participant → placeholder | no | **no — F2** |
+
+v2's count caught the second and missed the first; v3 has the opposite gap. **Both versions were
+built from a list of loss sites, and both lists were incomplete.**
+
+**F1 was hidden by a comment.** The `continue` at `durableScheduleRow.ts:197` carries a comment saying
+the dropped row is *"counted separately, because a discarded row changes the season's content."*
+**Nothing counts it** — that comment describes `droppedRowCount`, which v3 deleted, and it survived
+the deletion still asserting the loss is recorded. A diff that falsifies a comment owns it.
+
+**Ruled on F1 + F2: the boundary reports what it destroys, and the durable writers refuse on it.**
+This is NOT the parallel counts returning. v3 deleted those because they were a second record of a
+fact the codebase already computed. **These are facts the codebase computes nowhere else**: an F1 row
+never reaches `classifyScheduleRow`, an F2 row bypasses it, and after the build a coerced postseason
+participant is **indistinguishable from a legitimate TBD slot**. The boundary is the only code that
+knows a non-string was coerced rather than an empty string sent by the provider. Discarding that fact
+at the boundary is the defect. Planning's preference, not a requirement: normalise the boundary's
+reports into the same list the writers already read, so a durable writer's refusal checks ONE thing
+and the next loss site has one place to report to.
+
+**THE TEST IS BUILT FROM THE INPUT SPACE, NOT FROM A LIST OF LOSS SITES.** This is the requirement
+that matters most, because it is what both versions lacked. `AGENTS.md` already states it: *"An
+invariant over a space must be tested over the space, not over chosen representatives."* The
+invariant: **no corrupted durable row produces an archive or a standings snapshot that reads as
+complete.** The space: every row kind (regular, conference championship, postseason) × every
+required field made non-string, plus a non-object row. The oracle: the durable output's game set
+against the uncorrupted baseline's — if they differ and the writer did not refuse, the test fails.
+**A matrix finds a loss site nobody listed; a list of tests inherits the list's gaps.** The four tests
+the round-1 report proposes are representatives; keep them, and add the matrix.
+
+**Which fields trigger refusal is DETERMINED by the matrix, not declared up front.** The round-1 report
+scopes refusal to coerced *participant* fields. Include every required field in the space and let the
+outcome decide. A candidate the participant scoping would miss: **`id`.** Postseason games take
+`key: id, eventId: id` (`schedule.ts:693`) and the `eventKey` fallback is `${week}-${id}` (`:413`), so
+two rows with a coerced `id` may share a key. **Planning did not trace whether anything downstream
+merges games by key — this is unverified, which is exactly why the matrix and not planning decides
+it.**
+
+**F3 — move the refusal to the archive writer.** That is what this prompt ruled (*"Recap and
+`analyticsProvenance` — RECORD, do not refuse"*); the implementation put it in the shared build,
+which made recap and provenance refuse too, contradicting both the ruling and its own commit message.
+Standings keeps its own refusal under invariant 8. **Provenance must report the actual cause, not
+`build-failed`.**
+
+**F4 — fix the comment, not the behaviour.** See the correction under the draft ruling above: the
+pages have caught and rendered empty since 2026-04-03, so the comment's "throws rather than rendering
+as 'no games'" is true of the loader and false of every page a member sees. Say what is true. The
+notice is #844.
+
+**Round accounting.** This is v3's one cohesive remediation round (`AGENTS.md` step 4). Then both
+reviewers run against the remediated commit. A second remediation round requires explicit owner
+approval, and only for a narrow defect directly caused by this one (step 6).
 
 ## Acceptance
 
