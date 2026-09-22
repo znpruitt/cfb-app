@@ -11,6 +11,7 @@ import {
   canonicalScheduleAggregateServes,
   canonicalSchedulePartitionKeys,
   loadCachedScheduleItems,
+  loadCanonicalScheduleForBuild,
   loadCanonicalScheduleEntry,
 } from '../canonicalScheduleCache.ts';
 
@@ -282,27 +283,11 @@ test('an EMPTY partition record is a miss, so it cannot become a 200 with zero r
 });
 
 // ---------------------------------------------------------------------------
-// PLATFORM-813 v2 — the boundary validates, and all 13 consumers inherit it.
+// PLATFORM-813 — the boundary validates, and reports what it destroyed. Which files read
+// around it is enumerated in `scheduleReadEnumeration.test.ts`, not listed here.
 // ---------------------------------------------------------------------------
 
-/** The 13 production consumers of the canonical reader, as audited on `main`. */
-const CANONICAL_CONSUMERS = [
-  'lib/seasonBuild.ts',
-  'app/api/scores/route.ts',
-  'app/api/admin/cache-historical-scores/route.ts',
-  'app/api/cron/polling-planner/route.ts',
-  'lib/insights/loadInsights.ts',
-  'lib/schedule/nationalChampionshipRollover.ts',
-  'lib/gameStats/canonicalSlate.ts',
-  'lib/server/teamRecordsClient.ts',
-  'lib/server/providerDataDiagnostics.ts',
-  'lib/odds/canonicalOddsContext.ts',
-  'lib/odds/oddsRefreshExecutor.ts',
-  'lib/liveScores/canonicalContext.ts',
-  'lib/selectors/leagueStandings.ts',
-] as const;
-
-test('the boundary returns COERCED rows and reports the count', async () => {
+test('the boundary returns COERCED rows and reports the ones that change the season', async () => {
   await setAppState('schedule', '2031-all-all', {
     at: 500,
     // Every REQUIRED field is present on both rows, so the count below is exactly the
@@ -340,9 +325,15 @@ test('the boundary returns COERCED rows and reports the count', async () => {
   assert.equal(first.homeTeam, '');
   assert.equal(first.status, '');
   assert.equal(first.eventKey, '');
-  // Coercion is asserted by the VALUES above, not by a count. v3 deleted the counts:
-  // they were a second, weaker record of a fact `buildScheduleFromApi` already
-  // publishes on `issues`, and no production consumer ever read them.
+  // Coercion is asserted by the VALUES above. What the boundary REPORTS is asserted by
+  // content: all four coerced fields are in `LOSSY_COERCIONS`, so all four are reported,
+  // each naming the row by position because its id is one of the broken fields.
+  assert.deepEqual(entry!.boundaryIssues, [
+    "invalid-schedule-row: durable row #0 field id held number, coerced to '' at the read boundary",
+    "invalid-schedule-row: durable row #0 field homeTeam held number, coerced to '' at the read boundary",
+    "invalid-schedule-row: durable row #0 field status held boolean, coerced to '' at the read boundary",
+    "invalid-schedule-row: durable row #0 field eventKey held object, coerced to '' at the read boundary",
+  ]);
 
   // The well-formed row is untouched.
   const second = entry!.items[1] as unknown as Record<string, unknown>;
@@ -350,8 +341,8 @@ test('the boundary returns COERCED rows and reports the count', async () => {
 });
 
 test('the item-only projection inherits the validation', async () => {
-  // `loadCachedScheduleItems` is what 13 consumers call. If it bypassed the entry
-  // reader, every one of them would see raw rows while the route saw validated ones.
+  // `loadCachedScheduleItems` is what the rendering consumers call. If it bypassed the
+  // entry reader, every one of them would see raw rows while the route saw validated ones.
   await setAppState('schedule', '2031-all-all', {
     at: 500,
     items: [
@@ -394,47 +385,66 @@ test('the partition-pair path validates too', async () => {
   const entry = await loadCanonicalScheduleEntry(YEAR);
   assert.equal(entry!.source, 'partition-pair');
   assert.equal((entry!.items[0] as unknown as Record<string, unknown>).homeTeam, '');
+  // The pair path builds its entry inline, so it is the second place `boundaryIssues`
+  // could be forgotten — which would make a legacy store's losses invisible to every
+  // durable writer while the aggregate path reported them.
+  assert.deepEqual(entry!.boundaryIssues, [
+    "invalid-schedule-row: durable row 'p1' field homeTeam held number, coerced to '' at the read boundary",
+  ]);
 });
 
-test('all 13 consumers read through the boundary, and none reads around it', async () => {
-  // ACCEPTANCE 3. This fails if a consumer starts reading the durable key directly —
-  // which is how it would silently opt out of validation while the boundary's tests
-  // stayed green.
-  //
-  // POPULATION: the 13 files listed above, resolved under `src/`. That is the claim's
-  // population and it is stated because a sweep's root is part of its result — v1's
-  // non-FBS sweep rooted at `src/lib` and read identically to one rooted correctly.
-  const { readFile } = await import('node:fs/promises');
-  const path = await import('node:path');
-  const { fileURLToPath } = await import('node:url');
-  // This file lives at `src/lib/server/__tests__/`, so `src` is THREE levels up. The
-  // count is asserted rather than trusted: v1's non-FBS sweep rooted at `src/lib`
-  // believing it was at `src`, and I repeated the error here before this assertion
-  // caught it. A sweep's root is part of its result.
-  const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-  assert.equal(path.basename(src), 'src', `the sweep root must be src/, got ${src}`);
+test('the durable-writer projection carries the rows AND what the boundary destroyed', async () => {
+  // F1: a non-object row beside real ones. It never reaches `buildScheduleFromApi`, so
+  // this projection is the only way a durable writer can learn it existed.
+  await setAppState('schedule', '2031-all-all', {
+    at: 500,
+    items: [
+      {
+        id: 'g1',
+        week: 1,
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        homeConference: 'SEC',
+        awayConference: 'AAC',
+        status: 'final',
+      },
+      null,
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  const { items, boundaryIssues } = await loadCanonicalScheduleForBuild(YEAR);
+  assert.equal(items.length, 1, 'the surviving row is served');
+  assert.deepEqual(boundaryIssues, [
+    'invalid-schedule-row: durable row #1 is null, not an object — dropped at the read boundary',
+  ]);
+  // The rendering projection serves the same survivor and says nothing, by design.
+  assert.equal((await loadCachedScheduleItems(YEAR)).length, 1);
+});
 
-  const missing: string[] = [];
-  for (const rel of CANONICAL_CONSUMERS) {
-    const text = await readFile(path.join(src, rel), 'utf8');
-    if (!text.includes('loadCachedScheduleItems')) missing.push(rel);
-  }
+test('a clean read reports nothing — the control for both reports above', async () => {
+  await setAppState('schedule', '2031-all-all', {
+    at: 500,
+    items: [
+      {
+        id: 'g1',
+        week: 1,
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        homeConference: 'SEC',
+        awayConference: 'AAC',
+        status: 'final',
+        label: 99,
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  const { items, boundaryIssues } = await loadCanonicalScheduleForBuild(YEAR);
+  assert.equal((items[0] as unknown as Record<string, unknown>).label, '', 'label IS coerced');
   assert.deepEqual(
-    missing,
+    boundaryIssues,
     [],
-    `these consumers no longer read through the canonical boundary: ${missing.join(', ')}`
-  );
-
-  // POSITIVE CONTROL for the check itself: a path that does NOT go through the
-  // boundary must be detected as such, or the assertion above could pass by matching
-  // everything. `scheduleDisappearanceBaseline` deliberately bypasses the reader.
-  const bypass = await readFile(
-    path.join(src, 'lib/schedule/scheduleDisappearanceBaseline.ts'),
-    'utf8'
-  );
-  assert.equal(
-    bypass.includes('loadCachedScheduleItems('),
-    false,
-    'the known bypass must read as a bypass, proving this check can tell the difference'
+    'a coercion outside LOSSY_COERCIONS changes only what a game displays, so it is not reported'
   );
 });

@@ -1,5 +1,6 @@
 import { assembleSeasonScoredBuild, SeasonScheduleCacheUnavailableError } from '../seasonBuild.ts';
 import type { ScorePack } from '../scores.ts';
+import { SeasonScheduleUnreadableError } from '../server/canonicalScheduleCache.ts';
 import type { SeasonArchive } from '../seasonArchive.ts';
 import type { TeamCatalogItem } from '../teamIdentity.ts';
 import type { AliasMap } from '../teamNames.ts';
@@ -32,6 +33,7 @@ import { parseGameStatSlateSnapshot, snapshotToCanonicalSlate } from './slateSna
 
 export type AnalyticsProvenanceUnavailableReason =
   | 'schedule-cache-unavailable'
+  | 'schedule-cache-unreadable'
   | 'build-failed'
   | 'slate-derivation-failed'
   | 'archive-slate-missing'
@@ -74,13 +76,15 @@ export async function assembleLiveAnalyticsProvenance(params: {
   try {
     build = await assembleSeasonScoredBuild(leagueSlug, year);
   } catch (error) {
-    return {
-      status: 'unavailable',
-      reason:
-        error instanceof SeasonScheduleCacheUnavailableError
-          ? 'schedule-cache-unavailable'
-          : 'build-failed',
-    };
+    // Name the ACTUAL cause (PLATFORM-813). A stored schedule the boundary could not read
+    // as rows is not a build failure, and reporting it as one sends an operator to the
+    // wrong layer. Rows the boundary or the build DISCARDED do not arrive here at all:
+    // provenance is ruled to render the surviving games, and only the archive writer
+    // refuses on `build.issues`.
+    let reason: AnalyticsProvenanceUnavailableReason = 'build-failed';
+    if (error instanceof SeasonScheduleCacheUnavailableError) reason = 'schedule-cache-unavailable';
+    else if (error instanceof SeasonScheduleUnreadableError) reason = 'schedule-cache-unreadable';
+    return { status: 'unavailable', reason };
   }
 
   try {

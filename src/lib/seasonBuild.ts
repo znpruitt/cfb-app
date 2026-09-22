@@ -1,6 +1,5 @@
 import { getAppState } from './server/appStateStore.ts';
-import { loadCachedScheduleItems } from './server/canonicalScheduleCache.ts';
-import { discardedRowIssues, SeasonScheduleIncompleteError } from './server/durableScheduleRow.ts';
+import { loadCanonicalScheduleForBuild } from './server/canonicalScheduleCache.ts';
 import { loadReconciledSeasonScoresByType } from './server/scoreCacheReader.ts';
 import { getScopedAliasMap } from './server/globalAliasStore.ts';
 import { getTeamDatabaseItems } from './server/teamDatabaseStore.ts';
@@ -80,6 +79,18 @@ export type SeasonScoredBuild = {
   games: AppGame[];
   /** Reconciled scores attached to that same build's keys. */
   scoresByKey: Record<string, ScorePack>;
+  /**
+   * The ONE build's `issues`, seeded with what the durable read boundary destroyed
+   * (PLATFORM-813). Rows lost anywhere — dropped at the boundary, coerced in a way that
+   * changes the season, or discarded by the build — appear here as
+   * `invalid-schedule-row:`, read by `discardedRowIssues`.
+   *
+   * RETURNED, NOT ACTED ON. What a discard means is the consumer's decision: the archive
+   * refuses (`buildSeasonArchive`), while recap and analytics provenance render the
+   * surviving games. v3 refused HERE, inside the shared build, which made all three
+   * refuse — contradicting both the ruling and the commit message that described it.
+   */
+  issues: string[];
 };
 
 /**
@@ -97,14 +108,13 @@ export async function assembleSeasonScoredBuild(
   // which key serves, and the archive is the consumer where disagreeing is
   // durable — a wrong season gets written down rather than re-rendered.
   //
-  // PLATFORM-813 v3: the completeness check reads `issues` from the build BELOW, not a
-  // count from this read. v2 gated on `droppedRowCount`, which counts non-object rows —
-  // so the likelier corruption (an object row whose participant name is non-string,
-  // coerced to '' at the boundary and then discarded by `classifyScheduleRow`) passed the
-  // gate and this function recorded an incomplete season as complete. Both reviewers
-  // found that independently, and on `main` the same row threw, so v2 turned a loud
-  // failure into silent durable loss.
-  const scheduleItems: ScheduleWireItem[] = await loadCachedScheduleItems(year);
+  // PLATFORM-813: the read's `boundaryIssues` are seeded into the build below, so the
+  // returned `issues` is ONE list of every row lost anywhere. Neither half is enough on
+  // its own: v2 read only the boundary (a count of non-object rows) and missed rows the
+  // build discards; v3 read only the build and missed rows the boundary dropped or
+  // blanked — a blanked postseason participant is a TBD slot by the time the build sees
+  // it, and a dropped row never arrives.
+  const { items: scheduleItems, boundaryIssues } = await loadCanonicalScheduleForBuild(year);
 
   if (scheduleItems.length === 0) {
     throw new SeasonScheduleCacheUnavailableError(year);
@@ -136,21 +146,8 @@ export async function assembleSeasonScoredBuild(
     aliasMap,
     season: year,
     manualOverrides,
+    boundaryIssues,
   });
-
-  // REFUSE rather than record. Every consumer of this build presents its games as the
-  // season's complete set — the archive permanently, and it embeds the game-stat slate
-  // snapshot which independently asserts which games exist — and none has anywhere to
-  // carry "except the ones we dropped". #693 binds: a reader that cannot say whether the
-  // season is complete reports that rather than assuming it.
-  //
-  // The season-rollover cron already turns this into a recorded per-league error and
-  // skips `saveSeasonArchive` (`season-rollover/route.ts:292-301`), so the mechanism for
-  // refusing existed and simply never fired, because nothing threw.
-  const discarded = discardedRowIssues(issues);
-  if (discarded.length > 0) {
-    throw new SeasonScheduleIncompleteError(year, discarded);
-  }
 
   // Rebuild resolver with same observed names buildScheduleFromApi uses internally,
   // needed for score attachment (buildScheduleFromApi creates its own internal resolver)
@@ -188,5 +185,6 @@ export async function assembleSeasonScoredBuild(
     aliasMap,
     games,
     scoresByKey: scoresByKey as Record<string, ScorePack>,
+    issues,
   };
 }

@@ -25,14 +25,20 @@ import type { ScheduleWireItem } from '../schedule.ts';
  *
  * **COERCION, NOT DROPPING, AND THE DROP STAYS WHERE IT ALREADY IS.** A non-string
  * becomes `''`, which reproduces exactly what v1's per-field guards did, so no
- * consumer sees new semantics. A row whose participant names coerce to empty is then
- * dropped by the rule that ALREADY drops nameless rows — `looksEmptyRow` →
- * `invalid_row` in `classifyScheduleRow` — rather than by a new rule invented at the
- * boundary. Dropping here would silently change standings, and #693 binds: a reader
- * that cannot say whether the season is complete reports that rather than assuming.
+ * consumer sees new semantics. A REGULAR row whose participant names coerce to empty is
+ * then dropped by the rule that already drops nameless rows (`looksEmptyRow` →
+ * `invalid_row` in `classifyScheduleRow`). **A postseason or conference-championship row
+ * is not**: it bypasses `classifyScheduleRow` and becomes a TBD placeholder, which is
+ * indistinguishable from a real one afterwards. That is why the boundary REPORTS what it
+ * coerces or drops (`LOSSY_COERCIONS`, `issues`) — this comment used to say the existing
+ * drop covered every coerced participant, and it covered one row kind in three. #693
+ * binds: a writer that cannot say whether the season is complete reports that rather
+ * than assuming.
  *
- * Asserted by `durableScheduleRow.test.ts` (per field, all ten) and by
- * `canonicalScheduleCache.test.ts` (the boundary returns them coerced and counts).
+ * Asserted by `durableScheduleRow.test.ts` (per field, all ten), by
+ * `canonicalScheduleCache.test.ts` (the boundary returns them coerced), and by
+ * `durableRowCorruptionMatrix.test.ts` (no corrupted row reaches a durable writer's
+ * output unreported).
  */
 
 /**
@@ -70,9 +76,11 @@ const REQUIRED_STRING_FIELDS = [
  * produced the prompt's original six: a sweep measuring its own syntax rather than the
  * thing it is about. Third instance in this campaign.
  *
- * Now: 22 of the type's 35 fields admit a string. Six are required (above), `venue` is
- * handled separately because an object is legitimate there, and the remaining 15 are
- * here.
+ * **And the corrected figure was then wrong too:** it read "22 … the remaining 15 are
+ * here" above a list of sixteen. So this comment no longer carries a count at all. What
+ * it claims is structural: every string-admitting field of `ScheduleWireItem` is in
+ * `REQUIRED_STRING_FIELDS`, in this list, or is `venue` (handled separately because an
+ * object is legitimate there).
  */
 const OPTIONAL_STRING_FIELDS = [
   'startDate',
@@ -93,6 +101,38 @@ const OPTIONAL_STRING_FIELDS = [
   'playoffRoundSource',
 ] as const satisfies ReadonlyArray<keyof ScheduleWireItem>;
 
+/**
+ * Fields whose coercion CHANGES what a durable writer records, so the boundary reports
+ * it and the archive and standings refuse.
+ *
+ * **MEASURED, NOT DECLARED.** Found by running every row kind × every string field ×
+ * a non-string value through the real build with no refusal, and comparing each
+ * game's identity (key, stage, week, participants, placeholder, status), its attached
+ * score, and the standings against the uncorrupted season:
+ *   - `homeTeam` / `awayTeam` — the game is dropped (regular) or becomes a TBD
+ *     placeholder (postseason, conference championship), and its result is lost.
+ *   - `status` — a final regular or championship game records as `matchup_set`.
+ *   - `id` — a conference championship's score no longer attaches, so its result is
+ *     lost. (Regular and postseason scores re-attach by teams. Planning suspected a
+ *     key collision here; the matrix found no collision and this instead.)
+ *   - `seasonType` — a postseason game moves to the wrong timeline week.
+ *   - `eventKey` — a postseason game's key changes, so anything keyed on it (overrides,
+ *     odds, the archive) stops matching. OPTIONAL fields, both; a list of required
+ *     fields would never have held them.
+ * Coercing the rest — conferences, labels, bowl names, subtypes — changes what a game
+ * DISPLAYS, not which game it is or how it ended, so those are repaired silently.
+ * `durableRowCorruptionMatrix.test.ts` fails if any field outside this set changes a
+ * durable writer's output unreported.
+ */
+const LOSSY_COERCIONS: ReadonlySet<keyof ScheduleWireItem> = new Set<keyof ScheduleWireItem>([
+  'id',
+  'homeTeam',
+  'awayTeam',
+  'status',
+  'seasonType',
+  'eventKey',
+]);
+
 /** The ten fields a reader actually calls a string method on — the audited surface. */
 export const METHOD_CALLED_FIELDS = [
   'homeTeam',
@@ -109,6 +149,21 @@ export const METHOD_CALLED_FIELDS = [
 
 export type DurableRowValidation = {
   items: ScheduleWireItem[];
+  /**
+   * What the boundary DESTROYED, in the vocabulary `buildScheduleFromApi` already uses
+   * for a discarded row (`invalid-schedule-row: <reason>`), so a durable writer seeds
+   * these into the build's own `issues` and checks ONE list.
+   *
+   * PLATFORM-813 v3 round 1: these are facts no other code computes. A non-object row
+   * never reaches `classifyScheduleRow`; a postseason or conference-championship row
+   * bypasses it; and after the build, a coerced postseason participant is
+   * indistinguishable from a legitimate TBD slot. Only this function knows a non-string
+   * was coerced rather than an empty string the provider sent — discarding that fact
+   * here was the defect. **Which coercions are reported is not a declared list:** it is
+   * the set the input-space matrix (`durableRowCorruptionMatrix.test.ts`) shows changing
+   * a durable writer's output.
+   */
+  issues: string[];
   /**
    * The container could not be read as a list of rows at all.
    *
@@ -130,18 +185,22 @@ export type DurableRowValidation = {
   unreadableContainer: boolean;
 };
 
-/** The prefix `buildScheduleFromApi` uses when it discards a row it could not classify. */
+/**
+ * The prefix for a row that was lost or corrupted in a way that changes the season —
+ * written by `buildScheduleFromApi` when it discards a row it cannot classify, and by
+ * this module's boundary for what only the boundary can see.
+ */
 export const INVALID_ROW_ISSUE_PREFIX = 'invalid-schedule-row:';
 
 /**
- * The rows a completed build DISCARDED, read from the channel that already records
- * them.
+ * Every lost or corrupted row a completed build knows about, read from ONE list.
  *
- * `buildScheduleFromApi` pushes `invalid-schedule-row: <reason>` per dropped row and
- * returns them on `issues`. That is strictly more information than a count — it says
- * WHY — and it is computed on the build that actually happened rather than inferred
- * from the read that preceded it. v2 invented a parallel count and then pointed the
- * deciding consumer at the wrong one; this reads the real one.
+ * `buildScheduleFromApi` pushes `invalid-schedule-row: <reason>` per row it discards and
+ * returns them on `issues`. **That records one of the three places a row is lost** —
+ * v3 treated it as the whole record, which was round 1's F1 and F2. The boundary's
+ * reports (a dropped non-object row; a coercion in `LOSSY_COERCIONS`) are therefore
+ * SEEDED into the same list through `buildScheduleFromApi`'s `boundaryIssues`, so a
+ * durable writer checks one thing and the next loss site has one place to report to.
  */
 export function discardedRowIssues(issues: readonly string[]): string[] {
   return issues.filter((issue) => issue.startsWith(INVALID_ROW_ISSUE_PREFIX));
@@ -172,7 +231,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Coerce every non-string value in a string-typed field to `''`, counting each one.
+ * Coerce every non-string value in a string-typed field to `''`, and REPORT each one that
+ * changes what a durable writer records (`LOSSY_COERCIONS`) along with every dropped row.
  *
  * `undefined` and `null` are left ALONE. They are legitimate values for the optional
  * fields, every consumer already handles them (`?.` and `?? ''` do work for absence),
@@ -188,17 +248,24 @@ export function validateDurableScheduleRows(items: unknown): DurableRowValidatio
   if (!Array.isArray(items)) {
     // UNREADABLE, not empty. v2 returned `0/0` here, which `assertReadable` then read
     // as "measured, nothing wrong" — a fix that recreated the collapse it fixed.
-    return { items: [], unreadableContainer: true };
+    return { items: [], unreadableContainer: true, issues: [] };
   }
 
   const out: ScheduleWireItem[] = [];
+  const issues: string[] = [];
 
-  for (const raw of items) {
+  items.forEach((raw, index) => {
     if (!isPlainObject(raw)) {
       // A non-object row cannot be repaired into one, so it is DROPPED rather than
-      // coerced — there is nothing to coerce — and counted separately, because a
-      // discarded row changes the season's content while a repaired field does not.
-      continue;
+      // coerced — there is nothing to coerce — and REPORTED, because nothing downstream
+      // can: the row never reaches `buildScheduleFromApi`, so its `issues` cannot carry
+      // it. This comment used to say the drop was "counted separately"; it described
+      // `droppedRowCount`, which v3 deleted, and it survived the deletion still claiming
+      // the loss was recorded. That false comment is why F1 was not seen.
+      issues.push(
+        `${INVALID_ROW_ISSUE_PREFIX} durable row #${index} is ${describe(raw)}, not an object — dropped at the read boundary`
+      );
+      return;
     }
 
     let next: Record<string, unknown> | null = null;
@@ -208,6 +275,11 @@ export function validateDurableScheduleRows(items: unknown): DurableRowValidatio
     // on a number.
     for (const field of REQUIRED_STRING_FIELDS) {
       if (typeof raw[field] === 'string') continue;
+      if (LOSSY_COERCIONS.has(field)) {
+        issues.push(
+          `${INVALID_ROW_ISSUE_PREFIX} durable row ${rowLabel(raw, index)} field ${field} held ${describe(raw[field])}, coerced to '' at the read boundary`
+        );
+      }
       if (!next) next = { ...raw };
       next[field] = '';
     }
@@ -218,6 +290,11 @@ export function validateDurableScheduleRows(items: unknown): DurableRowValidatio
       const value = raw[field];
       if (value === undefined || value === null) continue;
       if (typeof value === 'string') continue;
+      if (LOSSY_COERCIONS.has(field)) {
+        issues.push(
+          `${INVALID_ROW_ISSUE_PREFIX} durable row ${rowLabel(raw, index)} field ${field} held ${describe(value)}, coerced to '' at the read boundary`
+        );
+      }
       if (!next) next = { ...raw };
       next[field] = '';
     }
@@ -236,9 +313,20 @@ export function validateDurableScheduleRows(items: unknown): DurableRowValidatio
     }
 
     out.push((next ?? raw) as unknown as ScheduleWireItem);
-  }
+  });
 
   // A non-empty container that validated down to nothing is unreadable; an empty one
   // is genuine absence.
-  return { items: out, unreadableContainer: items.length > 0 && out.length === 0 };
+  return { items: out, unreadableContainer: items.length > 0 && out.length === 0, issues };
+}
+
+function describe(value: unknown): string {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'an array';
+  return typeof value;
+}
+
+/** A string id names the row; otherwise its position does, since the id is what is broken. */
+function rowLabel(raw: Record<string, unknown>, index: number): string {
+  return typeof raw.id === 'string' && raw.id !== '' ? `'${raw.id}'` : `#${index}`;
 }

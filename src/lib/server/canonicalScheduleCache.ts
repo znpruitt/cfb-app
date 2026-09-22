@@ -30,11 +30,18 @@ export type CanonicalScheduleEntry<T = ScheduleWireItem> = {
    * This replaced `coercedFieldCount`/`droppedRowCount`, which were a second, weaker
    * record of a fact `buildScheduleFromApi` already publishes on `issues` with reasons
    * attached — and which no production consumer ever read while the real channel was
-   * being discarded. Row-level loss is read from `issues` by the consumers that must
-   * not record a season as complete; this flag is only the container verdict, which
-   * `issues` cannot express because it is not about any row.
+   * being discarded. Row-level loss travels on {@link boundaryIssues}; this flag is
+   * only the container verdict, which no row-level report can express.
    */
   unreadableContainer: boolean;
+  /**
+   * What the boundary DESTROYED on this read — dropped non-object rows and coercions
+   * that change the season (PLATFORM-813 v3 round 1). A consumer that records the
+   * season durably passes these to `buildScheduleFromApi` as `boundaryIssues`, so its
+   * refusal reads one list. Consumers that only render may ignore them: they serve the
+   * surviving rows, which is the improvement #813 exists for.
+   */
+  boundaryIssues: string[];
 };
 
 /** The durable app-state scope every canonical schedule key lives in. */
@@ -176,6 +183,24 @@ export async function loadCachedScheduleItems(year: number): Promise<ScheduleWir
 }
 
 /**
+ * The canonical rows WITH what the boundary destroyed reading them — the projection for
+ * a consumer that records the season durably (the archive, canonical standings).
+ *
+ * {@link loadCachedScheduleItems} returns rows only, which is right for a consumer that
+ * renders: a partial drop should still serve the survivors. A durable writer must not
+ * use it, because a non-object row the boundary dropped, or a postseason participant it
+ * coerced to `''`, leaves NO trace in the build that follows — the first never reaches
+ * `buildScheduleFromApi`, and the second is indistinguishable from a real TBD slot
+ * afterwards. Pass `boundaryIssues` into the build.
+ */
+export async function loadCanonicalScheduleForBuild(
+  year: number
+): Promise<{ items: ScheduleWireItem[]; boundaryIssues: string[] }> {
+  const entry = await loadCanonicalScheduleEntry<ScheduleWireItem>(year);
+  return { items: entry?.items ?? [], boundaryIssues: entry?.boundaryIssues ?? [] };
+}
+
+/**
  * The canonical schedule entry for a season, WITH its observation metadata —
  * the same precedence {@link loadCachedScheduleItems} applies, for the one caller
  * that needs more than the rows.
@@ -241,6 +266,7 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
       ),
       source: 'partition-pair',
       unreadableContainer: validated.unreadableContainer,
+      boundaryIssues: validated.issues,
     });
   }
 
@@ -271,9 +297,9 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
  * PARTIAL drop does NOT throw: the season is still usable, and continuing past a bad
  * row is the improvement #813 was filed for — `buildScheduleFromApi`'s per-row loop has
  * no try/catch, so one bad row already took down the whole build, and throwing here
- * would restore exactly that. Partial drops travel on `issues` instead — the channel
- * `buildScheduleFromApi` already publishes, read by the consumers that must not record
- * or cache a season as complete.
+ * would restore exactly that. Partial drops travel on `boundaryIssues` instead, which
+ * the consumers that must not record or cache a season as complete seed into their
+ * build's `issues` ({@link loadCanonicalScheduleForBuild}).
  */
 function assertReadable<T>(
   year: number,
@@ -305,6 +331,7 @@ function normalizeEntry<T>(
     failedSeasonTypes: Array.isArray(value.failedSeasonTypes) ? value.failedSeasonTypes : [],
     source,
     unreadableContainer: validated.unreadableContainer,
+    boundaryIssues: validated.issues,
   };
 }
 

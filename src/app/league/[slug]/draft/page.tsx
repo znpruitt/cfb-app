@@ -69,7 +69,9 @@ export default async function DraftBoardPage({
   try {
     // PLATFORM-813: through the canonical reader. This was a direct durable read feeding
     // raw stored rows into `resolveDraftScheduleGames`, bypassing validation on the same
-    // member-facing draft surface as the spectator board.
+    // member-facing draft surface as the spectator board. An unreadable season throws
+    // here and the `catch` below renders zero counts, exactly as it did on `main` before
+    // this slice; a notice instead is #844.
     const schedItems = await loadCachedScheduleItems(year);
     if (schedItems.length > 0) {
       // Effective resolution via getScopedAliasMap — the same map canonical/live

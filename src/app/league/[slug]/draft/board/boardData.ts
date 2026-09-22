@@ -28,11 +28,15 @@ export async function loadSpectatorBoardSchedule(params: {
   // covered all consumers; it did not cover this one, and the acceptance sweep that was
   // supposed to prove coverage matched a substring instead of enumerating reads.
   //
-  // Two behaviours change, both deliberate: the legacy partition pair is now consulted
-  // when the aggregate carries no rows (so a legacy store populates the board rather
-  // than showing it empty), and an UNREADABLE season now throws rather than rendering as
-  // "no games" — an empty board with no notice asserts something false. A notice is the
-  // better surface and is draft-surface UI under DESIGN.md, filed rather than built here.
+  // The legacy partition pair is now consulted when the aggregate carries no rows, so a
+  // legacy store populates the board rather than showing it empty.
+  //
+  // An UNREADABLE season throws out of THIS loader — and a member still sees an empty
+  // board, because the only caller (`draft/board/page.tsx:61-65`) wraps the call in a bare
+  // `catch` that leaves `games = []`. That catch predates this slice (`336050f99`,
+  // 2026-04-03), so on `main` a corrupted schedule already rendered as an empty board;
+  // #813 did not regress it and did not fix it. v3 round 1 caught this comment claiming
+  // the throw reached the page. Whether the page shows a notice instead is #844.
   const schedItems = await loadCachedScheduleItems(year);
   if (schedItems.length === 0) return [];
   return buildScheduleFromApi({ scheduleItems: schedItems, teams, aliasMap, season: year }).games;

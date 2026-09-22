@@ -2,6 +2,7 @@ import { getAppState } from './server/appStateStore.ts';
 import { deriveStandingsHistory } from './standingsHistory.ts';
 import { parseOwnersCsv } from './parseOwnersCsv.ts';
 import { assembleSeasonScoredBuild } from './seasonBuild.ts';
+import { discardedRowIssues, SeasonScheduleIncompleteError } from './server/durableScheduleRow.ts';
 import { buildGameStatSlateSnapshot } from './gameStats/slateSnapshot.ts';
 import type { SeasonArchive } from './seasonArchive.ts';
 
@@ -62,10 +63,27 @@ export async function buildSeasonArchive(leagueSlug: string, year: number): Prom
   // cache-only schedule/teams/aliases/overrides/reconciled-scores loads, ONE
   // buildScheduleFromApi invocation, scores attached against that same build.
   // The archive and the live analytics provenance share this exact assembly.
-  const { scheduleItems, teams, aliasMap, games, scoresByKey } = await assembleSeasonScoredBuild(
-    leagueSlug,
-    year
-  );
+  const { scheduleItems, teams, aliasMap, games, scoresByKey, issues } =
+    await assembleSeasonScoredBuild(leagueSlug, year);
+
+  // PLATFORM-813: REFUSE rather than record. An archive presents its games as the
+  // season's complete set, permanently — and it embeds the game-stat slate snapshot,
+  // which independently asserts which games exist — with nowhere to carry "except the
+  // ones we lost". #693 binds: a writer that cannot say the season is complete reports
+  // that rather than assuming it.
+  //
+  // HERE, in the archive writer, and not in the shared build: recap and analytics
+  // provenance consume the same build and are ruled to RENDER the surviving games.
+  // `issues` carries the boundary's reports as well as the build's own discards, so a
+  // dropped non-object row and a blanked postseason participant both reach this check.
+  //
+  // The cron catches this into a recorded per-league error and skips
+  // `saveSeasonArchive` (`season-rollover/route.ts:292-301`) — the refusal mechanism
+  // existed and had simply never fired, because nothing threw.
+  const discarded = discardedRowIssues(issues);
+  if (discarded.length > 0) {
+    throw new SeasonScheduleIncompleteError(year, discarded);
+  }
 
   // Load owners CSV
   const ownersRecord = await getAppState<string>(`owners:${leagueSlug}:${year}`, 'csv');

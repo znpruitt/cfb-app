@@ -24,7 +24,7 @@ import { getScopedAliasMap, SEED_ALIASES_HASH } from '../server/globalAliasStore
 import { ALIAS_OVERRIDES_HASH } from '../teamDatabase.ts';
 import { getTeamDatabaseItems } from '../server/teamDatabaseStore.ts';
 import {
-  loadCachedScheduleItems,
+  loadCanonicalScheduleForBuild,
   loadPostseasonOverrides,
 } from '../server/canonicalScheduleCache.ts';
 import {
@@ -916,7 +916,12 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
   if (ownerRows.length === 0) return null;
   const roster = new Map<string, string>(ownerRows.map((row) => [row.team, row.owner]));
 
-  const scheduleItems = await loadScheduleItems(year);
+  // The canonical read is shared so standings and Insights build identical games from
+  // identical inputs (PLATFORM-077). This is its durable-writer projection
+  // (PLATFORM-813): this snapshot is cached tag-only, so it
+  // needs what the read boundary destroyed as well as the rows, and seeds it into the
+  // build's `issues` below.
+  const { items: scheduleItems, boundaryIssues } = await loadCanonicalScheduleForBuild(year);
   if (scheduleItems.length === 0) {
     const { rows, noClaimRow } = deriveStandings([], roster, {});
     return {
@@ -984,6 +989,7 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
     aliasMap,
     season: year,
     manualOverrides,
+    boundaryIssues,
   });
 
   // PLATFORM-813: REFUSE rather than cache an incomplete season.
@@ -997,7 +1003,8 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
   // a rejected promise, so a throw surfaces and the next request recomputes, whereas a
   // swallowed one caches a lie. The comment above already commits this function to
   // letting build failures propagate for that reason; a discarded row is the same fact
-  // arriving on `issues` instead of as an exception.
+  // arriving on `issues` instead of as an exception. `issues` includes the boundary's
+  // reports, so a row dropped or blanked before the build is refused here too.
   const discardedRows = discardedRowIssues(issues);
   if (discardedRows.length > 0) {
     throw new SeasonScheduleIncompleteError(year, discardedRows);
@@ -1033,11 +1040,6 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
 
   return { rows, noClaimRow, standingsHistory, coverage, roster, games };
 }
-
-// The canonical schedule-cache read + postseason overrides live in one shared
-// in-process module so the standings selector and Insights build identical
-// canonical games from identical inputs (PLATFORM-077).
-const loadScheduleItems = loadCachedScheduleItems;
 
 /**
  * Load normalized score rows for the season from cache. Uses the shared

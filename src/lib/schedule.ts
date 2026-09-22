@@ -459,6 +459,13 @@ export function buildScheduleFromApi(params: {
   season: number;
   manualOverrides?: Record<string, Partial<AppGame>>;
   conferenceRecords?: CfbdConferenceRecord[];
+  /**
+   * What the durable read boundary destroyed before these rows arrived (PLATFORM-813):
+   * dropped non-object rows and coercions that change the season. Seeded into
+   * `issues` so a caller holding a durable read checks ONE list — see
+   * `discardedRowIssues` in `server/durableScheduleRow.ts`.
+   */
+  boundaryIssues?: readonly string[];
 }): BuiltSchedule {
   const { scheduleItems, teams, aliasMap, season } = params;
 
@@ -467,7 +474,7 @@ export function buildScheduleFromApi(params: {
   } else {
     resetConferenceClassificationRecords();
   }
-  const issues: string[] = [];
+  const issues: string[] = [...(params.boundaryIssues ?? [])];
   const providerNames = Array.from(
     new Set(
       scheduleItems
