@@ -42,6 +42,15 @@ CARRIES: NONE from the Item 87 campaign index, having checked. This is scheduler
 
 ## Why, measured
 
+**CITATIONS RE-DERIVED 2026-09-22 before dispatch**, after #813 v4 merged and touched several of the
+files named here. Eleven of twelve hold exactly. **One moved: the `/api/schedule` inline presentation
+call is now `:482`, not `:440`** — v4's admin fall-through shifted that route. Confirmed unchanged:
+`cron/schedule-refresh` `:548`, `:596`, `:634`; `cron/season-transition` `:58`, `:429`, `:588`;
+`schedulePresentationRefresh` `:709-710`; `EXTERNAL_SCHEDULER_JOBS` at `schedulerExecutionStatus:102`;
+the per-job policies at `schedulerDeliveryHealth:144`; and `PROVIDER_USAGE_MAX_OBSERVATIONS` at
+`providerUsageSeries:48`. **Re-derive them again yourself** — #813 v4 also rewrote
+`fullSeasonScheduleRefresh.ts`, which this slice's worst-case arithmetic depends on.
+
 **The ceiling cannot be raised.** The team plan is `hobby`. Vercel's limits table says *"Hobby: 300s
 default and maximum."* The owner ruled Pro cost-prohibitive, so no `maxDuration` fixes this.
 
@@ -91,7 +100,7 @@ from data. It is the only thing that can justify a second weekly run later.
 - **Write its receipt even when the provider hangs.** That is the property #757 is about, so this job
   must have it from its first commit, not gain it later. **Planning read the per-attempt timeout
   and it covers the body, not just the headers:** `fetchUpstream.ts` passes the timeout signal to
-  `fetch` (`:390`), reads the body through `consumeClassified` at `:426`/`:440` INSIDE the timed
+  `fetch` (`:390`), reads the body through `consumeClassified` at `:426`/`:482` INSIDE the timed
   `try` (`:374`–`:471`), and clears the timeout in the `finally` only after the read. So a stalled
   body is aborted at the per-attempt bound, and this job's worst case, two sites at about 242s, is
   bounded by the code's structure below 300s. *That is structural reasoning, not a measurement,
