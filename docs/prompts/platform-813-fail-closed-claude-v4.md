@@ -180,6 +180,45 @@ well-typed season never produces, so "no change for a well-typed row" still hold
 remaining shape, where any OTHER read failure caches an empty-schedule build for 300s. It predates #813
 and is out of scope.
 
+## ROUND 1 RULINGS, 2026-09-22, against `4038fdeb`
+
+**This is v4's one remediation round** (`AGENTS.md` step 4). All four findings are accepted. After
+it, both reviewers run a confirming pass. A second round needs the owner's approval, and only for a
+narrow defect this round directly causes.
+
+**A: validate before precedence. This is v1's class again, in the selection step.** At `4038fdeb`,
+`canonicalScheduleCache.ts:178-180` runs `.filter(canonicalScheduleAggregateServes(...))` BEFORE
+`.map(assertConformingScheduleRows(...))`. A record whose `items` is present but not an array fails
+the serves check, is filtered out, and is **never validated**, so its valid sibling is served alone.
+The lane widened the finding correctly: the aggregate has the same skip beside a populated legacy
+pair. **The selection runs before the guard can see the record.** That is partial data reaching a
+consumer, which v4 exists to prevent. Validate every PRESENT record's `items` before any precedence
+decision. A missing `items`, or an empty array, stays valid absence (invariant 8); a present
+non-array throws. The test is the matrix: aggregate, regular and postseason, each with a malformed
+container, crossed with each sibling state (absent, empty, populated). Its mutation restores the skip
+and must redden it.
+
+**B: the repair path must work on a corrupted season, and this becomes acceptance 10.** A stale,
+non-conforming season on an admin GET returns a 503 where `main` self-repaired. **A fail-closed
+design with no working recovery path means "down until someone edits the database"**, and the prompt
+never required recovery. The admin falls through to the refresh, which writes a fresh, conforming
+aggregate over the bad one; members still get the 503. Pin it both ways, and pin the cron path too.
+
+**C: correct the comment and keep the strict behaviour.** `main` mapped `items: null` to `[]` as
+well, so "exactly as on `main`" is false for `null`. Say what v4 does differently and cite the
+measurement: all 7 stored schedule keys hold arrays, so the change reaches no stored data.
+
+**D: resolve reader symbols by declaration, not by local name.** `getAppState as readState` escaping
+the enumeration is the same class as every earlier sweep that measured its own syntax. Match on the
+resolved declaration and add an aliased-import positive control. **Prefer an in-memory source**, as
+long as it runs the SAME resolution function over a program the scan builds, so the control proves
+the integrated scan and not a predicate in isolation. If only a checked-in file can do that, one
+more file is still within "about 20" and does not need a fresh approval.
+
+**Size.** The approved 1,597 lines will grow with these fixes, and that is expected. **If this
+round alone adds more than about 300 net lines, stop and report**: that would mean scope growth
+rather than fixes. Record the final diffstat either way.
+
 ## Acceptance
 
 1. **Every non-conforming or non-object row throws the typed error at the canonical reader**, from
@@ -216,6 +255,12 @@ and is out of scope.
    non-string `start_date` is stored raw. One validator, used on both sides.
 9. **`loadInsights` rethrows the typed error and caches nothing**; every other read failure keeps
    `main`'s behaviour. **Provenance reports `'schedule-cache-unreadable'`, not `build-failed`.**
+10. **A corrupted season is recoverable without a database edit.** Seed a non-conforming stored
+    season. Show that the admin refresh AND the scheduled refresh each overwrite it with a
+    conforming aggregate, and that the typed error stops on the next read. Members get the 503 until
+    the refresh commits. **This must fail against a version where the admin GET's validating read
+    blocks the refresh**, which is what `4038fdeb` does. Added at round 1 (finding B). The prompt
+    never asked for recovery, and fail-closed without it is an outage with no way out.
 
 ## Testing requirements, which are not negotiable on this project
 
