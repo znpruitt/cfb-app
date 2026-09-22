@@ -127,7 +127,7 @@ export function resolveOverviewCanonicalInputs(params: {
 
 /**
  * Returns the standings snapshots from the latest fully-resolved week and the
- * one before it. Movement insights, rank-arrow comparisons, and any other
+ * one before it. Movement insights and any other
  * temporally-paired derivation should anchor on this pair so partial-week
  * unresolved state never causes the comparison to skip a week boundary.
  */
@@ -542,9 +542,6 @@ export function selectOverviewViewModel(params: {
     standingsLimit = OVERVIEW_STANDINGS_LIMIT,
     resultsLimit = OVERVIEW_RESULTS_LIMIT,
   } = params;
-  // Records and ordering are live; resolved history is for movement, not row
-  // values. OverviewLiveRecords.test.tsx asserts "partial-week table and
-  // in-season podium share live records and ordering" with differing snapshots.
   const overviewMatchupCandidates = keyMatchups;
   const featuredCandidates = overviewMatchupCandidates.filter((item) => {
     const gameState = gameStateFromScore(item.score);
@@ -609,6 +606,9 @@ export function selectOverviewViewModel(params: {
     podiumLeaders,
     topTierLeaders,
     isTopTie,
+    // Records and ordering are live; resolved history is for movement, not row
+    // values. OverviewLiveRecords.test.tsx asserts "partial-week table and
+    // in-season podium share live records and ordering" with differing snapshots.
     standingsTopN: standingsLeaders.slice(0, standingsLimit),
     standingsHasMore: standingsLeaders.length > standingsLimit,
     standingsContext,
