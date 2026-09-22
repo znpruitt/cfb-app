@@ -651,6 +651,18 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   the table beneath it read BHooper 15–4. **Implemented** — #827, merged `2b167998`
   (PR #859); awaiting promotion as of 2026-09-22
 - Column headers are omitted on condensed snapshot tables of ≤4 columns where data is self-evident at the table's density (rank · name · record · GB) — retained on dense tables of ≥5 columns where the additional columns introduce metrics whose meaning is not obvious from value alone (Win%, Seasons, Avg, Titles)
+- **The movement caption is a column-group label, not a boundary statement — it reads `Movement`, with
+  no week.** Owner ruling 2026-09-22 on
+  [#855](https://github.com/znpruitt/cfb-app/issues/855), after reviewing the #827 preview. The caption
+  had read `Movement · through W3`, and **`W3` is byte-identical to the last week column header by
+  construction**: caption and headers both come from `positionDeltaData` through one `weekLabel`
+  function, and that object is `null` or has a non-empty `weeks` array — so there is **no reachable
+  render where the caption names a week the headers do not.** The per-row rank arrow already carries
+  the boundary, and carries it better: its accessible name names BOTH ends (`from W2 to W3`) where the
+  caption named one. What the caption still earns is the word `Movement` — three narrow numeric columns
+  headed `W1 W2 W3` do not say the values are rank deltas rather than wins or points. **The general
+  rule: a column-group label says what the values MEAN; it does not restate what the headers already
+  show.**
 
 ## Overview trifold layout
 
