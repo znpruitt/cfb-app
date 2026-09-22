@@ -411,7 +411,10 @@ frees first, and its exclusions can drop now that 143 has merged.
 **Then the immediate validation gates**, which authorize no configuration or data change on their own:
 verify the effective preview database endpoint, Neon branch and role; compare deployed cached standings
 against a fresh canonical rebuild using an authorized session (link the result to **190**); and obtain
-actual cost evidence rather than labelling projections as realized savings.
+actual cost evidence rather than labelling projections as realized savings. **The cost-evidence gate is
+DISCHARGED 2026-09-22:** the Vercel Active CPU steady state is measured at about 3h15m–3h25m per
+30 days against 4h, and Neon's Aug→Sept drop is attributed to two causes. See
+`docs/campaigns/vercel-active-cpu.md` → "MEASURED 2026-09-22".
 
 **Then near-term integrity and readiness**, in dependency order rather than as a list: identity
 collisions (**83/85**) before historical repair; **191** targeted schedule convergence; **CFP identity
