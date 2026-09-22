@@ -133,8 +133,8 @@ These consolidate recurring historical observations, not new project-governance 
   1,668). `npm test` 5499/5499.
 - Review / verification: two rounds of both reviewers, then a confirming pass — Codex clean, three
   lows reported under `AGENTS.md` step 7 and filed.
-- Status: Implemented — PR open, awaiting merge. The PR number, merge commit and merged-tree hash
-  are filled in by the post-merge status flip.
+- Status: Merged ([PR #854](https://github.com/znpruitt/cfb-app/pull/854), `32694720`, 2026-09-22);
+  merged tree `6ce980ef` identical to the gated branch tip. NOT promoted.
 
 **ACCEPTANCE 4 IS THE RESULT THAT JUSTIFIES THE RECONSTRUCTION, AND IT NEEDED NO ODDS CODE CHANGE.** A
 season holding a malformed row beside prior-good odds, with an empty provider response, erased those
