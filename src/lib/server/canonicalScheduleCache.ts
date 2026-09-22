@@ -50,14 +50,27 @@ export function canonicalSchedulePartitionKeys(year: number): readonly [string, 
 }
 
 /**
- * Whether a raw stored `schedule` value carries rows, i.e. whether the aggregate
- * SERVES and the partition pair is therefore not consulted.
+ * Whether a raw stored `schedule` value carries rows.
  *
- * This predicate IS the canonical precedence's hinge, so it is exported rather
- * than re-implemented: a reader that spells it differently (`!= null`, or a
- * truthy `items`) silently disagrees about whether an empty aggregate shadows a
- * populated pair. Deliberately tolerant of `unknown` so a caller holding a
- * transaction-fresh value can ask without re-reading the store.
+ * **THIS IS NO LONGER THE CANONICAL PRECEDENCE'S HINGE, AND THE DOC USED TO SAY IT WAS.**
+ * It said the predicate "IS the canonical precedence's hinge, so it is exported rather than
+ * re-implemented". PLATFORM-813 v4 round 2 stopped calling it here:
+ * {@link loadCanonicalScheduleEntry} validates each record as it reads it and then asks
+ * `items.length > 0` of the VALIDATED rows, because asking "does this carry rows?" first let
+ * a malformed record be skipped unvalidated. Its remaining callers are
+ * `LeagueStatusPanel.tsx` and `scheduleDisappearanceBaseline.ts` — not the reader this
+ * docstring was written about. Found at the v4 confirming review; a diff that falsifies a
+ * comment owns it.
+ *
+ * **THE TWO NOW GENUINELY DISAGREE** for a populated but NON-CONFORMING aggregate: this
+ * predicate says "serves" while the reader throws. That difference is live in
+ * `loadScheduleDisappearanceFallback`, so repairing a corrupt season reports no vanished
+ * games — observability only, and tracked by
+ * [#853](https://github.com/znpruitt/cfb-app/issues/853). Restoring the call would be a
+ * behaviour change, which is why it is filed rather than fixed here.
+ *
+ * Deliberately tolerant of `unknown` so a caller holding a transaction-fresh value can ask
+ * without re-reading the store.
  */
 export function canonicalScheduleAggregateServes(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
