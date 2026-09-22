@@ -648,7 +648,8 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   partial week never makes the comparison skip a boundary. **Added 2026-09-19** by owner decision on
   [#827](https://github.com/znpruitt/cfb-app/issues/827): the table had been taking its record VALUES
   from the resolved-week snapshot as well, so on a Week 3 game day the podium read Chamness 17–6 while
-  the table beneath it read BHooper 15–4. **Not yet implemented** — #827 is the slice
+  the table beneath it read BHooper 15–4. **Implemented** — #827, merged `2b167998`
+  (PR #859); awaiting promotion as of 2026-09-22
 - Column headers are omitted on condensed snapshot tables of ≤4 columns where data is self-evident at the table's density (rank · name · record · GB) — retained on dense tables of ≥5 columns where the additional columns introduce metrics whose meaning is not obvious from value alone (Win%, Seasons, Avg, Titles)
 
 ## Overview trifold layout
