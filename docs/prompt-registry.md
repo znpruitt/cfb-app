@@ -129,7 +129,10 @@ These consolidate recurring historical observations, not new project-governance 
   selector, column-tier, or constant changes. Server markup starts abbreviated; hydrated clients
   upgrade to a fitting full name. The accessible full name stays unchanged; no-JS stays abbreviated.
 - Outcome: the visual variant alone occupies layout flow, the name box sizes from the row after
-  suffix reservation, and the owner truncates before the abbreviation or record. Measured floor:
+  suffix reservation, and the parts give way in the owner-ruled order (`DESIGN.md`, "the whole
+  priority order"): the FULL team name gives way first, so a tight line reads `SEMO (3-1) Pruitt`
+  with the owner whole; the owner truncates next, and only when the abbreviation, record and full
+  owner cannot all fit; the abbreviation and record never give way. Measured floor:
   219px viewport for the ranked-final fixture; below it, record clipping is accepted per
   `DESIGN.md`, not open work. Null-lookup names wrap. The lookup adds about 32 KB raw / 8 KB gzip
   to a client chunk used by six league routes; owner accepted this cost.
@@ -140,8 +143,14 @@ These consolidate recurring historical observations, not new project-governance 
   abbreviation. A final overlap assertion measures name and score edges at 390px card, 272px
   viewport, and the 219px floor; a deliberate 170px name floor made it fail at 272px
   (246.234px name right > 228.813px score left), then the reviewed layout passed.
-- Status: Implemented — pre-merge closeout on `codex/platform-832-abbreviation-fallback`; not
-  promoted.
+  **Run of record, on the closeout commit `f14e169a`:** browser 7/7, components 718/718, full suite
+  5,482/5,482, and lint, TypeScript, build and diff check all exited 0. A default-sandbox component
+  run failed seven browser-capability cases; the authorized rerun passed. That was the environment,
+  not the code. **The merged tree matches the gated `0508c6c6` tree** (`bb23a341`).
+- Status: **MERGED `a1d0f3e9` ([PR #850](https://github.com/znpruitt/cfb-app/pull/850)) 2026-09-22;
+  #832 closed. NOT LIVE until promoted.** Post-merge flip by planning, which also added the
+  normal-width half of the priority order and the run of record above, both missing from the
+  pre-merge closeout.
 
 ### PLATFORM-832-ABBREVIATION-FALLBACK-CODEX-v1
 
