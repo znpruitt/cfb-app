@@ -350,7 +350,7 @@ export default function CompactGameScoreboard({
                     </span>
                     {owner ? (
                       <span
-                        className="min-w-0 overflow-hidden text-[12.5px] font-normal dark:text-zinc-400"
+                        className="min-w-0 truncate text-[12.5px] font-normal dark:text-zinc-400"
                         data-scoreboard-owner={side}
                       >
                         {owner}
@@ -359,7 +359,7 @@ export default function CompactGameScoreboard({
                   </span>
                 ) : owner ? (
                   <span
-                    className="min-w-0 overflow-hidden whitespace-nowrap text-[12.5px] font-normal dark:text-zinc-400"
+                    className="min-w-0 truncate text-[12.5px] font-normal dark:text-zinc-400"
                     data-scoreboard-suffix={side}
                     data-scoreboard-owner={side}
                   >

@@ -302,7 +302,7 @@ function GameScoreboard({
             teamName={entry.team}
           />
           {entry.owner ? (
-            <span className="min-w-0 overflow-hidden whitespace-nowrap text-[12.5px] font-normal text-zinc-400">
+            <span className="min-w-0 truncate text-[12.5px] font-normal text-zinc-400">
               {entry.owner}
             </span>
           ) : null}

@@ -23,7 +23,8 @@ type ScheduleLayoutMeasurement = {
   whiteSpace: string;
   overflow: string;
   textOverflow: string;
-  nameOverflows: boolean;
+  nameWraps: boolean;
+  textFitsWithinBox: boolean;
   rowHeight: number;
   labelWidth: number;
   contentWidth: number;
@@ -166,6 +167,7 @@ async function measureWidths(
         const contentRange = document.createRange();
         contentRange.selectNodeContents(label);
         const contentRect = contentRange.getBoundingClientRect();
+        const lineRects = Array.from(contentRange.getClientRects());
         results.push({
           width,
           columns: getComputedStyle(grid).gridTemplateColumns.trim().split(/\\s+/).filter(Boolean).length,
@@ -174,7 +176,10 @@ async function measureWidths(
           whiteSpace: labelStyle.whiteSpace,
           overflow: labelStyle.overflow,
           textOverflow: labelStyle.textOverflow,
-          nameOverflows: contentRect.width > labelRect.width + 0.5,
+          nameWraps: lineRects.length > 1,
+          textFitsWithinBox: lineRects.every((rect) =>
+            rect.left >= labelRect.left - 0.5 && rect.right <= labelRect.right + 0.5
+          ),
           rowHeight: round(rowRect.height),
           labelWidth: round(labelRect.width),
           contentWidth: round(contentRect.width),
@@ -219,23 +224,21 @@ test('Schedule keeps a null-lookup provider name untruncated with a stable score
       for (const measurement of measurements) {
         assert.equal(measurement.teamName, STRESS_TEAM_NAME);
         assert.equal(measurement.score, '100');
-        assert.equal(measurement.whiteSpace, 'nowrap');
-        assert.equal(measurement.overflow, 'visible');
+        assert.equal(measurement.whiteSpace, 'normal');
+        assert.equal(measurement.overflow, 'hidden');
         assert.equal(measurement.textOverflow, 'clip');
+        assert.equal(measurement.textFitsWithinBox, true);
         assert.equal(measurement.anchorInside, true);
         assert.equal(measurement.valueFlexShrink, '0');
       }
-      assert.equal(oneColumn.rowHeight, twoColumn.rowHeight, 'the team row must stay single-line');
+      assert.equal(twoColumn.nameWraps, false);
+      assert.equal(oneColumn.nameWraps, false);
       assert.equal(
-        clippingControl.rowHeight,
-        twoColumn.rowHeight,
-        'the overflow control must keep the same single-line row height'
-      );
-      assert.equal(
-        clippingControl.nameOverflows,
+        clippingControl.nameWraps,
         true,
-        'the no-lookup control must prove that the full name visibly exceeds its box'
+        'the null-lookup control must wrap the whole full name inside its box'
       );
+      assert.ok(clippingControl.rowHeight > twoColumn.rowHeight);
       assert.ok(
         Math.abs(oneColumn.anchorInset - twoColumn.anchorInset) <= 0.1,
         `the right-hand score anchor must keep its row-relative position: ${twoColumn.anchorInset} vs ${oneColumn.anchorInset}`

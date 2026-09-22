@@ -574,7 +574,7 @@ test('every scoreboard state joins both tinted rows without overlap or separatio
   }
 });
 
-test('live scoreboard clips metadata and owner suffixes without clipping the team-name box', () => {
+test('live scoreboard clips metadata and owner suffixes while wrapping the team name in its own box', () => {
   const html = renderScoreboard({
     clock: 'Q4 10:59',
     away: {
@@ -595,10 +595,10 @@ test('live scoreboard clips metadata and owner suffixes without clipping the tea
   const name = document.querySelector('[data-scoreboard-team="away"]');
   const suffix = document.querySelector('[data-scoreboard-suffix="away"]');
   assert.ok(name && suffix);
-  assert.match(name.className, /overflow-visible/);
-  assert.match(name.className, /whitespace-nowrap/);
-  assert.doesNotMatch(name.className, /truncate|overflow-hidden/);
-  assert.match(suffix.className, /overflow-hidden/);
+  assert.match(name.className, /overflow-hidden/);
+  assert.match(name.className, /whitespace-normal break-words/);
+  assert.doesNotMatch(name.className, /truncate/);
+  assert.match(suffix.className, /truncate/);
   assert.equal(name.parentElement, suffix.parentElement);
   assert.equal(name.contains(suffix), false);
 });

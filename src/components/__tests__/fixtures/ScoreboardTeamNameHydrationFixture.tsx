@@ -42,13 +42,20 @@ export function ScoreboardTeamNameHydrationFixture(): React.ReactElement {
       <div className="flex" data-never-wider-case style={{ width: 20 }}>
         <ScoreboardTeamName abbreviation="BERR" marker="never-wider" teamName="Berry" />
       </div>
+      <div className="flex" data-hidden-case hidden style={{ width: 200 }}>
+        <ScoreboardTeamName
+          abbreviation="SEMO"
+          marker="hidden-recap"
+          teamName="Southeast Missouri State"
+        />
+      </div>
     </>
   );
 }
 
 export function ScoreboardTeamNameNoJavaScriptFixture(): React.ReactElement {
   return (
-    <div className="flex" data-no-js-case style={{ width: 1 }}>
+    <div className="flex" data-no-js-case style={{ width: 20 }}>
       <ScoreboardTeamName abbreviation="SEMO" marker="no-js" teamName="Southeast Missouri State" />
     </div>
   );

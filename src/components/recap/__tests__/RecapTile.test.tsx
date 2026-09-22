@@ -244,8 +244,8 @@ test('recap scoreboards use the same per-label accessible fallback and preserve 
 
   const longName = rendered.container.querySelector('[data-scoreboard-team-label="winner"]');
   assert.ok(longName);
-  assert.match(longName.className, /overflow-visible/);
-  assert.doesNotMatch(longName.className, /truncate|overflow-hidden/);
+  assert.match(longName.className, /overflow-hidden/);
+  assert.doesNotMatch(longName.className, /truncate|shrink-0/);
   assert.equal(
     longName.querySelector('[data-scoreboard-team-accessible="winner"]')?.textContent,
     'Southeast Missouri State'
@@ -257,6 +257,10 @@ test('recap scoreboards use the same per-label accessible fallback and preserve 
   assert.equal(
     longName.querySelector('[data-scoreboard-team-full="winner"]')?.getAttribute('aria-hidden'),
     'true'
+  );
+  assert.equal(
+    longName.querySelector('[data-scoreboard-team-visible="winner"]')?.textContent,
+    'SEMO'
   );
 
   const shortOpponent = rendered.container.querySelector('[data-scoreboard-team-label="loser"]');

@@ -46,6 +46,10 @@ type LayoutMeasurement = {
   cardRects: Array<{ left: number; top: number; width: number }>;
   firstRowInterCardGap: number | null;
   stressLabelClipped: boolean;
+  stressNameWrapped: boolean;
+  stressVisibleText: string;
+  stressVisibleVisibility: string;
+  stressProbeVisibility: string;
   stressLabelWidth: number;
   stressLabelContentWidth: number;
   stressLabelSlack: number;
@@ -157,11 +161,10 @@ async function measureWidths(
           };
         });
         const stressTeam = grid.querySelector('[data-scoreboard-team-label="away"]');
-        const visibleStressTeam = Array.from(
-          stressTeam?.querySelectorAll(
-            '[data-scoreboard-team-full="away"], [data-scoreboard-team-abbreviation="away"]'
-          ) ?? []
-        ).find((candidate) => getComputedStyle(candidate).display !== 'none');
+        const visibleStressTeam = stressTeam?.querySelector('[data-scoreboard-team-visible="away"]');
+        const abbreviationProbe = stressTeam?.querySelector(
+          '[data-scoreboard-team-abbreviation="away"]'
+        );
         const stressLabel = stressTeam?.parentElement;
         const stressRow = stressTeam?.closest('[data-scoreboard-side="away"]');
         const stressValue = stressRow?.querySelector('[data-scoreboard-value="away"]');
@@ -171,6 +174,7 @@ async function measureWidths(
           visibleStressTeam;
         if (
           !(visibleStressTeam instanceof HTMLElement) ||
+          !(abbreviationProbe instanceof HTMLElement) ||
           !(stressLabel instanceof HTMLElement) ||
           !(stressRow instanceof HTMLElement) ||
           !(stressValue instanceof HTMLElement) ||
@@ -209,6 +213,11 @@ async function measureWidths(
           cardRects: cards,
           firstRowInterCardGap,
           stressLabelClipped: stressLabelContentWidth > stressLabelWidth + 0.5,
+          stressNameWrapped:
+            visibleStressTeamRect.height > abbreviationProbe.getBoundingClientRect().height + 0.5,
+          stressVisibleText: visibleStressTeam.textContent ?? '',
+          stressVisibleVisibility: getComputedStyle(visibleStressTeam).visibility,
+          stressProbeVisibility: getComputedStyle(abbreviationProbe).visibility,
           stressLabelWidth: round(stressLabelWidth),
           stressLabelContentWidth: round(stressLabelContentWidth),
           stressLabelSlack: round(stressLabelWidth - stressLabelContentWidth),
@@ -292,6 +301,15 @@ test('Overview scoreboard grid renders its measured tiers and derived grid cap',
         /^ui-sans-serif, system-ui/,
         'the fixture must inherit the production body font stack from globals.css'
       );
+      for (const measurement of measurements) {
+        assert.equal(measurement.stressVisibleText, 'SEMO');
+        assert.equal(measurement.stressVisibleVisibility, 'visible');
+        assert.equal(
+          measurement.stressProbeVisibility,
+          'hidden',
+          'the Overview gate must not mistake an out-of-flow probe for the visible name'
+        );
+      }
       assert.equal(atThree.stressRowPaddingLeft, SCOREBOARD_TEAM_LOGO_SLOT.widthPx);
       assert.equal(
         atThree.columnGap,
@@ -417,25 +435,20 @@ test('Overview scoreboard grid renders its measured tiers and derived grid cap',
           `${width}px must retain the measured minimum score gap`
         );
       }
+      assert.equal(atThree.stressNameWrapped, false);
       assert.ok(
-        atThree.stressContentToScoreGap >=
-          OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX +
-            OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX / OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT -
-            0.5,
-        'the stress content must retain the 12px score gap plus its per-column font allowance'
+        atThree.stressContentToScoreGap >= OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX - 0.5,
+        'the SSR abbreviation and its suffix must retain the fixed score gap; grid headroom is pinned by track geometry above'
       );
       assert.equal(
         clippingControl.stressLabelClipped,
-        true,
-        'the clipping observer needs a control'
+        false,
+        'the 240px row must contain the visible abbreviation and suffix rather than clip the label'
       );
+      assert.equal(clippingControl.stressNameWrapped, true);
       assert.ok(
-        clippingControl.stressLabelContentWidth > clippingControl.stressLabelWidth + 0.5,
-        'the text-range observer must measure a real overrun in the clipping control'
-      );
-      assert.ok(
-        clippingControl.stressContentToScoreGap < 0,
-        'the clipping control must make the untruncated text collide with the score'
+        clippingControl.stressContentToScoreGap >= 0,
+        'the wrapped name must not collide with the score anchor'
       );
 
       assert.equal(OVERVIEW_RESULTS_LIMIT, 4, 'Featured keeps its owner-approved four-item cap');

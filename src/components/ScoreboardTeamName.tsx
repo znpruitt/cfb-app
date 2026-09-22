@@ -68,6 +68,10 @@ function MeasuredScoreboardTeamName({
     const boxWidth = box.getBoundingClientRect().width;
     const fullNameWidth = fullName.getBoundingClientRect().width;
     const abbreviationWidth = abbreviationProbe.getBoundingClientRect().width;
+    // Hidden recap panels have no laid-out box. Keep SSR's abbreviation until the
+    // shared observer sees real dimensions; 0 >= 0 is not a never-wider result.
+    // The hidden-before/after-reveal control in ScoreboardTeamNameFallback.browser.test.tsx pins this.
+    if (boxWidth === 0 || fullNameWidth === 0 || abbreviationWidth === 0) return;
     const nextShowFullName = abbreviationWidth >= fullNameWidth || fullNameWidth <= boxWidth;
 
     setShowFullName((current) => (current === nextShowFullName ? current : nextShowFullName));
@@ -87,14 +91,15 @@ function MeasuredScoreboardTeamName({
   /*
    * SSR and no-JS deliberately leave the provider abbreviation visible, even when that
    * viewer would measure it wider than the name: never-wider only binds after measurement.
-   * Both variants overflow visibly on one line, so neither can be ellipsized, clipped, or
-   * wrapped while the layout effect or observer catches up. The browser assertions named
+   * The visible variant alone participates in layout. Both measurement probes are absolute,
+   * so neither can set the box's width. The box is allocated by its flex row after suffixes,
+   * and text that cannot fit wraps inside it rather than escaping or being ellipsized.
    * "SSR and no-JS keep a single untruncated abbreviation" and "fit, overflow, never-wider,
-   * and resize decisions use the rendered name box" pin those two mechanisms.
+   * and resize decisions use the rendered name box" pin those mechanisms in Chrome.
    */
   return (
     <span
-      className="relative block min-w-0 max-w-full shrink-0 overflow-visible whitespace-nowrap"
+      className="relative block min-w-[1em] flex-1 overflow-hidden"
       data-scoreboard-team-display={showFullName ? 'full' : 'abbreviation'}
       data-scoreboard-team-label={marker}
       ref={boxRef}
@@ -104,7 +109,7 @@ function MeasuredScoreboardTeamName({
       </span>
       <span
         aria-hidden="true"
-        className={`inline-block whitespace-nowrap ${showFullName ? '' : 'invisible'}`}
+        className="pointer-events-none invisible absolute left-0 top-0 inline-block whitespace-nowrap"
         data-scoreboard-team-full={marker}
         data-scoreboard-team={marker}
         ref={fullNameRef}
@@ -113,13 +118,19 @@ function MeasuredScoreboardTeamName({
       </span>
       <span
         aria-hidden="true"
-        className={`pointer-events-none absolute left-0 top-0 inline-block whitespace-nowrap ${
-          showFullName ? 'invisible' : ''
-        }`}
+        className="pointer-events-none invisible absolute left-0 top-0 inline-block whitespace-nowrap"
         data-scoreboard-team-abbreviation={marker}
         ref={abbreviationRef}
       >
         {abbreviation}
+      </span>
+      <span
+        aria-hidden="true"
+        className="block max-w-full whitespace-normal break-words"
+        data-scoreboard-team-visible={marker}
+        data-scoreboard-team-visual={showFullName ? 'full' : 'abbreviation'}
+      >
+        {showFullName ? teamName : abbreviation}
       </span>
     </span>
   );
@@ -133,7 +144,7 @@ export default function ScoreboardTeamName({
   if (abbreviation === null) {
     return (
       <span
-        className="relative block min-w-0 max-w-full shrink-0 overflow-visible whitespace-nowrap"
+        className="block min-w-[1em] flex-1 overflow-hidden whitespace-normal break-words"
         data-scoreboard-team={marker}
       >
         {teamName}
@@ -142,6 +153,11 @@ export default function ScoreboardTeamName({
   }
 
   return (
-    <MeasuredScoreboardTeamName abbreviation={abbreviation} marker={marker} teamName={teamName} />
+    <MeasuredScoreboardTeamName
+      key={`${teamName}\u0000${abbreviation}`}
+      abbreviation={abbreviation}
+      marker={marker}
+      teamName={teamName}
+    />
   );
 }

@@ -16,22 +16,43 @@ import {
 
 type LabelMeasurement = {
   abbreviationAriaHidden: string | null;
+  abbreviationHeight: number;
+  abbreviationVisibility: string;
   abbreviationWidth: number;
   accessibleText: string;
+  boxRight: number;
   boxWidth: number;
+  containerRight: number;
   display: string;
   fullAriaHidden: string | null;
+  fullVisibility: string;
   fullWidth: number;
   overflowX: string;
   textOverflow: string;
   visibleText: string;
+  visibleHeight: number;
+  visibleVariant: string | null;
+  visibleVisibility: string;
   visibleWidth: number;
   whiteSpace: string;
 };
 
 type BrowserReport = {
-  compactByWidth: Array<{ away: LabelMeasurement; home: LabelMeasurement }>;
+  boxIndependence: {
+    abbreviationShown: number;
+    fullForced: number;
+    probesHidden: number;
+  };
+  compactByWidth: Array<{
+    away: LabelMeasurement;
+    home: LabelMeasurement;
+    ownerVisibleWidth: number;
+    recordVisibleWidth: number;
+    suffixWidth: number;
+  }>;
   font: { family: string; size: string; weight: string };
+  hiddenAfterReveal: LabelMeasurement;
+  hiddenBeforeReveal: LabelMeasurement;
   hydrationErrors: string[];
   mismatch: LabelMeasurement;
   mismatchErrors: string[];
@@ -129,41 +150,99 @@ async function collectReport(page: BrowserFixturePage): Promise<BrowserReport> {
         const accessible = label?.querySelector(
           '[data-scoreboard-team-accessible="' + marker + '"]'
         );
+        const visible = label?.querySelector('[data-scoreboard-team-visible="' + marker + '"]');
         if (
           !(label instanceof HTMLElement) ||
           !(full instanceof HTMLElement) ||
           !(abbreviation instanceof HTMLElement) ||
-          !(accessible instanceof HTMLElement)
+          !(accessible instanceof HTMLElement) ||
+          !(visible instanceof HTMLElement)
         ) {
           throw new Error(marker + ' fallback label did not render');
         }
         const display = label.dataset.scoreboardTeamDisplay;
-        const visible = display === 'full' ? full : abbreviation;
         const style = getComputedStyle(label);
         return {
           abbreviationAriaHidden: abbreviation.getAttribute('aria-hidden'),
+          abbreviationHeight: round(abbreviation.getBoundingClientRect().height),
+          abbreviationVisibility: getComputedStyle(abbreviation).visibility,
           abbreviationWidth: round(abbreviation.getBoundingClientRect().width),
           accessibleText: accessible.textContent ?? '',
+          boxRight: round(label.getBoundingClientRect().right),
           boxWidth: round(label.getBoundingClientRect().width),
+          containerRight: round(label.parentElement?.getBoundingClientRect().right ?? 0),
           display: display ?? '',
           fullAriaHidden: full.getAttribute('aria-hidden'),
+          fullVisibility: getComputedStyle(full).visibility,
           fullWidth: round(full.getBoundingClientRect().width),
           overflowX: style.overflowX,
           textOverflow: style.textOverflow,
           visibleText: visible.textContent ?? '',
+          visibleHeight: round(visible.getBoundingClientRect().height),
+          visibleVariant: visible.dataset.scoreboardTeamVisual ?? null,
+          visibleVisibility: getComputedStyle(visible).visibility,
           visibleWidth: round(visible.getBoundingClientRect().width),
-          whiteSpace: style.whiteSpace,
+          whiteSpace: getComputedStyle(visible).whiteSpace,
         };
       };
 
       const compactContainer = document.querySelector('[data-compact-case]');
       if (!(compactContainer instanceof HTMLElement)) throw new Error('compact case missing');
       const compactByWidth = [];
-      for (const width of [390, 320, 240, 160]) {
+      for (const width of [430, 390, 320, 240]) {
         compactContainer.style.width = width + 'px';
         await settle();
-        compactByWidth.push({ away: measure('away'), home: measure('home') });
+        const suffix = compactContainer.querySelector('[data-scoreboard-suffix="away"]');
+        const record = compactContainer.querySelector('[data-scoreboard-record="away"]');
+        const owner = compactContainer.querySelector('[data-scoreboard-owner="away"]');
+        if (!(suffix instanceof HTMLElement) || !(record instanceof HTMLElement) ||
+            !(owner instanceof HTMLElement)) {
+          throw new Error('compact suffix control did not render');
+        }
+        const suffixRect = suffix.getBoundingClientRect();
+        const visibleWidth = (element) => {
+          const rect = element.getBoundingClientRect();
+          return round(Math.max(0,
+            Math.min(rect.right, suffixRect.right) - Math.max(rect.left, suffixRect.left)
+          ));
+        };
+        compactByWidth.push({
+          away: measure('away'),
+          home: measure('home'),
+          ownerVisibleWidth: visibleWidth(owner),
+          recordVisibleWidth: visibleWidth(record),
+          suffixWidth: round(suffixRect.width),
+        });
       }
+
+      // At the same row width, change only the text in the in-flow visual and
+      // then suppress both out-of-flow probes. None may resize the allocated box.
+      compactContainer.style.width = '390px';
+      await settle();
+      const box = compactContainer.querySelector('[data-scoreboard-team-label="away"]');
+      const visual = box?.querySelector('[data-scoreboard-team-visible="away"]');
+      const fullProbe = box?.querySelector('[data-scoreboard-team-full="away"]');
+      const abbreviationProbe = box?.querySelector('[data-scoreboard-team-abbreviation="away"]');
+      if (!(box instanceof HTMLElement) || !(visual instanceof HTMLElement) ||
+          !(fullProbe instanceof HTMLElement) || !(abbreviationProbe instanceof HTMLElement)) {
+        throw new Error('name-box independence control did not render');
+      }
+      const abbreviationShown = round(box.getBoundingClientRect().width);
+      visual.textContent = 'Southeast Missouri State';
+      const fullForced = round(box.getBoundingClientRect().width);
+      fullProbe.style.display = 'none';
+      abbreviationProbe.style.display = 'none';
+      const probesHidden = round(box.getBoundingClientRect().width);
+      fullProbe.style.display = '';
+      abbreviationProbe.style.display = '';
+      visual.textContent = 'SEMO';
+
+      const hiddenContainer = document.querySelector('[data-hidden-case]');
+      if (!(hiddenContainer instanceof HTMLElement)) throw new Error('hidden recap control missing');
+      const hiddenBeforeReveal = measure('hidden-recap');
+      hiddenContainer.hidden = false;
+      await settle();
+      const hiddenAfterReveal = measure('hidden-recap');
 
       const resizeContainer = document.querySelector('[data-resize-case]');
       if (!(resizeContainer instanceof HTMLElement)) throw new Error('resize case missing');
@@ -180,6 +259,7 @@ async function collectReport(page: BrowserFixturePage): Promise<BrowserReport> {
       if (!(fontTarget instanceof HTMLElement)) throw new Error('font target missing');
       const fontStyle = getComputedStyle(fontTarget);
       return {
+        boxIndependence: { abbreviationShown, fullForced, probesHidden },
         compactByWidth,
         font: {
           family: fontStyle.fontFamily,
@@ -187,6 +267,8 @@ async function collectReport(page: BrowserFixturePage): Promise<BrowserReport> {
           weight: fontStyle.fontWeight,
         },
         hydrationErrors: window.__scoreboardHydrationErrors ?? [],
+        hiddenAfterReveal,
+        hiddenBeforeReveal,
         mismatch: measure('mismatch'),
         mismatchErrors: window.__scoreboardMismatchErrors ?? [],
         neverWider: measure('never-wider'),
@@ -214,19 +296,27 @@ test('SSR and no-JS keep a single untruncated abbreviation', async (t) => {
       const { noJavaScript } = report;
       assert.equal(noJavaScript.display, 'abbreviation');
       assert.equal(noJavaScript.visibleText, 'SEMO');
+      assert.equal(noJavaScript.visibleVariant, 'abbreviation');
+      assert.equal(noJavaScript.visibleVisibility, 'visible');
       assert.equal(noJavaScript.accessibleText, 'Southeast Missouri State');
       assert.equal(noJavaScript.fullAriaHidden, 'true');
       assert.equal(noJavaScript.abbreviationAriaHidden, 'true');
       assert.ok(
-        noJavaScript.visibleWidth > noJavaScript.boxWidth,
-        'the no-JS control must force the abbreviation beyond its own box'
+        noJavaScript.abbreviationWidth > noJavaScript.boxWidth,
+        'the no-JS control must force the unwrapped abbreviation beyond its own box'
       );
       assert.equal(
         noJavaScript.overflowX,
-        'visible',
-        'an abbreviation too wide for the no-JS box must overflow visibly, never clip'
+        'hidden',
+        'the no-JS box must contain its overflowing abbreviation rather than emit page overflow'
       );
-      assert.equal(noJavaScript.whiteSpace, 'nowrap', 'the overflowing abbreviation must not wrap');
+      assert.equal(noJavaScript.whiteSpace, 'normal', 'the overflowing abbreviation must wrap');
+      assert.ok(
+        noJavaScript.visibleHeight > noJavaScript.abbreviationHeight,
+        'the full abbreviation must occupy multiple lines instead of being clipped'
+      );
+      assert.ok(noJavaScript.visibleWidth <= noJavaScript.boxWidth);
+      assert.ok(noJavaScript.boxRight <= noJavaScript.containerRight);
       assert.equal(
         noJavaScript.textOverflow,
         'clip',
@@ -248,8 +338,35 @@ test('fit, overflow, never-wider, and resize decisions use the rendered name box
       };
       assert.equal(boot.hydrationReady, undefined, JSON.stringify(boot.pageErrors ?? []));
       assert.deepEqual(report.hydrationErrors, [], 'matching SSR must hydrate without recovery');
+      assert.equal(
+        report.boxIndependence.abbreviationShown,
+        report.boxIndependence.fullForced,
+        'the row-allocated name box must not grow when its visual text changes to the full name'
+      );
+      assert.equal(
+        report.boxIndependence.abbreviationShown,
+        report.boxIndependence.probesHidden,
+        'the measurement probes must not contribute to the name-box width'
+      );
+      assert.equal(report.hiddenBeforeReveal.boxWidth, 0);
+      assert.equal(report.hiddenBeforeReveal.fullWidth, 0);
+      assert.equal(
+        report.hiddenBeforeReveal.display,
+        'abbreviation',
+        'a hidden recap label must not upgrade on zero-width measurements'
+      );
+      assert.equal(
+        report.hiddenAfterReveal.display,
+        'full',
+        'a recap label upgrades only after its full name fits a laid-out box'
+      );
+      assert.ok(report.hiddenAfterReveal.fullWidth <= report.hiddenAfterReveal.boxWidth);
 
-      assert.equal(report.resizeBefore.display, 'abbreviation');
+      assert.equal(
+        report.resizeBefore.display,
+        'abbreviation',
+        'a full name wider than its own box must remain abbreviated before resize'
+      );
       assert.ok(report.resizeBefore.fullWidth > report.resizeBefore.boxWidth);
       assert.equal(
         report.resizeAfterGrow.display,
@@ -268,7 +385,7 @@ test('fit, overflow, never-wider, and resize decisions use the rendered name box
       assert.ok(fitting);
       assert.ok(
         fitting.fullWidth <= fitting.boxWidth,
-        'the 390px Codex control must prove the full name fits its own box'
+        'the 430px control must prove the full name fits its row-allocated box'
       );
       assert.equal(
         fitting.display,
@@ -291,9 +408,18 @@ test('fit, overflow, never-wider, and resize decisions use the rendered name box
         );
         assert.equal(measurement.visibleText, 'SEMO');
       }
-      const mixed = report.compactByWidth[2];
+      const mixed = report.compactByWidth[3];
       assert.ok(mixed);
       assert.equal(mixed.away.display, 'abbreviation');
+      assert.ok(mixed.suffixWidth > 0, 'the 240px suffix container must retain rendered width');
+      assert.ok(
+        mixed.recordVisibleWidth > 0,
+        'the 240px record must retain visible width after abbreviation'
+      );
+      assert.ok(
+        mixed.ownerVisibleWidth > 0,
+        'the 240px owner must retain visible width after abbreviation'
+      );
       assert.equal(
         mixed.home.display,
         'full',
@@ -329,6 +455,7 @@ test('fit, overflow, never-wider, and resize decisions use the rendered name box
 
       for (const measurement of [
         ...report.compactByWidth.map(({ away }) => away),
+        report.hiddenAfterReveal,
         report.resizeBefore,
         report.resizeAfterGrow,
         report.resizeAfterShrink,
@@ -336,6 +463,10 @@ test('fit, overflow, never-wider, and resize decisions use the rendered name box
         assert.equal(measurement.accessibleText, 'Southeast Missouri State');
         assert.equal(measurement.fullAriaHidden, 'true');
         assert.equal(measurement.abbreviationAriaHidden, 'true');
+        assert.equal(measurement.visibleVariant, measurement.display);
+        assert.equal(measurement.visibleVisibility, 'visible');
+        assert.equal(measurement.fullVisibility, 'hidden');
+        assert.equal(measurement.abbreviationVisibility, 'hidden');
       }
       for (const { home } of report.compactByWidth) {
         assert.equal(home.accessibleText, 'Ohio State');
@@ -353,7 +484,7 @@ test('fit, overflow, never-wider, and resize decisions use the rendered name box
         report.compactByWidth
           .map(
             ({ away, home }, index) =>
-              `${[390, 320, 240, 160][index]}px: away ${away.display}, full ${away.fullWidth}px / box ${away.boxWidth}px / abbreviation ${away.abbreviationWidth}px; home ${home.display}`
+              `${[430, 390, 320, 240][index]}px: away ${away.display}, full ${away.fullWidth}px / box ${away.boxWidth}px / abbreviation ${away.abbreviationWidth}px; home ${home.display}`
           )
           .join('; ')
       );
