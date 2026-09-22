@@ -28,6 +28,8 @@ import {
 } from '../../../../../../scripts/lib/plannerScheduleContracts';
 
 import { GET } from '../route';
+import type { ScheduleWireItem } from '../../../../../lib/schedule';
+import { conformingScheduleRow } from '../../../../../test/conformingScheduleRow';
 
 /**
  * PLATFORM-102 slice 4 — the planner route. THIS SLICE IS NOT DORMANT: these
@@ -250,10 +252,18 @@ async function readReceipt(): Promise<SchedulerExecutionReceipt | null> {
   return row?.value ?? null;
 }
 
-/** Seed the canonical schedule cache for the season year the planner will read. */
-async function seedSchedule(items: Array<Record<string, unknown>>): Promise<number> {
+/**
+ * Seed the canonical schedule cache for the season year the planner will read.
+ *
+ * Callers pass only the kickoff fields the planner reads; each row is completed to a
+ * conforming `ScheduleWireItem` (PLATFORM-813 v4 — the canonical reader rejects a row the
+ * declared type says cannot exist). The completion defaults behave as absence did.
+ */
+async function seedSchedule(items: Array<Partial<ScheduleWireItem>>): Promise<number> {
   const dayStartMs = Math.floor((Date.now() + 60 * 60 * 1000) / 86_400_000) * 86_400_000;
-  await setAppState('schedule', `${planningSeasonYear()}-all-all`, { items });
+  await setAppState('schedule', `${planningSeasonYear()}-all-all`, {
+    items: items.map((row) => conformingScheduleRow(row)),
+  });
   return dayStartMs;
 }
 

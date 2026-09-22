@@ -1,5 +1,6 @@
 import { assembleSeasonScoredBuild, SeasonScheduleCacheUnavailableError } from '../seasonBuild.ts';
 import type { ScorePack } from '../scores.ts';
+import { ScheduleRowNonConformanceError } from '../server/durableScheduleRow.ts';
 import type { SeasonArchive } from '../seasonArchive.ts';
 import type { TeamCatalogItem } from '../teamIdentity.ts';
 import type { AliasMap } from '../teamNames.ts';
@@ -32,6 +33,7 @@ import { parseGameStatSlateSnapshot, snapshotToCanonicalSlate } from './slateSna
 
 export type AnalyticsProvenanceUnavailableReason =
   | 'schedule-cache-unavailable'
+  | 'schedule-cache-unreadable'
   | 'build-failed'
   | 'slate-derivation-failed'
   | 'archive-slate-missing'
@@ -74,13 +76,14 @@ export async function assembleLiveAnalyticsProvenance(params: {
   try {
     build = await assembleSeasonScoredBuild(leagueSlug, year);
   } catch (error) {
-    return {
-      status: 'unavailable',
-      reason:
-        error instanceof SeasonScheduleCacheUnavailableError
-          ? 'schedule-cache-unavailable'
-          : 'build-failed',
-    };
+    // PLATFORM-813: name the ACTUAL cause. A stored season that does not conform to its
+    // row type is not a build failure, and this is the one consumer whose job is naming the
+    // cause — reporting `build-failed` would send an operator to the wrong layer. Asserted
+    // by `analyticsProvenance.test.ts`.
+    let reason: AnalyticsProvenanceUnavailableReason = 'build-failed';
+    if (error instanceof SeasonScheduleCacheUnavailableError) reason = 'schedule-cache-unavailable';
+    else if (error instanceof ScheduleRowNonConformanceError) reason = 'schedule-cache-unreadable';
+    return { status: 'unavailable', reason };
   }
 
   try {

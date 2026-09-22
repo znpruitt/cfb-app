@@ -24,6 +24,7 @@ import {
 } from '../../../../lib/server/providerRefreshStatus.ts';
 import { yearScope } from '../../../../lib/providerRefreshScope.ts';
 import { acquireScheduleRefreshLease } from '../../../../lib/schedule/scheduleRefreshLease.ts';
+import { conformingScheduleRow } from '../../../../test/conformingScheduleRow.ts';
 
 // PLATFORM-663: every refresh this route can reach is a WHOLE-SEASON refresh
 // through the shared authority, so the year rollup is the only status scope it
@@ -352,7 +353,7 @@ test('a prior-cache read failure while classifying an empty response resolves th
   await setAppState('schedule', '2027-all-all', {
     at: 1,
     items: [
-      {
+      conformingScheduleRow({
         id: 'prior',
         week: 1,
         startDate: '2027-09-01T00:00:00.000Z',
@@ -363,7 +364,7 @@ test('a prior-cache read failure while classifying an empty response resolves th
         homeConference: 'Big 12',
         awayConference: 'American',
         status: 'scheduled',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -435,7 +436,7 @@ test('an unexpected all-empty refresh does NOT overwrite a populated durable sch
   await setAppState('schedule', '2027-all-all', {
     at: 1,
     items: [
-      {
+      conformingScheduleRow({
         id: 'prior',
         week: 1,
         startDate: '2027-09-01T00:00:00.000Z',
@@ -446,7 +447,7 @@ test('an unexpected all-empty refresh does NOT overwrite a populated durable sch
         homeConference: 'Big 12',
         awayConference: 'American',
         status: 'scheduled',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -523,7 +524,14 @@ test('schedule route serves stale shared cache to non-admin requests instead of 
 
   await setAppState('schedule', '2026-all-regular', {
     at: Date.now() - 10 * 60 * 60 * 1000,
-    items: [{ week: 1, homeTeam: 'Stale Home', awayTeam: 'Away', seasonType: 'regular' }],
+    items: [
+      conformingScheduleRow({
+        week: 1,
+        homeTeam: 'Stale Home',
+        awayTeam: 'Away',
+        seasonType: 'regular',
+      }),
+    ],
     partialFailure: false,
     failedSeasonTypes: [],
   });
@@ -540,6 +548,35 @@ test('schedule route serves stale shared cache to non-admin requests instead of 
   assert.equal(json.meta.stale, true);
   assert.equal(json.meta.rebuildRequired, true);
   assert.equal(json.items[0].homeTeam, 'Stale Home');
+});
+
+test('a non-conforming stored season answers a shaped 503 naming the row', async () => {
+  // PLATFORM-813 v4, acceptance 6. On `main` this read had no validation, so the route
+  // served the malformed row with a 200 and the client crashed building it. The reader now
+  // throws `ScheduleRowNonConformanceError`, and without a handler that escaped as Next's
+  // bare 500. The body names what is wrong and where; nothing is served, and nothing enters
+  // the route's process cache.
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  await setAppState('schedule', '2026-all-all', {
+    at: Date.now(),
+    items: [
+      conformingScheduleRow({ id: 'g1', homeTeam: 'A', awayTeam: 'B' }),
+      { id: 'g2', week: 1 },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  setMockFetch(async () => {
+    throw new Error('a non-admin read must not reach the provider');
+  });
+
+  const res = await GET(new Request('http://localhost/api/schedule?year=2026'));
+  assert.equal(res.status, 503);
+  const json = (await res.json()) as { code?: string; detail?: string; items?: unknown };
+  assert.equal(json.code, 'schedule-cache-nonconforming');
+  assert.match(json.detail ?? '', /schedule 2026-all-all: row #1 \(id "g2"\) startDate is absent/);
+  assert.equal(json.items, undefined, 'no rows are served');
+  assert.equal(SCHEDULE_ROUTE_CACHE['2026-all-all'], undefined, 'nothing enters the process cache');
 });
 
 // ---------------------------------------------------------------------------
@@ -753,7 +790,12 @@ test('a window refresh and a whole-season read agree about the same game', async
   // repaired — the exact pre-#663 divergence setup.
   await setAppState('schedule', P663_AGGREGATE_KEY, {
     at: 1,
-    items: [{ ...p663Row('9001', 1, 'regular'), startDate: `${P663_YEAR}-09-01T17:00:00.000Z` }],
+    items: [
+      conformingScheduleRow({
+        ...p663Row('9001', 1, 'regular'),
+        startDate: `${P663_YEAR}-09-01T17:00:00.000Z`,
+      }),
+    ],
     partialFailure: false,
     failedSeasonTypes: [],
   });
@@ -1012,7 +1054,12 @@ test('an ADMIN request with a stale aggregate and no bypassCache refreshes and r
   // branch got more load-bearing in the same slice that removed its coverage.
   await setAppState('schedule', P663_AGGREGATE_KEY, {
     at: Date.now() - 3_601_000,
-    items: [{ ...p663Row('stale', 1, 'regular'), startDate: `${P663_YEAR}-10-05T00:00:00.000Z` }],
+    items: [
+      conformingScheduleRow({
+        ...p663Row('stale', 1, 'regular'),
+        startDate: `${P663_YEAR}-10-05T00:00:00.000Z`,
+      }),
+    ],
     partialFailure: false,
     failedSeasonTypes: [],
   });

@@ -13,6 +13,9 @@ import {
   loadCachedScheduleItems,
   loadCanonicalScheduleEntry,
 } from '../canonicalScheduleCache.ts';
+import { conformingScheduleRow } from '../../../test/conformingScheduleRow.ts';
+import { getAppState } from '../appStateStore.ts';
+import { buildScheduleFromApi, type ScheduleWireItem } from '../../schedule.ts';
 
 /**
  * PLATFORM-663 — this module is now the SINGLE implementation of the canonical
@@ -26,8 +29,9 @@ import {
 
 const YEAR = 2031;
 
+/** A CONFORMING row (PLATFORM-813 v4): the reader rejects one missing a required field. */
 function row(id: string, week: number) {
-  return { id, week, homeTeam: `Home ${id}`, awayTeam: `Away ${id}` };
+  return conformingScheduleRow({ id, week, homeTeam: `Home ${id}`, awayTeam: `Away ${id}` });
 }
 
 test.beforeEach(async () => {
@@ -279,4 +283,150 @@ test('an EMPTY partition record is a miss, so it cannot become a 200 with zero r
   assert.notEqual(entry, null, 'an empty AGGREGATE is still "cached and empty"');
   assert.equal(entry?.source, 'aggregate');
   assert.equal(entry?.at, 77);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-813 v4, ACCEPTANCE 2 — a well-typed season produces EXACTLY main's output.
+//
+// "Nothing else changes" is a claim about every well-typed season, so it is checked by
+// building the same season through both paths: `main`'s (the raw stored items, straight
+// into the build) and the new canonical reader (validated). The fixture covers every row
+// kind the build branches on — regular, conference championship, bowl, and a playoff
+// national championship — plus optional fields, nested venue and media.
+// ---------------------------------------------------------------------------
+
+const TEAMS = [
+  { school: 'Alpha U', conference: 'SEC' },
+  { school: 'Beta U', conference: 'SEC' },
+  { school: 'Gamma U', conference: 'Big Ten' },
+  { school: 'Delta U', conference: 'Big Ten' },
+];
+
+function wellTypedSeason(): ScheduleWireItem[] {
+  return [
+    conformingScheduleRow({
+      id: 'r1',
+      week: 1,
+      startDate: '2031-09-01T18:00:00.000Z',
+      homeTeam: 'Alpha U',
+      awayTeam: 'Gamma U',
+      homeConference: 'SEC',
+      awayConference: 'Big Ten',
+      homeClassification: 'fbs',
+      awayClassification: 'fbs',
+      status: 'final',
+      seasonType: 'regular',
+      venue: { stadium: 'Alpha Field', city: 'Alpha', state: 'TX', country: 'USA' },
+      media: [{ gameId: 'r1', mediaType: 'tv', outlet: 'ESPN' }],
+    }),
+    conformingScheduleRow({
+      id: 'c1',
+      week: 14,
+      startDate: '2031-12-06T18:00:00.000Z',
+      neutralSite: true,
+      conferenceGame: true,
+      homeTeam: 'Alpha U',
+      awayTeam: 'Beta U',
+      homeConference: 'SEC',
+      awayConference: 'SEC',
+      status: 'final',
+      seasonType: 'regular',
+      gamePhase: 'conference_championship',
+      regularSubtype: 'conference_championship',
+      conferenceChampionshipConference: 'SEC',
+      eventKey: 'sec-championship',
+      slotOrder: 1,
+    }),
+    conformingScheduleRow({
+      id: 'p1',
+      week: 1,
+      startDate: '2031-12-28T18:00:00.000Z',
+      neutralSite: true,
+      homeTeam: 'Beta U',
+      awayTeam: 'Delta U',
+      homeConference: 'SEC',
+      awayConference: 'Big Ten',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      gamePhase: 'postseason',
+      postseasonSubtype: 'bowl',
+      bowlName: 'Orange Bowl',
+      label: 'Orange Bowl',
+      eventKey: 'orange-bowl',
+      venue: 'Hard Rock Stadium',
+    }),
+    conformingScheduleRow({
+      id: 'p2',
+      week: 1,
+      startDate: '2032-01-10T00:00:00.000Z',
+      neutralSite: true,
+      homeTeam: 'Alpha U',
+      awayTeam: 'Gamma U',
+      homeConference: 'SEC',
+      awayConference: 'Big Ten',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      gamePhase: 'postseason',
+      postseasonSubtype: 'playoff',
+      playoffRound: 'national_championship',
+      playoffCompetition: 'College Football Playoff',
+      playoffRoundSource: 'cfbd-structured',
+      startTimeTBD: false,
+      completed: false,
+    }),
+  ];
+}
+
+function build(items: ScheduleWireItem[]) {
+  return buildScheduleFromApi({ scheduleItems: items, teams: TEAMS, aliasMap: {}, season: YEAR });
+}
+
+test("ACCEPTANCE 2: a well-typed season builds EXACTLY main's games, on both reader paths", async () => {
+  const season = wellTypedSeason();
+  const layouts: Array<{ name: string; seed: () => Promise<void>; raw: () => Promise<unknown[]> }> =
+    [
+      {
+        name: 'aggregate',
+        seed: async () => {
+          await setAppState('schedule', '2031-all-all', { at: 1, items: season });
+        },
+        raw: async () =>
+          (await getAppState<{ items: unknown[] }>('schedule', '2031-all-all'))!.value!.items,
+      },
+      {
+        name: 'partition pair',
+        seed: async () => {
+          await setAppState('schedule', '2031-all-regular', { at: 1, items: season.slice(0, 2) });
+          await setAppState('schedule', '2031-all-postseason', { at: 1, items: season.slice(2) });
+        },
+        raw: async () => [
+          ...(await getAppState<{ items: unknown[] }>('schedule', '2031-all-regular'))!.value!
+            .items,
+          ...(await getAppState<{ items: unknown[] }>('schedule', '2031-all-postseason'))!.value!
+            .items,
+        ],
+      },
+    ];
+
+  for (const layout of layouts) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    await layout.seed();
+
+    const mainItems = (await layout.raw()) as ScheduleWireItem[];
+    const readerItems = await loadCachedScheduleItems(YEAR);
+
+    assert.deepEqual(
+      readerItems,
+      mainItems,
+      `${layout.name}: the reader returns the stored rows unchanged`
+    );
+    const mainBuild = build(mainItems);
+    assert.equal(mainBuild.games.length, season.length, `${layout.name}: every row is a game`);
+    assert.deepEqual(build(readerItems), mainBuild, `${layout.name}: identical build output`);
+
+    // THE COMPARISON CAN FAIL: one well-typed field changed in ONE path only must be seen.
+    const mutated = readerItems.map((item, i) => (i === 3 ? { ...item, eventKey: 'cfp-x' } : item));
+    assert.notDeepEqual(build(mutated), mainBuild, `${layout.name}: the comparison is sensitive`);
+  }
 });

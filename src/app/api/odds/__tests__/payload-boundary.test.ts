@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { GET } from '../route.ts';
+import { conformingScheduleRow } from '../../../../test/conformingScheduleRow.ts';
 import type { OddsUsageSnapshot } from '../../../../lib/api/oddsUsage.ts';
 import {
   __resetOddsRouteCacheForTests,
@@ -121,7 +122,7 @@ async function seedSchedule(startDate: string, status = 'scheduled'): Promise<vo
   await setAppState('schedule', `${SEASON}-all-all`, {
     at: Date.now(),
     items: [
-      {
+      conformingScheduleRow({
         id: 'g-1',
         week: 7,
         startDate,
@@ -129,7 +130,7 @@ async function seedSchedule(startDate: string, status = 'scheduled'): Promise<vo
         awayTeam: 'Auburn',
         status,
         seasonType: 'regular',
-      },
+      }),
     ],
     partialFailure: false,
     failedSeasonTypes: [],
@@ -612,8 +613,10 @@ async function seedScheduleItems(
   });
 }
 
+// Conforming rows (PLATFORM-813 v4): the canonical reader rejects a row missing a field the
+// declared type requires, and every test here is about odds evidence, not row shape.
 function scheduleGame(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
+  return conformingScheduleRow({
     id: 'g-ga-au',
     week: 7,
     startDate: inDays(3),
@@ -622,7 +625,7 @@ function scheduleGame(overrides: Record<string, unknown> = {}): Record<string, u
     status: 'scheduled',
     seasonType: 'regular',
     ...overrides,
-  };
+  });
 }
 
 test('a prior event whose game is now CANCELED is exculpated: no-op and the obsolete entry is cleared', async () => {
@@ -788,6 +791,37 @@ test('a failed schedule read preserves conservative prior-event evidence (502, n
   const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
   assert.equal(durable?.value?.data.length, 1, 'nothing cleared without authoritative evidence');
   assert.equal(durable?.value?.lastFetch, prior.lastFetch);
+});
+
+test('ACCEPTANCE 4 (#813 v4): a malformed schedule row cannot let an empty payload erase prior odds', async () => {
+  // The v3 regression. At `8578ad38` the canonical reader DROPPED the malformed row and
+  // served the survivor, so the evidence gatherer saw a complete-looking slate holding only
+  // Texas/Rice, judged the Georgia/Auburn prior event unmatched — obsolete — and the empty
+  // provider payload committed an empty cache over prior-good odds.
+  //
+  // v4 needs NO odds-code change to prevent it, and that is the point. The reader now
+  // throws, `gatherEmptyOddsScheduleEvidence` catches a failed read into
+  // `scheduleItems = null`, and the classifier's own contract treats null as "the read
+  // failed; unavailability is never evidence" — the branch the test above exercises. v3
+  // broke the odds path by making a failed read look like a successful partial one.
+  const prior = await seedPriorEntry([normalizedEvent(inDays(3))]); // Georgia/Auburn
+  await seedScheduleItems([
+    scheduleGame({ id: 'g-tx-ri', homeTeam: 'Texas', awayTeam: 'Rice', startDate: inDays(30) }),
+    // The Georgia/Auburn row, stored malformed: not an object at all.
+    null as unknown as Record<string, unknown>,
+  ]);
+
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 502, 'a failed read keeps the conservative 502');
+  } finally {
+    stub.restore();
+  }
+
+  const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+  assert.equal(durable?.value?.data.length, 1, 'the prior-good odds are NOT erased');
+  assert.equal(durable?.value?.lastFetch, prior.lastFetch, 'and the entry is untouched');
 });
 
 test('a dated postseason PLACEHOLDER matchup creates no positive expectation (no-op, not 502)', async () => {

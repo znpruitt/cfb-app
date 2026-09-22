@@ -6,10 +6,12 @@ import {
   setAppState,
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
 } from '@/lib/server/appStateStore';
 import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
 import { loadInsightsForLeague } from '@/lib/insights/loadInsights';
 import { applySuppression } from '@/lib/insights/engine';
+import { conformingScheduleRow } from '../../test/conformingScheduleRow.ts';
 
 // ===========================================================================
 // PLATFORM-053 — loadInsightsForLeague sources standings rows/history from the
@@ -111,7 +113,7 @@ test('PLATFORM-077: loadInsightsForLeague sources schedule/games in-process and 
   await setAppState('schedule', '2026-all-all', {
     at: Date.now(),
     items: [
-      {
+      conformingScheduleRow({
         id: 'g1',
         week: 1,
         startDate: '2026-09-05T00:00:00Z',
@@ -122,7 +124,7 @@ test('PLATFORM-077: loadInsightsForLeague sources schedule/games in-process and 
         status: 'final',
         seasonType: 'regular',
         gamePhase: 'regular',
-      },
+      }),
     ],
   });
 
@@ -294,4 +296,53 @@ test('INSIGHTS-029: the feed survives repeated loads through the real loader', a
     drainedAgain.length < drained.length,
     'the fixture MUST contain suppressible insights, or this test proves nothing'
   );
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-813 v4 — a NON-CONFORMING season is not cached as an empty insights build.
+//
+// The build runs inside `unstable_cache` (300s TTL). Its schedule read used to be
+// `.catch(() => [])`, so a failed read produced insights from no games and cached them.
+// `unstable_cache` never stores a REJECTION, so the mechanism is: the typed error must
+// escape the build. Outside Next the cache is bypassed, so what these tests observe is
+// that escape — it surfaces as `loadInsightsForLeague`'s uncached error response. An
+// OFFSEASON league is used because its standings path returns before reading the
+// schedule, so nothing else in the build would throw and mask the difference.
+// ---------------------------------------------------------------------------
+
+async function offseasonLeague(): Promise<void> {
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Turf War',
+    year: 2026,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'offseason' },
+  });
+}
+
+test('a non-conforming season is not cached as empty — the typed error escapes the build', async () => {
+  await offseasonLeague();
+  await setAppState('schedule', '2026-all-all', { items: [{ id: 'g1', week: 1 }] });
+
+  const res = await loadInsightsForLeague(SLUG, 2026);
+
+  assert.match(
+    res.error ?? '',
+    /schedule 2026-all-all: row #0 \(id "g1"\) startDate is absent/,
+    'the failure escaped the cached build instead of becoming insights from no games'
+  );
+});
+
+test("any OTHER schedule read failure keeps main's behaviour — swallowed into [] (#847)", async () => {
+  // The control that bounds the change. Only the typed non-conformance error is rethrown;
+  // a store outage still degrades to an empty game list, exactly as before #813. That
+  // remaining case is #847, filed rather than changed here.
+  await offseasonLeague();
+  __setAppStateReadFailureForTests(new Error('schedule store outage'), 'schedule');
+  try {
+    const res = await loadInsightsForLeague(SLUG, 2026);
+    assert.equal(res.error, undefined, 'the outage is swallowed, not surfaced');
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
 });

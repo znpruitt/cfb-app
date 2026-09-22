@@ -1,5 +1,6 @@
 import type { AppGame, ScheduleWireItem } from '../schedule.ts';
 import { getAppState } from './appStateStore.ts';
+import { assertConformingScheduleRows } from './durableScheduleRow.ts';
 
 /**
  * The durable `schedule` record as stored. Every field but `items` is optional
@@ -159,7 +160,7 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
     canonicalScheduleAggregateKey(year)
   );
   if (canonicalScheduleAggregateServes(aggregate?.value)) {
-    return normalizeEntry<T>(aggregate!.value!, 'aggregate');
+    return normalizeEntry<T>(aggregate!.value!, 'aggregate', canonicalScheduleAggregateKey(year));
   }
 
   const [regularKey, postseasonKey] = canonicalSchedulePartitionKeys(year);
@@ -168,9 +169,21 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
     getAppState<StoredScheduleEntry<T>>(CANONICAL_SCHEDULE_SCOPE, postseasonKey),
   ]);
 
-  const contributing = [regular?.value, postseason?.value].filter(
-    (value): value is StoredScheduleEntry<T> => canonicalScheduleAggregateServes(value)
-  );
+  const contributing = (
+    [
+      [regularKey, regular?.value],
+      [postseasonKey, postseason?.value],
+    ] as const
+  )
+    .filter((pair): pair is readonly [string, StoredScheduleEntry<T>] =>
+      canonicalScheduleAggregateServes(pair[1])
+    )
+    // PLATFORM-813: each partition is checked under ITS OWN key, so the error names the
+    // record that holds the bad row rather than a composed view no key stores.
+    .map(([key, value]) => ({
+      value,
+      items: assertConformingScheduleRows(key, value.items) as unknown as T[],
+    }));
   if (contributing.length > 0) {
     // An UNKNOWN age is not a missing contribution. A contributing partition whose
     // `at` is absent or non-finite normalizes to 0 (stale) rather than dropping out
@@ -179,16 +192,16 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
     // report the combined view fresh while half of it had unknown age. `0` is
     // stale-but-comparable, which is the honest answer and matches what
     // `normalizeEntry` already does for the single-record paths.
-    const stamps = contributing.map((value) =>
+    const stamps = contributing.map(({ value }) =>
       typeof value.at === 'number' && Number.isFinite(value.at) ? value.at : 0
     );
     return {
       // Oldest contributing partition wins, so the pair can never read fresher
       // than its stalest half.
       at: Math.min(...stamps),
-      items: contributing.flatMap((value) => value.items ?? []),
-      partialFailure: contributing.some((value) => value.partialFailure === true),
-      failedSeasonTypes: contributing.flatMap((value) =>
+      items: contributing.flatMap(({ items }) => items),
+      partialFailure: contributing.some(({ value }) => value.partialFailure === true),
+      failedSeasonTypes: contributing.flatMap(({ value }) =>
         Array.isArray(value.failedSeasonTypes) ? value.failedSeasonTypes : []
       ),
       source: 'partition-pair',
@@ -209,18 +222,27 @@ export async function loadCanonicalScheduleEntry<T = ScheduleWireItem>(
   // is a fallback for SERVING ROWS; with no rows it has nothing to say, so it stays
   // a miss.
   if (aggregate?.value) {
-    return normalizeEntry<T>(aggregate.value, 'aggregate');
+    return normalizeEntry<T>(aggregate.value, 'aggregate', canonicalScheduleAggregateKey(year));
   }
   return null;
 }
 
 function normalizeEntry<T>(
   value: StoredScheduleEntry<T>,
-  source: CanonicalScheduleEntrySource
+  source: CanonicalScheduleEntrySource,
+  key: string
 ): CanonicalScheduleEntry<T> {
   return {
     at: typeof value.at === 'number' && Number.isFinite(value.at) ? value.at : 0,
-    items: value.items ?? [],
+    // PLATFORM-813: every row the canonical reader returns conforms to `ScheduleWireItem`,
+    // or the read throws `ScheduleRowNonConformanceError` naming key, row and field. No
+    // path returns the rows that remain after a bad one. An ABSENT `items` stays `[]`
+    // exactly as on `main` — the stored type makes it optional — while a PRESENT
+    // non-array is non-conformance. Asserted by `durableScheduleRow.test.ts` (acceptance 1).
+    items:
+      value.items === undefined
+        ? []
+        : (assertConformingScheduleRows(key, value.items) as unknown as T[]),
     partialFailure: value.partialFailure === true,
     failedSeasonTypes: Array.isArray(value.failedSeasonTypes) ? value.failedSeasonTypes : [],
     source,
