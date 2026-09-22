@@ -121,6 +121,14 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-827-OVERVIEW-LIVE-RECORDS-CODEX-v1
+
+- Purpose: Make Overview's condensed records and ordering agree with the in-season podium while retaining resolved movement.
+- Scope: Overview selector/rendering, regression tests, and closeout comments. Canonical standings, fallback Insights inputs, GB Race and the Standings page retain their behavior.
+- Outcome: Live table values; owner-keyed resolved arrows with boundary caption and accessible image names. Removed the dead previous-standings field while preserving the live Insights helper. Owner-authorized closeout fixes relocate the record-source comment and remove stale rank-arrow guidance. Caption policy is #855; palette consistency is #856; Standings endpoint divergence remains #851.
+- Review / verification: Both owner-invoked reviewers completed on `4cba1014`; Claude returned four lows, Codex clean. The separate approval-blocked CLI attempt is not counted as a review. Full tests, `lint:all`, types and required browser tests passed at that SHA. The partial-week regression failed before the fix; the accessibility role/name observer failed while the old attribute observer stayed green. [Acceptance 1–6 and review provenance](campaigns/platform-827-overview-live-records-closeout.md) record exact evidence and limitations; closeout is re-gated at its own commit.
+- Status: Implemented and reviewed on `codex/platform-827-overview-live-records`; pre-merge closeout. Not merged or deployed.
+
 ### PLATFORM-813-FAIL-CLOSED-CLAUDE-v4
 
 - Purpose: a durable schedule row that does not conform to `ScheduleWireItem` made the build throw an
