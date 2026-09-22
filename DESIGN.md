@@ -396,6 +396,22 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   whole. **The rule above protects TEAM names. Owner names are not covered by it.** Letter-stacking
   is rejected. Below the width at which even the abbreviation, record and score cannot fit, the
   behaviour is not yet specified; #832 measures that width.
+
+  **THE WHOLE PRIORITY ORDER, stated once because the two rules above can read as opposites —
+  owner ruling 2026-09-22.** "The owner yields" (narrow widths) and "the owner keeps priority over the
+  full team name" (normal widths) are the same order, applied at different widths. When a line cannot
+  hold everything, the parts give way in this order and no other:
+
+  1. **The full team name gives way first**, becoming its abbreviation (`SEMO (3-1) Pruitt`, not
+     `Southeast Missouri State (3-1) Pru…`).
+  2. **The owner gives way next**, truncating with an ellipsis, and only when even the abbreviation,
+     the record and the full owner cannot fit. That is the rare narrow width above.
+  3. **The abbreviation and the record never give way.** Neither is cut or broken.
+
+  **Why the owner outranks the full team name:** in a fantasy league the owner is the fact the row
+  exists to show, since it answers whose team this is, and the abbreviation is the provider's own and
+  recognisable. This order was the layout's existing behaviour on `624d2f7c` before anyone chose it;
+  it is now chosen, and #832 pins it with a test.
 - Use W16 CFP rankings for postseason game cards — not Final Poll rankings
 - CFP round badges use full words — "CFP Quarterfinal" not "CFP QF"
 - Conference championship badges include the conference name — "SEC Champ"

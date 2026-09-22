@@ -188,6 +188,14 @@ Client-safe matters now: the measurement runs in the browser and needs the looku
     The single-line assertion must **fail against `624d2f7c`**, where the visible span is 80px tall,
     and pass after the fix. Assert in the same test that the owner is truncated and non-zero and the
     record is whole.
+16. **At a normal width, the owner outranks the FULL team name** (owner ruling 2026-09-22; `DESIGN.md`,
+    "the whole priority order"). Pick a width, **measured, not assumed**, at which the abbreviation,
+    the record and the full owner fit but the full team name, the record and the full owner do not.
+    Assert that the name abbreviates and the owner renders WHOLE. **This passes on `624d2f7c`**: the
+    order is already the layout's behaviour there, so this pins it rather than proving a fix. That
+    means it needs its own positive control. Mutate the layout to favour the full name (for example,
+    let the name box claim space before the owner) and show THIS assertion reddens. A width at which
+    both fit, or neither fits, cannot tell the two orders apart and proves nothing.
 
 ## RE-DERIVATION, ruled 2026-09-21 — the LAYOUT MODEL, not the mechanism
 
