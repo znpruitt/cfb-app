@@ -255,24 +255,20 @@ export default function CompactGameScoreboard({
       ) : null}
       <div
         className={`mb-1.5 flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs dark:text-zinc-400${
-          hasTagSlot && state === 'scheduled' ? ' max-sm:flex-wrap max-sm:gap-y-1' : ''
+          hasTagSlot ? ' max-sm:flex-wrap max-sm:gap-y-1' : ''
         }`}
         data-scoreboard-header
       >
         {hasTagSlot ? (
           <>
             <span
-              className={`flex min-w-0 flex-auto items-center gap-2 overflow-clip whitespace-nowrap${
-                state === 'scheduled' ? ' max-sm:w-full max-sm:flex-none' : ''
-              }`}
+              className="flex min-w-0 flex-auto items-center gap-2 overflow-clip whitespace-nowrap max-sm:w-full max-sm:flex-none"
               data-scoreboard-header-metadata
             >
               {headerContent}
             </span>
             <span
-              className={`flex h-4 flex-none items-center justify-end gap-1 leading-none${
-                state === 'scheduled' ? ' max-sm:w-full' : ''
-              }`}
+              className="flex h-4 flex-none items-center justify-end gap-1 leading-none max-sm:w-full"
               data-scoreboard-tag-slot
             >
               {tagSlot}

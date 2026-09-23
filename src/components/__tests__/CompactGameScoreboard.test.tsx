@@ -644,13 +644,9 @@ test('overflowing status rows keep equal structure and preserve the fixed tag ed
   assert.equal(metadata.nextElementSibling, tagSlot);
   assert.equal(tagSlot.querySelectorAll('[data-test-tag]').length, 2);
   assert.equal(metadata.querySelectorAll('.truncate').length, 2);
-  // Static JSDOM markup cannot prove rendered pixel height. This pins the DOM
-  // structure and fixed header-row placement that keep tags from adding a line.
   assert.deepEqual(directScoreboardRows(renderScoreboard()), ['header', 'away', 'home']);
   assert.deepEqual(directScoreboardRows(html), ['header', 'away', 'home']);
-  const taggedLive = renderScoreboard({ tagSlot: <span>Upset Watch</span> });
   const untaggedScheduled = renderScoreboard({ state: 'scheduled', statusLabel: 'SCH' });
-  assert.doesNotMatch(taggedLive, /max-sm:flex-wrap|max-sm:w-full/);
   assert.doesNotMatch(untaggedScheduled, /max-sm:flex-wrap|max-sm:w-full/);
 });
 
