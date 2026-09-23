@@ -663,6 +663,13 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   headed `W1 W2 W3` do not say the values are rank deltas rather than wins or points. **The general
   rule: a column-group label says what the values MEAN; it does not restate what the headers already
   show.**
+- **The caption is UNCONDITIONAL — `Movement` renders before the first resolved week too, above an empty
+  column group.** Owner ruling 2026-09-22, completing the one above: "Movement describes what the tile
+  is — it shows movement week to week even if it doesn't have the latest info yet." So there is no
+  empty-state variant and no `latestWeek == null` branch; the label names the block, and a block with no
+  data yet is still that block. This retires the former
+  `Movement · awaiting first resolved week` string, which was the same defect as `· through W3` in
+  the opposite direction — a boundary statement wearing a label's position.
 
 ## Overview trifold layout
 
