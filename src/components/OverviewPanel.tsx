@@ -683,11 +683,7 @@ function CondensedStandingsTable({
     deltaCount > 0 ? `minmax(0, 1fr) repeat(${deltaCount}, 1.75rem)` : 'minmax(0, 1fr)';
   return (
     <div className="-mx-1 overflow-x-auto px-1">
-      <p className="mb-1 px-2 text-xs text-gray-500 dark:text-zinc-400">
-        {latestWeek == null
-          ? 'Movement · awaiting first resolved week'
-          : `Movement · through ${labelFn(latestWeek)}`}
-      </p>
+      <p className="mb-1 px-2 text-xs text-gray-500 dark:text-zinc-400">Movement</p>
       <div
         className="min-w-full text-sm"
         style={{ display: 'grid', gridTemplateColumns: gridCols }}
@@ -735,11 +731,7 @@ function CondensedStandingsTable({
                       const places = Math.abs(delta);
                       return (
                         <span
-                          className={`ml-0.5 text-xs font-semibold ${
-                            movedUp
-                              ? 'text-emerald-700 dark:text-emerald-300'
-                              : 'text-amber-700 dark:text-amber-300'
-                          }`}
+                          className={`ml-0.5 text-xs font-semibold ${deltaTextColor(delta)}`}
                           aria-label={`Moved ${movedUp ? 'up' : 'down'} ${places} ${places === 1 ? 'place' : 'places'} from ${labelFn(previousWeek)} to ${labelFn(latestWeek)}`}
                           role="img"
                         >

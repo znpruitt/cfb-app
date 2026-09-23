@@ -554,6 +554,14 @@ npm run manage:schedule-presentation-schedule upsert --apply
 installs no schedule and changes no behaviour, because auto-promotion is off and the route is
 unreachable by any scheduler until the `upsert --apply` above is run against production.
 
+**DO NOT RUN THE UPSERT WHILE [#861](https://github.com/znpruitt/cfb-app/issues/861) IS OPEN.**
+PLATFORM-757a merged with one known budget defect: the job captures its elapsed time before an
+awaited durable read and reuses that stale value to decide whether another year fits, so under a
+degraded store it can under-count elapsed by up to 15 seconds and erode the margin that keeps the
+receipt landing inside the 300-second ceiling. The merge is safe **only because the route ships
+dormant** — and that argument ends the moment this schedule exists. The gate belongs here, at the
+install step, not only in the issue.
+
 **Between promotion and that command, System Health will report this job's delivery as
 missing.** Registering it in `EXTERNAL_SCHEDULER_JOBS` gives it a fixed Tuesday 13:00 policy, so
 from the first promoted deployment the page computes a required slot, finds no receipt, and raises

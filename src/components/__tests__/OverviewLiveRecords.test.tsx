@@ -170,12 +170,31 @@ function arrowLabels(doc: Document) {
         ?.getAttribute('aria-label') ?? null,
   }));
 }
+function movementGrid(doc: Document) {
+  const heading = [...doc.querySelectorAll('p')].find((p) => p.textContent === 'Standings')!;
+  return heading.parentElement!.parentElement!.querySelector('[style*="grid-template-columns"]')!;
+}
+
+function movementCaption(doc: Document) {
+  return movementGrid(doc).previousElementSibling!.textContent;
+}
+
+function latestDeltaCell(contentCell: Element) {
+  const cells: Element[] = [];
+  for (
+    let sibling = contentCell.nextElementSibling;
+    sibling?.tagName === 'SPAN';
+    sibling = sibling.nextElementSibling
+  ) {
+    cells.push(sibling);
+  }
+  assert.ok(cells.length > 0, 'owner row has rendered delta cells');
+  return cells.at(-1)!;
+}
+
 test('827: arrows are owner-keyed resolved movement beside live ranks', () => {
   const doc = render();
-  assert.ok(
-    doc.body.textContent!.includes('Movement · through W2'),
-    'movement names latest resolved boundary'
-  );
+  assert.equal(movementCaption(doc), 'Movement', 'resolved caption is exactly Movement');
   assert.deepEqual(
     arrowLabels(doc),
     [
@@ -201,16 +220,22 @@ test('827: movement arrows expose an accessible image name with both resolved bo
   );
 });
 
-test('827: zero or one resolved snapshot shows the boundary but no arrow', () => {
+test('827: sparse history keeps a week-free Movement caption, live records and no arrows', () => {
   for (const count of [0, 1]) {
     const limited = { ...history, weeks: history.weeks.slice(0, count) };
     const doc = render({ standingsHistory: limited });
-    assert.ok(
-      doc.body.textContent!.includes(
-        count === 0 ? 'Movement · awaiting first resolved week' : 'Movement · through W1'
-      ),
-      'sparse history label is truthful'
+    assert.equal(
+      movementCaption(doc),
+      'Movement',
+      `${count} resolved weeks: caption is exactly Movement with no week label`
     );
+    if (count === 1) {
+      assert.equal(
+        movementGrid(doc).children[1].textContent,
+        'W1',
+        'one resolved week keeps its W1 header'
+      );
+    }
     assert.ok(
       arrowLabels(doc).every((r) => r.label === null),
       'two resolved snapshots are required for arrows'
@@ -226,7 +251,91 @@ test('827: zero or one resolved snapshot shows the boundary but no arrow', () =>
     live.map((r) => r.owner),
     'null history preserves row population'
   );
+  assert.equal(
+    movementCaption(render({ standingsHistory: null })),
+    'Movement',
+    'null history caption is exactly Movement'
+  );
 });
+
+for (const resolvedWeeks of [2, 3]) {
+  test(`856: each rank arrow shares its owner latest delta cell colour (${resolvedWeeks} weeks)`, () => {
+    const resolvedHistory = {
+      ...history,
+      byWeek: {
+        ...history.byWeek,
+        3: {
+          ...history.byWeek[3],
+          played: resolvedWeeks === 3,
+          standings: history.byWeek[1].standings,
+        },
+      },
+    };
+    const grid = movementGrid(render({ standingsHistory: resolvedHistory }));
+    assert.equal(
+      grid.querySelectorAll('button').length,
+      3,
+      'colour comparison observes all three owners'
+    );
+    for (const button of grid.querySelectorAll('button')) {
+      const cell = button.parentElement!.parentElement!.parentElement!;
+      const arrow = cell.querySelector('[role="img"]');
+      assert.ok(arrow, `${button.textContent}: moving owner has an arrow`);
+      const latestDelta = latestDeltaCell(cell);
+      const colour = (element: Element) =>
+        [...element.classList].filter((c) => c.startsWith('dark:text-'));
+      assert.equal(colour(latestDelta).length, 1, 'latest delta has one rendered colour');
+      assert.deepEqual(
+        colour(arrow),
+        colour(latestDelta),
+        `${button.textContent}: arrow matches latest delta colour`
+      );
+    }
+  });
+
+  test(`856: zero resolved rank delta renders no arrow (${resolvedWeeks} weeks)`, () => {
+    const stableHistory = {
+      ...history,
+      byWeek: {
+        ...history.byWeek,
+        2: { ...history.byWeek[2], standings: history.byWeek[1].standings },
+        3: {
+          ...history.byWeek[3],
+          played: resolvedWeeks === 3,
+          standings: history.byWeek[1].standings,
+        },
+      },
+    };
+    const doc = render({ standingsHistory: stableHistory });
+    const grid = movementGrid(doc);
+    assert.deepEqual(
+      arrowLabels(doc).map((r) => r.owner),
+      live.map((r) => r.owner),
+      'zero-delta observer sees every expected owner'
+    );
+    for (const button of grid.querySelectorAll('button')) {
+      const cell = button.parentElement!.parentElement!.parentElement!;
+      assert.equal(
+        latestDeltaCell(cell).textContent,
+        '—',
+        'resolved fixture has a zero latest delta'
+      );
+    }
+    assert.deepEqual(
+      arrowLabels(render()).map((r) => r.owner),
+      live.map((r) => r.owner),
+      'positive-control observer sees every expected owner'
+    );
+    assert.ok(
+      arrowLabels(render()).every((r) => r.label !== null),
+      'arrow observer detects nonzero movement'
+    );
+    assert.ok(
+      arrowLabels(doc).every((r) => r.label === null),
+      'zero resolved delta renders no arrow'
+    );
+  });
+}
 
 function section(doc: Document, title: string) {
   const heading = [...doc.querySelectorAll('p,h2')].find((p) => p.textContent === title);

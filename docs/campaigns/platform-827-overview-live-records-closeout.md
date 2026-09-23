@@ -29,10 +29,20 @@ stay live`** (each metric) and **`table GB stays live`**. Restoring resolved ove
 
 ## Acceptance 2 — resolved movement and truthful labels
 
+**Supersession, 2026-09-23:** the caption and caption-mutation evidence below record what
+issue #827 shipped. #855/#856 replace that caption with the unconditional `Movement` on branch
+`codex/platform-855-856-movement-caption` (`b1d8fa92`), not yet a merge or deployment claim.
+The assertions **`movement names latest resolved boundary`** and **`sparse history label is
+truthful`** were retired; their mutation results are historical evidence, not current test
+coverage. Exact caption assertions replace them. The arrow-name assertions and the sparse-history
+record/population guarantees survive unchanged. See the
+[#855/#856 registry entry](../prompt-registry.md#platform-855-856-movement-caption-codex-v1)
+for implementation and review status.
+
 Passed under the owner ruling. The arrow reads `selectPositionDeltas` by owner, independent
 of displayed live rank. The fixture deliberately renders live leader Chamness with a
-resolved W1-to-W2 drop. The caption is **Movement · through W2**; before any week resolves,
-it is **Movement · awaiting first resolved week**. One resolved week names W1 but shows no
+resolved W1-to-W2 drop. The #827 caption was **Movement · through W2**; before any week resolved,
+it was **Movement · awaiting first resolved week**. One resolved week named W1 but showed no
 arrow; a pair is required. Accessible names state both ends, for example **Moved down 2
 places from W1 to W2**.
 
@@ -49,9 +59,10 @@ image name`** failed with 0 matches instead of 1. With the role, it finds one do
 image and two up-arrow images by their complete names. The old observer could not see
 what it claimed to check; a label attribute alone did not prove an accessible name.
 
-Caption policy for absent history is filed as [#855](https://github.com/znpruitt/cfb-app/issues/855).
+Caption policy for absent history was filed as [#855](https://github.com/znpruitt/cfb-app/issues/855).
 The proposed `deltaWeeks != null` gate would hide both absent-history and zero-resolved-week
-cases, so this closeout does not silently remove the accepted waiting caption.
+cases. #855 later superseded the waiting caption with an unconditional label; the older
+gate proposal is not current policy.
 
 ## Acceptance 3 — resolved fallback Insights
 
@@ -77,9 +88,13 @@ The pending chip also remains separate: it describes in-progress games while bas
 count finals. The live-rank/resolved-arrow adjacency is ruled, not a defect cleared by
 silence. Overview/Standings endpoint divergence remains [#851](https://github.com/znpruitt/cfb-app/issues/851);
 the reported production upward-three magnitude has not been reconstructed from stored history.
-The arrow/cell palette mismatch is filed as [#856](https://github.com/znpruitt/cfb-app/issues/856).
-Neither follow-up is claimed to violate an explicit DESIGN.md prescription: its right-edge
-numeric-delta green/red rule already describes the cells, not the left-side arrow's shades.
+The arrow/cell palette mismatch was filed as [#856](https://github.com/znpruitt/cfb-app/issues/856).
+**Supersession, 2026-09-23:** #856 applies the existing green/red delta rule to the inline
+arrow through `deltaTextColor`. The cells, `gbDeltaColor`, and `PollMovementBadge` already
+rendered emerald-400/red-400; the arrow was the outlier among four presentations.
+`gbDeltaColor` deliberately inverts the sign (negative means gaining ground) and is unchanged.
+This branch implementation supersedes the earlier interpretation that the arrow's palette
+was outside the rule; #851 remains a separate endpoint question.
 
 ## Acceptance 5 — comments match their consumers
 

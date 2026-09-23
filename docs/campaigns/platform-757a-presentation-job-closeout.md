@@ -573,6 +573,58 @@ This is recorded here rather than mentioned in passing because the rule exists f
 the failure this branch exhibited: **rounds 2 and 3 each found a defect in the previous
 round's fix.** Repeated rounds were the mechanism, and I kept going.
 
+## Closing round — both reviewers, one commit, and what ships open
+
+`/code-review aa03dda1 high` — **one finding, low**. `/codex:review --base 547d2fd5` on the same
+commit — **clean** (verified: exit 0, four `git diff` lines on `547d2fd51218`, no other base, no
+capacity sentence; its own caveat is that it inspected tests without executing them). The Claude pass
+ran the suite independently and reproduced `tsc` 0 / 5568 pass.
+
+**This is the first time both reviewers reported against the same commit.** Arc across the branch:
+8+2 → 6 → 7 → 9 → 5 → **1 + clean**, with no logic defect in the last two passes. The closing pass
+independently verified the budget arithmetic, the `governed` first-year exemption, the selector
+extraction's equivalence, receipt-validation tolerance and the aggregation table — the areas that
+were actually defective in rounds 1–3 — and cleared them.
+
+One aborted attempt sits between: an earlier `/code-review aa03dda1 high` stalled ~94 minutes
+mid-investigation and was killed by the watchdog. Status `failed`, no findings. Recorded as a harness
+failure and never counted as a clean pass.
+
+### SHIPPED WITH ONE KNOWN FINDING, UNFIXED BY CHOICE
+
+`route.ts:421` — `elapsedMs` is captured BEFORE the awaited `venueRefreshDue()`, and the admission
+check reuses that pre-await value. The read is a real store round trip bounded at 15s under
+contention, so the budget can under-count elapsed at the moment it decides whether a year fits: at
+`elapsedMs = 8s` with the venue leg owed, `8 + 242 = 250` admits a year that actually starts at ~23s
+and can end near 265s against a 250s promise, eating 15s of the 50s ceiling margin.
+
+Mine, introduced in round 4's read-ordering change. Reachable only with a degraded store AND an owed
+venue leg AND a multi-year selection. No traced case breaches 300s. **Fix is one line** — recompute
+after the await, or hoist the read above the capture.
+
+**Left open deliberately, and tracked as
+[#861](https://github.com/znpruitt/cfb-app/issues/861).** The remediation limit was already
+exceeded; a seventh round for one line, on a branch where two rounds each broke something while
+fixing something, is the trade the limit exists to prevent.
+
+**The merge is safe only because the route ships DORMANT**, so runbook §8i now gates the
+`upsert --apply` step on that issue rather than leaving the constraint in the issue alone. An
+operator installing the schedule while it is open would make the defect live, and nothing else
+downstream would stop them.
+
+### The process failure is now canonical, and it corrects this document
+
+`AGENTS.md` gained a passage on 2026-09-23 (`cb43d6b5`) naming this branch: **step 6's narrow-defect
+exception and the reconstruction trigger describe the same moment and point opposite ways, and the
+approval — not the narrowness — is the gate.** Rounds 2 and 3 *would have* qualified as narrow
+defects, which is precisely the problem: the condition regenerates itself every time a fix is wrong.
+
+It also corrects the sizing account written above. This closeout framed the overrun as landing in
+tests during review. **The threshold was crossed before any reviewer saw the branch**: the first
+implementation commit was ~2,659 insertions against an approved ~1,500. The rule's conclusion — when
+a branch arrives at review already over its approved size, treat the remediation limits as *tighter*
+than normal — is the one this lane most needed and did not apply.
+
 ## Verification
 
 Run against the merged tree at `HEAD`, worktree clean, each gate its own command:

@@ -121,13 +121,26 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-855-856-MOVEMENT-CAPTION-CODEX-v1
+
+- Purpose: Make the Overview movement caption unconditional and align rank arrows with the delta palette.
+- Scope: `OverviewPanel.tsx`, `OverviewLiveRecords.test.tsx`; owner authorized ledger updates on 2026-09-23. Selectors, movement boundaries, accessible names and DESIGN.md remain unchanged.
+- Outcome: `b1d8fa92` renders `Movement` and consumes `deltaTextColor`. `7c38853a` strengthens test observers and exercises two/three resolved weeks. The #827 closeout now marks retired caption assertions as historical evidence.
+- Review / verification: Owner-supplied combined review targeted `b1d8fa92` against `ab3b7371`: one medium (vacuous zero-delta observer), two lows (fixed column offset, stale ledger), none in production code. One remediation round: hidden owner buttons now fail the zero-delta population assertion; removing the zero guard fails no-arrow assertions; forcing column two fails the three-week colour comparison while two weeks stay green. At clean `7c38853a`, 12 scoped tests, TypeScript and `lint:all` exited 0. Full suite and browser gates passed at `b1d8fa92`; those results are not claimed for later commits. L4 applies.
+- Status: Implemented on `codex/platform-855-856-movement-caption`; confirming independent reviews pending. No merge or deployment claimed.
+
 ### PLATFORM-757A-PRESENTATION-JOB-CLAUDE-v1
 
 - Purpose: the media/venue refresh ran INLINE inside two crons whose worst cases add inside one 300s invocation; on Hobby 300s is a hard maximum, and a killed run loses the receipt written in its outer `finally`, so System Health cannot tell it from a run that never happened (#757). This slice adds a standalone weekly job. ADDITIVE — every inline call stays until 757b.
 - Scope: new cron route + its eleven registration symbols, the QStash manage script and runbook §8i, the `presentation-weekly` trigger, and the active-season year selection relocated to `lib/activeSeasonTargets.ts` (SCOPE widened by owner ruling for the relocation and the union member only). Acceptance 6, the per-commit media change history, moved to 757a2.
 - Outcome: `/api/cron/schedule-presentation`, Tuesday 13:00 UTC, own receipt and runtime event. Two owner-ruled additions came from the read receipt, not the prompt: acceptance 8 (the operator gate — a standalone job ignoring it would have called CFBD while schedule auto-refresh was paused, silently removing operator control from an "additive" slice) and acceptance 9 (the budget — the prompt's worst case was single-year, the loop is per-year, so at N=2 the job would be killed past 300s and lose its own receipt, reproducing #757 inside its fix). A budget stop OUTRANKS the refresh aggregate: refreshing year 1 cleanly and never reaching year 2 is not a success, since year 2's media is as stale as if nothing had run.
 - Review / verification: `npx tsc --noEmit`, `npm run lint:all` and `npm test` each exit 0 on the merged tree (5556 pass, 0 fail). Every new claim carries a mutation that reddened its own named assertion, including the acceptance-3 mutation the prompt specified (receipt conditional on success → `the receipt exists despite the hang`). Registration is 11 symbols across ~15 edit sites, not the 26-point checklist the receipt enumerated — the distinction is recorded for 757a2's scoping. [Acceptance-by-acceptance evidence, the sizing overrun, and what the diff falsifies](campaigns/platform-757a-presentation-job-closeout.md).
-- Status: gated, not merged at time of writing. Owner approved slice A at ~26 files / ~1,500 lines; the real diffstat is **28 files, 2,659 insertions, 172 deletions** (1,332 non-test, 1,499 test) — reported as an overrun, concentrated in the acceptance-3 stall harness and the acceptance-4 type-checker pin. Installing the schedule in production is an OWNER step (§8i). Follow-ups: 757a2 (change history), 757b (remove the inline calls; gated on this job being live with one observed receipt), [#858](https://github.com/znpruitt/cfb-app/issues/858) (the cron's inline year-selection copy), [#857](https://github.com/znpruitt/cfb-app/issues/857) (`no-usable-ids` suppressing venues).
+- Status: **MERGED 2026-09-23.** Ships with ONE known low finding, left unfixed on purpose and tracked as
+  [#861](https://github.com/znpruitt/cfb-app/issues/861): `route.ts:421` captures `elapsedMs` before an
+  awaited durable read, so the budget can under-count elapsed by up to 15s under a degraded store. Bounded
+  margin erosion, no traced case breaches 300s, one-line fix. Runbook §8i gates installing the QStash
+  schedule on it. Five remediation rounds were run where one was allowed; `AGENTS.md` `cb43d6b5` records
+  the lesson and names this branch. Owner approved slice A at ~26 files / ~1,500 lines; the real diffstat is **28 files, 2,659 insertions, 172 deletions** (1,332 non-test, 1,499 test) — reported as an overrun, concentrated in the acceptance-3 stall harness and the acceptance-4 type-checker pin. Installing the schedule in production is an OWNER step (§8i). Follow-ups: 757a2 (change history), 757b (remove the inline calls; gated on this job being live with one observed receipt), [#858](https://github.com/znpruitt/cfb-app/issues/858) (the cron's inline year-selection copy), [#857](https://github.com/znpruitt/cfb-app/issues/857) (`no-usable-ids` suppressing venues).
 
 ### PLATFORM-827-OVERVIEW-LIVE-RECORDS-CODEX-v1
 
