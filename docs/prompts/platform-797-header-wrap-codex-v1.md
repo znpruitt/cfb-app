@@ -18,11 +18,68 @@ CARRIES: NONE from the Item 87 campaign index, having checked — this is the sh
          - A claim in a comment needs a test asserting the same behaviour.
          - Every claim needs a mutation that reddens its OWN named assertion, and you say which
            assertion fired.
-         - A measurement claim states the population it was taken over. This slice's central claim
-           is a measurement that has never been taken — see "The measurement that is owed".
+         - A measurement claim states the population it was taken over. The measurement this
+           prompt owed was TAKEN at the read receipt and it refuted the prompt — see the
+           correction block below before reading anything else.
 ```
 
 ---
+
+## CORRECTED 2026-09-23 AFTER THE READ RECEIPT — the prompt's central claim was WRONG
+
+**This prompt said widening `:258` alone was "likely a no-op or a partial fix". The lane measured it
+and it is false.** At a 390px viewport, on a live row with `Q4 12:34`, `ESPN2` and two selector-produced
+tags, mutating only the header condition moved header height 16px -> 36px, metadata width
+126.25px -> 338px, and broadcast overflow **14.063px -> 0px**. It fixes the clipping on its own.
+
+**My reasoning failed on one flex property.** I argued the children would keep sharing a line because
+neither is told to take a full one. But the metadata span is `flex-auto`: once the tag slot wraps off
+its line, `flex-auto` grows into the space the tag vacated, so the metadata reaches full width without
+`:266` doing anything. `:266` and `:274` are not what CREATE the split.
+
+**What they actually do is fix the second line's alignment, and that is still why all three must
+move.** With `:258` alone the tag slot stays intrinsic-width and sits at the LEFT edge of line two.
+With `:274`'s `max-sm:w-full`, it takes the full line and the existing `justify-end` pushes it right —
+which is how scheduled rows already render. **So the choice is not "does it work" but "does a wrapped
+header look the same on every state".** Per `DESIGN.md`, the exemption follows the layout, so it
+should: a member should not be able to tell a live row from a scheduled one by which side the tags
+sit on.
+
+**Move all three. The reason is cross-state consistency, not necessity.** Say so in the report rather
+than repeating this prompt's original claim.
+
+**The mutation in "Testing requirements" survives and is now better grounded.** Widening `:258` alone
+is a REAL discriminator: a test asserting the tag slot takes a full line reddens under it, while a
+test asserting only that the container carries `flex-wrap` stays green. The lane's measurement proves
+the mutation produces a distinguishable layout.
+
+### What else the receipt established, all accepted
+
+- **Four conditions test `state === 'scheduled'`, not three.** `:371` chooses record-versus-score
+  anchors and does **not** participate in the wrap. The wrap set is three; the scheduled set is four.
+- **The clipping is reachable at ordinary phone widths** — measured overflow at 360/375/390/414px and
+  **zero at 430px**, on both `live` and `awaiting`, with `awaiting` worse. The header-only mutation
+  took every one to 0px. **Population stated honestly: controlled reachable fixtures, not observed
+  production games.** That is the right claim to make and it discharges the measurement obligation.
+- **`unavailable` is not established as a broadcast case** — Matchups suppresses that broadcast. **Include
+  `unavailable` anyway**, and justify it from the `DESIGN.md` layout rule rather than from clipping:
+  the exemption follows the layout, and carving out one state would reintroduce a status-shaped
+  predicate for no stated reason. Do not claim it fixes a broadcast defect there.
+- **The tag slot has NO upper bound.** The widest co-reachable Schedule/Matchups pair measured
+  203.75px, but CFP Championship plus both highlights measured 288.438px, and the conference badge
+  interpolates an uncapped conference string. **This is why the fix must be a wrap and never a width
+  threshold** — any measured cap would be falsified by the next long conference name. Related:
+  [#795](https://github.com/znpruitt/cfb-app/issues/795).
+- **No surface has a neighbouring scoreboard card at phone width** — Schedule and Overview collapse
+  below their 760.01px container threshold, Matchups goes two-column only at `lg`. This CONFIRMS the
+  `DESIGN.md` rationale applies to all three surfaces. Overview's scheduled Watchlist puts tags in the
+  context slot, so that header has no tag slot to wrap.
+- **Broadcast carries its own `truncate`**, so the metadata's `overflow-clip` is not the only clipping
+  boundary. Account for it when asserting what is visible.
+
+**Nothing else in this prompt changes.** The ruling, the scope, the trap and the acceptance stand —
+acceptance 2 in particular is unchanged and now rests on alignment consistency rather than on the
+false no-op claim.
 
 ## The ruling, already recorded
 
@@ -60,12 +117,16 @@ All three read `state === 'scheduled'`. The header row at `:257` is `flex items-
 overflow-hidden whitespace-nowrap`; the metadata span at `:265` is `flex min-w-0 flex-auto
 overflow-clip whitespace-nowrap`; the tag slot at `:273` is `flex h-4 flex-none justify-end`.
 
-**Widening only `:258` is likely to be a no-op or a partial fix, and that is the trap in this slice.**
-`flex-wrap` on the container permits wrapping; it does not make either child take a full line. The
-metadata stays `flex-auto` and the tag slot stays `flex-none`, so they can continue to share one line
-and shrink exactly as they do today. `:266` and `:274` are what convert the permission into two
-full-width rows. **Derive the predicate once and apply it to all three**, rather than editing the one
-the issue happened to cite.
+**SUPERSEDED BY THE CORRECTION ABOVE — this paragraph was wrong and is kept so the correction has
+something to point at.** It read: *"Widening only `:258` is likely to be a no-op or a partial fix...
+`flex-wrap` on the container permits wrapping; it does not make either child take a full line."*
+**Measured false.** The metadata span is `flex-auto`, so when the tag slot wraps off the first line the
+metadata grows into the vacated space and reaches full width by itself.
+
+**What `:266` and `:274` actually decide is the second line's ALIGNMENT** — without them the tag slot
+keeps its intrinsic width and sits left; with them it takes the line and `justify-end` pushes it right,
+as scheduled rows already do. **Apply all three, for cross-state consistency**: a member should not be
+able to tell a live row from a scheduled one by which side the tags sit on.
 
 `hasTagSlot` (`:207`) gates only `:258`; the other two do not test it, because they sit inside the
 `hasTagSlot` branch already (`:262`).
