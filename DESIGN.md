@@ -307,6 +307,19 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   grid row, and that failure cannot occur when nothing sits beside the card. Narrowly: the collision
   is **tagged scheduled rows at phone width** — an untagged row has roughly 131px more room and fits.
   This buys a kickoff time on tagged rows on phones; it is not a general licence to wrap
+- **THE WRAP EXEMPTION FOLLOWS THE LAYOUT, NOT THE STATUS. It covers every state at phone width, not
+  scheduled rows alone.** Owner decision 2026-09-22 on
+  [#758](https://github.com/znpruitt/cfb-app/issues/758), folded into
+  [#797](https://github.com/znpruitt/cfb-app/issues/797) as one line of code. **The amendment above
+  gives its own rationale and that rationale does not mention status:** the single-line contract
+  exists so a wrapping header cannot push team rows out of alignment ACROSS a grid row, and at phone
+  width the cards stack, so there is no neighbour to desynchronise from. **That is true of a live row
+  exactly as it is of a scheduled one.** The code scoped the exemption to `state === 'scheduled'`,
+  which is a NARROWER predicate than the rule it implements, and nothing recorded the reason — it was
+  measured when Matchups showed one tag at phone width, and #725 later revealed a second on every
+  state. So a `live` or `awaiting` row gets the same phone-width relief. **This is still not a general
+  licence to wrap:** above phone width the single-line contract is unchanged, because there the
+  neighbouring card is real.
 - Rankings display inline with team names — "#4 Oregon vs #2 Indiana"
 - **Team names on scoreboard rows are the provider's full school name, and every surface uses the same
   field** — "Mississippi State", never "MSST". **Amended 2026-09-20 by owner decision on
