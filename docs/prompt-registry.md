@@ -121,6 +121,14 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-797-HEADER-WRAP-CODEX-v1
+
+- Purpose: Extend compact-header phone wrapping to every state, carrying folded #758.
+- Scope: `CompactGameScoreboard.tsx`, its browser/static tests, Schedule contract tests, browser gate registration and execution docs. No production panel, selector, metadata-order or DESIGN.md changes.
+- Outcome: Tagged phone headers share full-width metadata and right-aligned tag lines across states. The read receipt refuted the original no-op prediction: header-only wrapping fixes the measured clipping but leaves tags left-aligned at intrinsic width. All three conditions change for consistency. Unavailable is justified by the layout rule, not broadcast clipping.
+- Review / verification: Both Codex and `/code-review` found only two obsolete Schedule assertions at `2f5c78c4`. One remediation, `0b7318cb`, updates those expectations; both confirming reviews found no remaining issues. At clean `0b7318cb`, full suite, required browser gate, TypeScript and pre-push `lint:all` all exited 0. Nine new browser tests; each claim has an inspected mutation failure. [Population, pixel measurements, mutation assertions and review evidence](campaigns/platform-797-header-wrap-closeout.md). L1, L4 and L6 apply.
+- Status: Reviewed, awaiting merge in [PR #864](https://github.com/znpruitt/cfb-app/pull/864). Feature branch and `preview` pushed together under the owner's slice-scoped grant. No production promotion claimed.
+
 ### PLATFORM-855-856-MOVEMENT-CAPTION-CODEX-v1
 
 - Purpose: Make the Overview movement caption unconditional and align rank arrows with the delta palette.
