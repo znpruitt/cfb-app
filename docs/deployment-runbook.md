@@ -102,7 +102,8 @@ compromised, not only if a laptop is.
 The deployed `CRON_SECRET` is the credential QStash forwards. If `CRON_SECRET` is missing or
 mismatched, all eleven cron routes fail closed with `401`, stopping lifecycle reconciliation, statistics
 ingestion, live-score polling, team-record refresh, odds polling, weekly schedule maintenance,
-rankings publication, CFBD usage sampling, and polling-window planning.
+schedule-presentation refresh, rankings publication, CFBD usage sampling, and polling-window
+planning.
 
 ## 5) Configure authentication
 

@@ -80,6 +80,16 @@ export const maxDuration = 300;
 const YEAR_WORST_CASE_MS = 3 * CFBD_PEAK_LATENCY_TIMEOUT_MS + 1_000;
 
 /**
+ * The venue leg's own worst case — the same 3-attempt shape as media, charged
+ * to whichever year first finds the catalog outside its TTL.
+ *
+ * It is a SEPARATE constant from {@link YEAR_WORST_CASE_MS} because the two are
+ * reserved independently: the venue catalog is global, so once any year settles
+ * it no later year pays, and until one does EVERY remaining year might.
+ */
+const VENUE_LEG_WORST_CASE_MS = 3 * CFBD_PEAK_LATENCY_TIMEOUT_MS + 1_000;
+
+/**
  * The job's own budget. #757 is about an invocation being killed before its
  * receipt lands, so this job must not be able to do that to itself.
  *
@@ -98,9 +108,26 @@ const YEAR_WORST_CASE_MS = 3 * CFBD_PEAK_LATENCY_TIMEOUT_MS + 1_000;
  * reproduced inside its own fix. A budget is therefore REQUIRED, not insurance
  * against some future third provider site.
  *
- * 240s: year 1 starts at elapsed 0 and costs at most 242s (media + the one venue
- * fetch); a second year cannot start, because 242 + 121 exceeds the budget. The
- * receipt lands around 242s, inside the 300s ceiling, every time.
+ * ## How the 240s holds, corrected after review
+ *
+ * The first version of this docblock said year 1 "costs at most 242s (media +
+ * the one venue fetch)" and concluded a second year could never start. **That
+ * conclusion only held when year 1's venue leg actually ran to a commit**, and
+ * both reviewers found the case where it does not. The reservation is now
+ * explicit rather than assumed: a year is charged for the venue leg too until
+ * some year has settled it (see the loop).
+ *
+ * The first selected year always runs, and its own worst case — 242s, both legs
+ * — fits under the 300s ceiling alone. A later year starts only when
+ * `elapsed + reservation ≤ 240s`, so:
+ *
+ * ```text
+ * venue leg settled   → reservation 121s → latest start 119s → total ≤ 240s
+ * venue leg unsettled → reservation 242s → cannot start after year 1 at all
+ * ```
+ *
+ * Worst case across every path is therefore 242s, inside the ceiling, and the
+ * receipt always lands.
  *
  * This only ever bites under provider degradation. With CFBD healthy a year
  * costs a second or two and every selected year runs.
@@ -274,8 +301,28 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
 
     // ACCEPTANCE 9 — budget-bounded, most-stale-media first.
     const ordered = await orderByStaleness(selection.years.map((entry) => entry.year));
+    // Whether a LATER year can still be charged for the venue leg.
+    //
+    // Both reviewers found the same hole in the first version, which reserved
+    // one media leg per year and relied on "the venue catalog commits during
+    // year 1". It does not always: `refreshVenuesPart` becomes TTL-exempt only
+    // after a SUCCESSFUL DURABLE COMMIT (`schedulePresentationRefresh.ts:452`
+    // reads the committed entry), and every other outcome releases the lease
+    // leaving the catalog exactly as stale as it was. The fastest such outcome
+    // is losing the venue lease to the inline caller — which is the EXPECTED
+    // 757a overlap, not an exotic fault. Year 1 could then finish in ~80s
+    // having refreshed nothing, year 2 would pass a 121s check and spend up to
+    // 242s on both legs, and the invocation would be killed past 300s with its
+    // receipt unwritten: #757 reproduced inside its own fix.
+    let venueLegSettled = false;
     for (const year of ordered) {
-      if (Date.now() - startedAtMs + YEAR_WORST_CASE_MS > JOB_BUDGET_MS) {
+      // The FIRST selected year always runs. Its own worst case is 242s, which
+      // fits under the 300s ceiling on its own, and a budget that could skip
+      // every year would make the job unable to do anything at all.
+      const reservationMs = venueLegSettled
+        ? YEAR_WORST_CASE_MS
+        : YEAR_WORST_CASE_MS + VENUE_LEG_WORST_CASE_MS;
+      if (exec.years.length > 0 && Date.now() - startedAtMs + reservationMs > JOB_BUDGET_MS) {
         // Counted, not silently dropped: a skipped year's media is exactly as
         // stale as if nothing had run, and a receipt that reported success here
         // would be a count whose failure and whose real zero look identical.
@@ -286,6 +333,21 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
       // fresh clock captured at the year's turn, never this route's entry time —
       // route latency must not age an observation or shorten a lease.
       const result = await refreshSchedulePresentation({ year, trigger: 'presentation-weekly' });
+      // Only these three prove no LATER year will pay for `/venues`:
+      // `fresh-cache` means the durable catalog was already inside its TTL, and
+      // the two clean outcomes mean this run just committed it. Everything else
+      // — a lost lease, a provider fault, a rejected payload, a failed commit —
+      // leaves the catalog untouched, so the next year can still be charged.
+      // `stale-observation` is conservatively treated as unsettled even though a
+      // fresher entry does exist durably; over-reserving costs at most one
+      // skipped year, and under-reserving costs the receipt.
+      if (
+        result.venues.reason === 'fresh-cache' ||
+        result.venues.reason === 'written-clean' ||
+        result.venues.reason === 'unchanged-clean'
+      ) {
+        venueLegSettled = true;
+      }
       exec.years.push({
         year,
         result: result.status,
@@ -296,7 +358,11 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
       });
     }
 
-    const aggregate = aggregateSchedulePresentationCron(exec.years, exec.yearsSkippedForBudget);
+    const aggregate = aggregateSchedulePresentationCron(
+      exec.years,
+      exec.yearsSkippedForBudget,
+      exec.invalidLifecycleTargets
+    );
     exec.result = aggregate.result;
     exec.reason = aggregate.reason;
     return respond();

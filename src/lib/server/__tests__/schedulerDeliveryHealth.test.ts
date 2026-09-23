@@ -386,10 +386,11 @@ test('schedule-presentation classifies against Tuesday 13:00 UTC with a 24-hour 
     'late'
   );
 
-  // The hour of separation is real, not a label: at 12:30 UTC on Tuesday the
-  // schedule job's 12:00 slot has passed and this job's 13:00 slot has not, so a
-  // receipt from LAST Tuesday 13:00 is still on-time here while the same instant
-  // against `schedule-refresh`'s policy resolves to a different required slot.
+  // The hour of separation is real, not a label. At this instant — Wednesday
+  // 14:00 UTC — the two policies resolve to DIFFERENT required slots (Tue 12:00
+  // for the schedule job, Tue 13:00 for this one), so a receipt can be on-time
+  // against one and late against the other. If the two shared a cron this would
+  // be equality and the separation would be a label only.
   assert.notEqual(
     requiredStartedAtForJob('schedule-presentation', now),
     requiredStartedAtForJob('schedule-refresh', now),

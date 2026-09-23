@@ -213,10 +213,14 @@ Most-stale-first is what makes a truncated run useful: without it, a two-year co
 under sustained provider degradation would refresh the same year every week and never once
 reach the other. A year with no media entry sorts ahead of every dated one.
 
+**The first version's reservation was wrong, and both reviewers found it — see the review
+round below.** The budget now reserves the venue leg too until some year has settled it.
+
 **Mutations.** Sorting by ascending year instead of staleness failed both acceptance-9
 ordering tests. Demoting the budget check below the refresh aggregate failed
-**`A BUDGET STOP OUTRANKS A CLEAN REFRESH — the rule this job exists to get right`** and
-**`a budget stop outranks a FAILURE too…`**.
+**`A BUDGET STOP OUTRANKS A CLEAN REFRESH — the rule this job exists to get right`**.
+Restoring the pre-review one-leg reservation failed **`P1: an unsettled venue leg stops a
+SECOND year from starting`**.
 
 ## The year-selection relocation
 
@@ -259,6 +263,80 @@ The whole-year case (`no-usable-ids`) maps to `canonical-context-unavailable` �
 **`failure`**, so it cannot become a silent green no-op. The coupling that also suppresses
 the venue part in that state is pre-existing and is **#857**; untouched here.
 
+## Review round 1 — both reviewers, gathered before any remediation
+
+`/code-review 776fb157 high` and `/codex:review --base 547d2fd5`, both against the same
+commit. The Codex run was verified before being treated as gathered: **exit 0**, eight
+`git diff` lines carrying `547d2fd51218`, **no other base anywhere in the transcript**, and
+no capacity sentence in the body.
+
+**The two reviewers independently found the same defect**, Claude's finding 1 and Codex's
+P1. That is the strongest signal in this round and it was a real bug in the code added to
+prevent exactly it.
+
+### P1 / finding 1 — the budget under-reserved (FIXED)
+
+The reservation was one media leg (121s) per year, resting on "year 1 commits the venue
+catalog". `refreshVenuesPart` becomes TTL-exempt **only after a successful durable commit**
+(it reads the committed entry at `schedulePresentationRefresh.ts:452`); every other outcome
+releases the lease with the catalog exactly as stale as before. Year 1 could finish in ~80s
+having refreshed no venues, year 2 would pass the 121s check, and the run could spend
+another ~242s on both legs — killed past 300s with its receipt unwritten. **#757 reproduced
+inside its own fix.**
+
+Worse than either reviewer stated: the fastest no-commit path is **losing the venue lease to
+the inline caller**, which is the expected 757a overlap, not an exotic fault. The unsafe
+window is reachable on an ordinary Tuesday.
+
+Fixed by reserving `media + venues` until a year settles the venue leg (`fresh-cache`,
+`written-clean` or `unchanged-clean`). `stale-observation` is treated conservatively as
+unsettled: over-reserving costs at most one skipped year, under-reserving costs the receipt.
+The first selected year always runs, since its own 242s worst case fits under the ceiling
+alone and a budget that skipped everything would make the job useless.
+
+Both reviewers also noted the budget-skip branch had **no route-level test**. It now has two
+— the unsettled case (one year runs, one skipped) and the settled complement (both run),
+the latter present so the former cannot be satisfied by a job that simply never runs a
+second year.
+
+### P2 — a refused production target was ignored (FIXED)
+
+Codex only. With one valid active league and one active **production** league carrying a
+structurally invalid `status.year`, `invalidLifecycleTargets` was incremented and then
+ignored: the run reported `success`, which raises no System Health issue, so nothing would
+ever have told an operator the refusal happened. Only the all-invalid population was
+covered.
+
+`AGENTS.md`'s lifecycle-refusal rule is explicit, and `schedule-refresh/route.ts:612-622`
+already implements it in the sibling job — the omission was mine. The aggregate now degrades
+the **result** and never the reason, because the receipt's year entries carry no reason
+field and overwriting would erase the only durable record of what those years did. A
+refusal maps a non-success aggregate to `failure`, not `partial`, so it cannot upgrade a run
+whose valid years did nothing.
+
+### Finding 8 — budget/failure masking (ACCEPTED and fixed)
+
+Raised as a judgement call. It was right. Returning `partial` whenever a year was skipped,
+before inspecting the executed years, meant a run where every executed year **failed** and
+one was skipped reported `partial` and understated itself. The result is now the worse of
+the year aggregate and `partial`, so both facts survive: reason `budget-exhausted`, result
+`failure`.
+
+### Findings 2–7 — all accurate, all fixed
+
+| # | What was wrong | Fix |
+| --- | --- | --- |
+| 2 | A comment named `schedulePresentationJobRoute.test.ts`, which **does not exist** — a direct breach of the rule that a comment asserting runtime behaviour names the test asserting it | Names the real assertion and file |
+| 3 | "one structured line per **authenticated** invocation" — false; the emit is in the unconditional `finally`, so a 401 emits one too | Now says so, and states the event/receipt split |
+| 4 | `receiptYearFailureEvidence` ignored the third multi-year job, so a failed year was invisible in the issue text | Added, via the part reasons; classifies failure through the authority's own `STATUS_FOR_REASON` rather than a second list |
+| 5 | "the four lifecycle-bearing variants" — now five | Corrected |
+| 6 | Runbook line 103 said eleven routes, then listed nine jobs | List completed |
+| 7 | A comment narrated "Tuesday 12:30" for a fixture instant that is a **Wednesday** | Rewritten to describe the instant actually used |
+
+Nothing was disputed. Every finding in both reports was verified against the code before
+remediation began, and each fix that changes behaviour carries a mutation that reddens its
+own named assertion.
+
 ## Verification
 
 Run against the merged tree at `HEAD`, worktree clean, each gate its own command:
@@ -267,7 +345,7 @@ Run against the merged tree at `HEAD`, worktree clean, each gate its own command
 | --- | --- |
 | `npx tsc --noEmit` | exit 0 |
 | `npm run lint:all` | exit 0 |
-| `npm test` | exit 0 — **5556 pass, 0 fail, 0 cancelled** |
+| `npm test` | exit 0 — **5563 pass, 0 fail, 0 cancelled** |
 
 The known-failure set on `main` is empty, so zero failures is the merge condition and it is
 met.

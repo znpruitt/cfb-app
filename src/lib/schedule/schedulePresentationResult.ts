@@ -22,7 +22,8 @@
  * 757a both run on a Tuesday — that overlap is the whole reason the standalone
  * job ships additively — and reusing `weekly` would make the two
  * indistinguishable in logs during precisely the window the slice exists to
- * observe. Pinned by `schedulePresentationJobRoute.test.ts`.
+ * observe. Pinned by `the standalone run is distinguishable from an inline one
+ * in the logs` in `app/api/cron/schedule-presentation/__tests__/route.test.ts`.
  */
 export type SchedulePresentationRefreshTrigger =
   | 'manual'
@@ -112,6 +113,18 @@ export function isSchedulePresentationRefreshReason(
   value: unknown
 ): value is SchedulePresentationRefreshReason {
   return typeof value === 'string' && Object.hasOwn(STATUS_FOR_REASON, value);
+}
+
+/**
+ * Whether a part reason represents a FAILED part.
+ *
+ * Reads the same total `STATUS_FOR_REASON` map the authority derives every part
+ * status from, so a consumer asking "did this part fail" can never disagree with
+ * the authority's own answer — and a reason added later is classified once, here,
+ * rather than in every reader's private list.
+ */
+export function isFailedPartReason(reason: SchedulePresentationRefreshReason): boolean {
+  return STATUS_FOR_REASON[reason] === 'failure';
 }
 
 const AGGREGATE_STATUSES: Record<SchedulePresentationAggregateStatus, true> = {

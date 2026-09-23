@@ -557,6 +557,143 @@ test('ACCEPTANCE 9: a year whose media was NEVER refreshed sorts ahead of every 
 });
 
 // ---------------------------------------------------------------------------
+// ACCEPTANCE 9 — the budget SKIP itself (review P1: this branch had no route test)
+// ---------------------------------------------------------------------------
+
+test('P1: an unsettled venue leg stops a SECOND year from starting', async () => {
+  // THE DEFECT BOTH REVIEWERS FOUND. The first version reserved one media leg
+  // (121s) per year and assumed year 1 would commit the venue catalog. It does
+  // not always: `refreshVenuesPart` becomes TTL-exempt only after a successful
+  // DURABLE COMMIT, and the fastest way to miss that is losing the venue lease
+  // to the inline caller — the EXPECTED 757a overlap. Year 1 could then finish
+  // in ~80s having refreshed no venues, year 2 would pass a 121s check, and the
+  // invocation could spend another ~242s on both legs and be killed past 300s
+  // with its receipt unwritten.
+  //
+  // With the venue leg unsettled the reservation is 242s, which exceeds the
+  // whole 240s budget, so no second year can start regardless of how fast year
+  // 1 was. That is what this asserts, and it needs no clock control at all.
+  await seedLeagues([makeLeague('a', 'season', 2026), makeLeague('b', 'preseason', 2027)]);
+  await seedSettings();
+  await seedCanonicalSchedule(2026);
+  await seedCanonicalSchedule(2027);
+  // No venue-catalog entry at all → outside its TTL → the venue leg is due.
+  // Another holder owns the venue lease, so this run yields it immediately and
+  // commits nothing: the catalog stays exactly as stale as it was.
+  const held = await acquireSchedulePresentationLease({
+    controlScope: VENUE_CATALOG_REFRESH_CONTROL_SCOPE,
+    controlKey: VENUE_CATALOG_REFRESH_CONTROL_KEY,
+    now: Date.now(),
+  });
+  assert.equal(held.acquired, true);
+  stubProvider({ media: () => MEDIA_PAYLOAD });
+
+  const body = await (await GET(authorized())).json();
+
+  assert.equal(body.years.length, 1, 'exactly one year ran');
+  assert.equal(body.years[0].venues, 'refresh-in-progress', 'the venue leg never settled');
+  assert.equal(body.yearsSkippedForBudget, 1, 'the second year was not started');
+  assert.equal(body.reason, 'budget-exhausted');
+  // And it really did not spend the provider call it was protecting against.
+  assert.equal(
+    providerUrlLog.filter((u) => u.includes('/games/media')).length,
+    1,
+    'only the year that ran issued a media request'
+  );
+
+  await deferrer.flush();
+  const receipt = await readSchedulerReceipt('schedule-presentation');
+  assert.equal(receipt?.value.target.kind, 'schedule-presentation');
+  assert.equal(
+    receipt?.value.target.kind === 'schedule-presentation' &&
+      receipt.value.target.yearsSkippedForBudget,
+    1,
+    'the skipped year reaches the durable receipt'
+  );
+});
+
+test('P1: a SETTLED venue leg lets every selected year run', async () => {
+  // The complement, and the reason the fix is a reservation rather than a flat
+  // "one year per run". With the catalog inside its TTL the venue leg is
+  // settled by year 1's `fresh-cache`, the reservation drops to one media leg,
+  // and nothing is skipped. Without this, the test above would also pass
+  // against a job that simply never ran a second year.
+  await seedLeagues([makeLeague('a', 'season', 2026), makeLeague('b', 'preseason', 2027)]);
+  await seedSettings();
+  await seedCanonicalSchedule(2026);
+  await seedCanonicalSchedule(2027);
+  await setAppState(VENUE_CATALOG_STATE_SCOPE, VENUE_CATALOG_STATE_KEY, {
+    at: Date.now(),
+    items: [
+      {
+        id: 3504,
+        name: 'Kyle Field',
+        city: 'College Station',
+        state: 'TX',
+        countryCode: 'US',
+        timezone: null,
+        capacity: null,
+        grass: null,
+        dome: null,
+      },
+    ],
+  });
+  stubProvider({ media: () => MEDIA_PAYLOAD });
+
+  const body = await (await GET(authorized())).json();
+  assert.equal(body.years.length, 2, 'both years ran');
+  assert.equal(body.yearsSkippedForBudget, 0);
+  assert.equal(body.years[0].venues, 'fresh-cache', 'the venue leg settled on the first year');
+  assert.equal(providerUrlLog.filter((u) => u.includes('/venues')).length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// CODEX P2 — a refused production target beside a valid one
+// ---------------------------------------------------------------------------
+
+test('P2: a refused production target degrades a run whose valid year succeeded', async () => {
+  // The existing refusal test covered only the ALL-invalid population, where
+  // `years.length === 0` reports `unusable-lifecycle-year`. The mixed case went
+  // uncovered: one usable league, one active PRODUCTION league with a
+  // structurally invalid year. The valid year refreshes cleanly, and reporting
+  // `success` raises no System Health issue, so nothing would ever tell an
+  // operator a production league had been refused.
+  await seedLeagues([
+    makeLeague('good', 'season', 2026),
+    {
+      ...makeLeague('bad', 'season', 2027),
+      status: { state: 'season', year: '2027' },
+    } as unknown as League,
+  ]);
+  await seedSettings();
+  await seedCanonicalSchedule(2026);
+  stubProvider({ media: () => MEDIA_PAYLOAD, venues: () => VENUES_PAYLOAD });
+
+  const body = await (await GET(authorized())).json();
+  assert.equal(body.invalidLifecycleTargets, 1, 'the refusal was counted');
+  assert.deepEqual(
+    body.years.map((y: { year: number }) => y.year),
+    [2026],
+    'only the usable year ran'
+  );
+  assert.equal(body.result, 'partial', 'a refused production target degrades the run');
+  assert.equal(
+    body.reason,
+    'presentation-refreshed',
+    'the executed year KEEPS its reason — the refusal never overwrites it'
+  );
+
+  await deferrer.flush();
+  const receipt = await readSchedulerReceipt('schedule-presentation');
+  assert.equal(receipt?.value.result, 'partial');
+  assert.equal(
+    receipt?.value.target.kind === 'schedule-presentation' &&
+      receipt.value.target.invalidLifecycleTargets,
+    1
+  );
+});
+
+// ---------------------------------------------------------------------------
 // Positive control for the observer every zero-request assertion depends on
 // ---------------------------------------------------------------------------
 

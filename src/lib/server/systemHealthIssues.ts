@@ -38,6 +38,7 @@ import {
   type SchedulerExecutionReceipt,
 } from './schedulerExecutionStatus.ts';
 import { formatYearFailureEvidence } from './schedulerYearEvidence.ts';
+import { isFailedPartReason } from '../schedule/schedulePresentationResult.ts';
 import { seasonYearForToday } from '../scores/normalizers.ts';
 import {
   getProviderDatasetDescriptor,
@@ -611,6 +612,33 @@ function schedulerDeliveryIssues(
  * the sentence it was.
  */
 function receiptYearFailureEvidence(target: SchedulerExecutionReceipt['target']): string | null {
+  /**
+   * PLATFORM-757a — the THIRD multi-year job, and the one whose whole reason for
+   * existing is per-year visibility. Without this branch a `presentation-failed`
+   * or `presentation-partial` issue carried only the generic "reported a partial
+   * execution result" sentence, with nothing saying WHICH year failed — exactly
+   * the gap #126B added this function to close for the other two.
+   *
+   * It does not go through `formatYearFailureEvidence`: that reads the
+   * `SchedulerYearOutcome` shape (partitions, rows, `dataChanged`), and a
+   * presentation year has none of those. Its evidence is the two PART reasons,
+   * which is the whole of what the authority reports per year. Only the failing
+   * part is named, so a year whose media failed while venues sat inside their
+   * TTL does not read as though both went wrong.
+   */
+  if (target.kind === 'schedule-presentation') {
+    const detail = target.years
+      .map((entry) => {
+        if (entry.result !== 'failure' && entry.result !== 'partial') return null;
+        const parts = [
+          entry.media && isFailedPartReason(entry.media) ? `media ${entry.media}` : null,
+          entry.venues && isFailedPartReason(entry.venues) ? `venues ${entry.venues}` : null,
+        ].filter((part): part is string => part !== null);
+        return parts.length > 0 ? `${entry.year}: ${parts.join(', ')}` : null;
+      })
+      .filter((entry): entry is string => entry !== null);
+    return detail.length > 0 ? detail.join('; ') : null;
+  }
   if (target.kind !== 'schedule-years' && target.kind !== 'rankings-years') return null;
   const detail = target.years
     .map((entry) => {
@@ -823,7 +851,7 @@ function lifecycleIntegrityIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
   const reportingJobs = snapshot.jobs
     .filter((row) => {
       const target = row.receipt?.target;
-      // `SchedulerExecutionTarget` is a union and only the four lifecycle-bearing
+      // `SchedulerExecutionTarget` is a union and only the five lifecycle-bearing
       // variants carry the count, so the field is narrowed rather than cast. The
       // `in` test is deliberately structural, not a kind allowlist: the field
       // means the same thing wherever it appears, so a job that starts reporting

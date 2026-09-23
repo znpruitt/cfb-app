@@ -2,9 +2,15 @@
  * PLATFORM-757a — secret-safe runtime event for the STANDALONE schedule-
  * presentation job.
  *
- * Mirrors every other cron route: one structured line per authenticated
- * invocation, from a closed reason vocabulary rather than provider or error
- * text, emitted from the route's outer `finally` alongside the durable receipt.
+ * Mirrors every other cron route: one structured line per invocation — INCLUDING
+ * authentication failures, because the emit sits in the route's unconditional
+ * outer `finally` — from a closed reason vocabulary rather than provider or
+ * error text.
+ *
+ * That is the event/receipt distinction, and it is deliberate: the RECEIPT is
+ * written only after successful authentication, so a logged line is never
+ * evidence that a request authenticated. `schedule/cronExecutionLog.ts` states
+ * the same split for the weekly cron.
  *
  * Nothing here can fail the run — the emit is wrapped.
  */
@@ -100,37 +106,112 @@ export function createSchedulePresentationCronExecutionState(): SchedulePresenta
   };
 }
 
+/** How bad a result is. Only ever compared, never rendered. */
+const RESULT_SEVERITY: Record<SchedulePresentationCronExecutionResult, number> = {
+  success: 0,
+  'no-op': 1,
+  skipped: 1,
+  partial: 2,
+  failure: 3,
+};
+
+function worseOf(
+  a: SchedulePresentationCronExecutionResult,
+  b: SchedulePresentationCronExecutionResult
+): SchedulePresentationCronExecutionResult {
+  return RESULT_SEVERITY[b] > RESULT_SEVERITY[a] ? b : a;
+}
+
 /**
- * Classify the run from the per-year outcomes alone.
+ * Classify the run.
  *
- * A budget stop OUTRANKS the refresh aggregate, because a run that refreshed
- * one year cleanly and never reached the second is not a success — the second
- * year's media is exactly as stale as if nothing had run. Asserted by
- * `presentationCronExecutionLog.test.ts`.
+ * ## Three facts, and the order they are combined in
+ *
+ * 1. **The executed years' own aggregate** — what the refreshes did.
+ * 2. **A budget stop**, when a selected year was never STARTED. This takes the
+ *    REASON, because it is the most actionable thing an operator can be told
+ *    about the run: a skipped year's media is exactly as stale as if nothing had
+ *    run, so a run that refreshed year 1 cleanly and never reached year 2 is not
+ *    a success.
+ * 3. **Refused production targets** (`invalidLifecycleTargets`), which degrade
+ *    the RESULT and never touch the reason.
+ *
+ * ## Why the budget takes the reason but not, by itself, the result
+ *
+ * An earlier version returned `partial` outright whenever a year was skipped,
+ * BEFORE looking at the years that did run. Codex and the review both noted the
+ * masking direction: a run where every executed year FAILED and one was skipped
+ * reported `partial`, understating it. The result is therefore the WORSE of the
+ * year aggregate and `partial`, so both facts survive — reason
+ * `budget-exhausted`, result `failure` — instead of one hiding the other.
+ *
+ * ## Why a refusal degrades the result but never the reason
+ *
+ * `AGENTS.md` → the lifecycle-refusal aggregation rule: *"refusals plus executed
+ * years → preserve the executed years' uniform reason … The reason is never
+ * overwritten by the refusal, because the receipt's year entries carry counts
+ * and no reason field, so overwriting would erase the only durable record of
+ * what those years did."* `schedule-refresh/route.ts:612-622` is the same rule
+ * in the sibling job. A refusal must not UPGRADE a run whose valid years did
+ * nothing, which is why it maps a non-success aggregate to `failure` rather
+ * than to `partial`.
  */
 export function aggregateSchedulePresentationCron(
   years: readonly SchedulePresentationYearExecution[],
-  yearsSkippedForBudget: number
+  yearsSkippedForBudget: number,
+  // REQUIRED, not defaulted: a caller that forgot to pass this would silently
+  // report a clean run over a population that refused a production league, and
+  // no compiler signal would say so.
+  invalidLifecycleTargets: number
 ): {
   result: SchedulePresentationCronExecutionResult;
   reason: SchedulePresentationCronExecutionReason;
 } {
-  if (yearsSkippedForBudget > 0) {
-    return { result: 'partial', reason: 'budget-exhausted' };
-  }
+  // Refusals with NO executed years: the refusal is the whole story, and it is
+  // the one case where it owns the reason too, because there are no executed
+  // years whose reason it could erase.
   if (years.length === 0) {
+    if (invalidLifecycleTargets > 0) {
+      return { result: 'failure', reason: 'unusable-lifecycle-year' };
+    }
+    if (yearsSkippedForBudget > 0) {
+      return { result: 'partial', reason: 'budget-exhausted' };
+    }
     return { result: 'skipped', reason: 'no-maintenance-target' };
   }
+
   const hasFailure = years.some(
     (entry) => entry.result === 'failure' || entry.result === 'partial'
   );
   const hasSuccess = years.some((entry) => entry.result === 'success');
-  if (hasFailure && hasSuccess) return { result: 'partial', reason: 'presentation-partial' };
-  if (hasFailure) return { result: 'failure', reason: 'presentation-failed' };
-  if (hasSuccess) return { result: 'success', reason: 'presentation-refreshed' };
-  // Every year was `no-op` or `in-progress`: nothing was due, or another holder
-  // had the lease. Neither is an error and neither committed anything.
-  return { result: 'no-op', reason: 'presentation-no-op' };
+  let result: SchedulePresentationCronExecutionResult;
+  let reason: SchedulePresentationCronExecutionReason;
+  if (hasFailure && hasSuccess) {
+    result = 'partial';
+    reason = 'presentation-partial';
+  } else if (hasFailure) {
+    result = 'failure';
+    reason = 'presentation-failed';
+  } else if (hasSuccess) {
+    result = 'success';
+    reason = 'presentation-refreshed';
+  } else {
+    // Every year was `no-op` or `in-progress`: nothing was due, or another
+    // holder had the lease. Neither is an error and neither committed anything.
+    result = 'no-op';
+    reason = 'presentation-no-op';
+  }
+
+  if (yearsSkippedForBudget > 0) {
+    result = worseOf(result, 'partial');
+    reason = 'budget-exhausted';
+  }
+
+  if (invalidLifecycleTargets > 0) {
+    result = result === 'success' || result === 'partial' ? 'partial' : 'failure';
+  }
+
+  return { result, reason };
 }
 
 export function emitSchedulePresentationCronExecutionEvent(
