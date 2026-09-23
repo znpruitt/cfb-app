@@ -72,14 +72,34 @@ test('mixed success and failure across years is partial, not success', () => {
   );
 });
 
-test('a PARTIAL year counts as a failure for the run aggregate', () => {
-  // A year whose media failed while venues no-opped is `partial`. Treating that
-  // as a success would let a permanently broken media refresh sit behind a green
-  // row for as long as the venue TTL keeps returning `fresh-cache`.
+test('ROUND 3 #2: a lone PARTIAL year makes a PARTIAL run, not a failed one', () => {
+  // A year whose media failed while venues no-opped on a fresh TTL is itself
+  // mixed, so it is evidence on both sides. Round 1 counted it only as a
+  // failure, which made the run's class depend on how many years happened to be
+  // active: ONE season year with a failed `/venues` reported
+  // `presentation-failed` ("Every year failed") and System Health raised
+  // `scheduler-execution-failed`; add a second clean year and the identical
+  // fault reported `partial`. One active year is the NORMAL configuration, so
+  // the harsher reading was the common one.
+  //
+  // It must still not read as SUCCESS — a permanently broken media refresh
+  // cannot sit behind a green row while the venue TTL keeps saying `fresh-cache`
+  // — and `partial` raises a System Health issue exactly as `failure` does.
   assert.deepEqual(aggregateSchedulePresentationCron([year(2026, 'partial')], 0, 0), {
+    result: 'partial',
+    reason: 'presentation-partial',
+  });
+  // A year that wholly failed is still a failed run.
+  assert.deepEqual(aggregateSchedulePresentationCron([year(2026, 'failure')], 0, 0), {
     result: 'failure',
     reason: 'presentation-failed',
   });
+  // And the classification no longer depends on the year COUNT: the same fault
+  // beside a clean year reads the same way.
+  assert.deepEqual(
+    aggregateSchedulePresentationCron([year(2026, 'partial'), year(2027, 'success')], 0, 0),
+    { result: 'partial', reason: 'presentation-partial' }
+  );
 });
 
 test('every year failing is a failure, not a partial', () => {

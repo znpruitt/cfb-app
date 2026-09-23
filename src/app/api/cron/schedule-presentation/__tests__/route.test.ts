@@ -654,10 +654,16 @@ test('ROUND 2 #1: a year with no canonical schedule must not starve the year tha
 
 test('P1: a SETTLED venue leg lets every selected year run', async () => {
   // The complement, and the reason the fix is a reservation rather than a flat
-  // "one year per run". With the catalog inside its TTL the venue leg is
-  // settled by year 1's `fresh-cache`, the reservation drops to one media leg,
-  // and nothing is skipped. Without this, the test above would also pass
+  // "one year per run". Without it, the tests above would pass just as well
   // against a job that simply never ran a second year.
+  //
+  // MECHANISM, stated precisely because an earlier version of this comment got
+  // it wrong: the catalog is fresh, so `venueRefreshDue()` answers false BEFORE
+  // the loop and `venueLegOwed` is never true at all. Year 1's `fresh-cache` is
+  // not what discharges it here — nothing needs discharging. The mid-run
+  // `fresh-cache` discharge is a different path, and it is covered by its own
+  // test below; the comment claiming it lived here is why round 2's narrowing
+  // of the discharge set went uncaught.
   await seedLeagues([makeLeague('a', 'season', 2026), makeLeague('b', 'preseason', 2027)]);
   await seedSettings();
   await seedCanonicalSchedule(2026);

@@ -575,7 +575,7 @@ postseason-boundary work remains exempt, exactly as before.
 1. The first authenticated delivery writes a `schedule-presentation` receipt visible on System
    Health, and the row reads on-time rather than missing.
 2. That receipt's target names the years refreshed, and `0 year(s) skipped for budget` — a nonzero
-   count means the job ran out of its 240s budget before starting a year, which is the condition
+   count means the job ran out of its 250s budget before starting a year, which is the condition
    757b's arithmetic depends on.
 3. One `schedule-presentation-cron` event and one `schedule-presentation-refresh` event with
    trigger `presentation-weekly`.

@@ -114,7 +114,7 @@ const VENUE_LEG_WORST_CASE_MS = 3 * CFBD_PEAK_LATENCY_TIMEOUT_MS + 1_000;
  * reproduced inside its own fix. A budget is therefore REQUIRED, not insurance
  * against some future third provider site.
  *
- * ## How the 240s holds, corrected after review
+ * ## How the 250s budget holds, corrected twice under review
  *
  * The first version of this docblock said year 1 "costs at most 242s (media +
  * the one venue fetch)" and concluded a second year could never start. **That
@@ -198,7 +198,25 @@ async function venueRefreshDue(): Promise<boolean> {
   try {
     const stored = await getAppState<unknown>(VENUE_CATALOG_STATE_SCOPE, VENUE_CATALOG_STATE_KEY);
     const priorEntry = normalizeVenueCatalogCacheEntry(stored?.value);
-    return !(priorEntry && Date.now() - priorEntry.at < VENUE_CATALOG_TTL_MS);
+    if (!priorEntry) return true;
+    // Measured from the END of the budget window, not from now.
+    //
+    // WHAT THIS GUARDS, STATED HONESTLY: it is defence in depth, and under the
+    // current design it is not independently reachable. Round 2 sampled the
+    // obligation ONCE before the loop, and review found that a catalog with a
+    // few minutes of TTL left read "fresh" there while a year starting minutes
+    // later paid the venue leg anyway — one leg reserved, two spent, past the
+    // ceiling, receipt lost. Re-reading per year closes that by itself: the
+    // reservation check and the authority's own freshness check use the same
+    // instant (the authority captures `now` when the year begins), so they
+    // cannot disagree, and no test here can distinguish this term from `now`.
+    //
+    // It is kept anyway, because the hazard it names is real and the property it
+    // depends on is not local: if the authority ever captured its clock later
+    // than the year's start, or re-read freshness after its media leg, the gap
+    // reopens silently. The cost is one extra reservation on the single run per
+    // month that straddles the boundary.
+    return Date.now() + JOB_BUDGET_MS - priorEntry.at >= VENUE_CATALOG_TTL_MS;
   } catch {
     return true;
   }
@@ -338,34 +356,31 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
 
     // ACCEPTANCE 9 — budget-bounded, most-stale-media first.
     const ordered = await orderByStaleness(selection.years.map((entry) => entry.year));
-    // Is the VENUE leg owed by this run at all?
+    // Is the VENUE leg owed, RIGHT NOW, for the year about to start?
     //
-    // ## Why this is a durable READ and not inferred from a year's outcome
+    // ## Why this is read per year instead of tracked
     //
-    // Round 1 inferred it: a year whose venue reason was not `fresh-cache` or a
-    // clean commit left the leg "unsettled". **That was a worse defect than the
-    // one it fixed.** `refreshSchedulePresentation` short-circuits BOTH parts
-    // when the canonical schedule is absent or empty
-    // (`schedulePresentationRefresh.ts:696-704`), so such a year never INVOKES
-    // the venue leg and reports `no-eligible-games` for it — which says nothing
-    // about whether a later year will pay for `/venues`. Round 1 read it as
-    // "still owed", and since the reservation exceeded the whole budget, every
-    // later year was then skipped unconditionally.
+    // This logic has been wrong twice, both times because it INFERRED the
+    // obligation instead of asking. Round 1 inferred it from a year's outcome,
+    // and a year that never invoked the leg (`no-eligible-games`, the short
+    // circuit at `schedulePresentationRefresh.ts:696-704`) was read as "still
+    // owed" — which, with a reservation that exceeded the whole budget, starved
+    // every later year. Round 2 read the catalog once up front and then tracked
+    // a flag, which was better but still wrong in two ways at once: a
+    // `fresh-cache` reading did not clear it, and a `fresh-cache` reading that
+    // DID clear it would have been measured at that year's own capture instant,
+    // which can be stale for a year starting two minutes later.
     //
-    // `orderByStaleness` puts a year with NO media entry first, and that is
-    // exactly the year with no schedule — so an ordinary preseason year not yet
-    // cached, sitting beside a live season year, starved the only year that had
-    // anything to refresh, every week, permanently. The precise inversion of
-    // what the ordering exists to do.
-    //
-    // The obligation is a property of the CATALOG, so it is read from the
-    // catalog: the same forced durable freshness read `refreshVenuesPart` makes.
-    let venueLegOwed = await venueRefreshDue();
+    // So the flag is gone. The obligation is a property of the catalog, it is
+    // cheap to read (one cache-only lookup), and reading it per year is correct
+    // by construction: a commit during this run makes the next read fresh, a
+    // failed leg leaves it owed, and a year that never touched it changes
+    // nothing. There is no inference left to get wrong.
     for (const year of ordered) {
       // The FIRST selected year always runs. Its own worst case is 242s, which
       // fits under the 300s ceiling on its own, and a budget that could skip
       // every year would make the job unable to do anything at all.
-      const reservationMs = venueLegOwed
+      const reservationMs = (await venueRefreshDue())
         ? YEAR_WORST_CASE_MS + VENUE_LEG_WORST_CASE_MS
         : YEAR_WORST_CASE_MS;
       if (exec.years.length > 0 && Date.now() - startedAtMs + reservationMs > JOB_BUDGET_MS) {
@@ -379,17 +394,6 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
       // fresh clock captured at the year's turn, never this route's entry time —
       // route latency must not age an observation or shorten a lease.
       const result = await refreshSchedulePresentation({ year, trigger: 'presentation-weekly' });
-      // A COMMIT — and only a commit — discharges the obligation mid-run: the
-      // catalog is now inside its TTL, so no later year can be charged for it.
-      //
-      // This only ever clears the flag, never sets it. Everything else leaves it
-      // exactly as the durable read found it, which is the point: a year that
-      // never invoked the leg (`no-eligible-games`) and a year whose leg failed
-      // are both silent about the catalog, and silence must not be read as
-      // either answer.
-      if (result.venues.reason === 'written-clean' || result.venues.reason === 'unchanged-clean') {
-        venueLegOwed = false;
-      }
       exec.years.push({
         year,
         result: result.status,

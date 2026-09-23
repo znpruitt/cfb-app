@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { GET } from '../route';
 import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '../../../../../lib/api/cfbdRequestPolicy.ts';
+import { VENUE_CATALOG_TTL_MS } from '../../../../../lib/schedule/schedulePresentationRefresh.ts';
 import type { League } from '../../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
@@ -110,7 +111,7 @@ function stubStallingBody(): void {
   }) as typeof fetch;
 }
 
-async function seed(extraYear?: number): Promise<void> {
+async function seed(extraYear?: number, venueAgeMs = 0): Promise<void> {
   await setAppState('leagues', 'registry', [
     {
       slug: 'a',
@@ -187,7 +188,7 @@ async function seed(extraYear?: number): Promise<void> {
   // test isolates the media stall. Without it the run would stall twice and the
   // assertion below could not say which site it measured.
   await setAppState('venue-catalog', 'current', {
-    at: Date.now(),
+    at: Date.now() - venueAgeMs,
     items: [
       {
         id: 3504,
@@ -281,6 +282,8 @@ test('ACCEPTANCE 3: the receipt is written even when the provider stalls MID-BOD
   const body = await res.json();
   assert.equal(res.status, 200, 'a hung provider is a controlled outcome, not a 5xx');
   assert.equal(body.years[0].media, 'provider-fetch-failed');
+  assert.equal(body.years[0].venues, 'fresh-cache', 'the venue leg was not due');
+  assert.equal(body.result, 'partial', 'a mixed year makes a mixed run');
 
   // THE POINT. The run completed and filed its receipt, so System Health can
   // tell this from a run that never happened.
@@ -288,7 +291,12 @@ test('ACCEPTANCE 3: the receipt is written even when the provider stalls MID-BOD
   const receipt = await readSchedulerReceipt('schedule-presentation');
   assert.ok(receipt, 'the receipt exists despite the hang — this is what #757 is about');
   assert.equal(receipt.value.job, 'schedule-presentation');
-  assert.equal(receipt.value.result, 'failure');
+  // `partial`, not `failure`, and that is round 3 finding 2's correction: this
+  // year's media failed while its venues no-opped on a fresh TTL, so the YEAR is
+  // itself mixed. Counting a `partial` year purely as a failure made the run's
+  // class depend on how many years happened to be active — one year read
+  // "execution failed", two years read "partial" for the identical fault.
+  assert.equal(receipt.value.result, 'partial');
   assert.equal(receipt.value.providerCallAttempted, true);
   assert.equal(receipt.value.target.kind, 'schedule-presentation');
 });
@@ -340,4 +348,99 @@ test('ACCEPTANCE 9: a year that eats the clock stops the NEXT year from starting
     1,
     'and the skipped year reaches it'
   );
+});
+
+test('ROUND 3 #1: a comfortably fresh catalog owes nothing, so a later year is judged on ONE leg', async (t) => {
+  // Round 2 held a 242s reservation whenever it could not PROVE the catalog was
+  // fresh, and cleared that belief only on a commit. A fresh catalog therefore
+  // kept the full reservation all run, and years were skipped for budget with
+  // minutes of headroom left.
+  //
+  // Re-reading the catalog per year removes the belief entirely: a fresh catalog
+  // simply reads fresh, every time. This pins the consequence — 120s elapsed
+  // plus one 121s leg fits the 250s budget, where 120 + 242 would not, so the
+  // reservation is the only thing deciding whether year 2 runs.
+  //
+  // The mock clock is ANCHORED to real time. `mock.timers.enable` starts `Date`
+  // at 0 by default, which makes every stored `at` look astronomically far in
+  // the future — the catalog then reads infinitely fresh whatever the code does,
+  // and this test passes against any reservation rule at all. That is exactly
+  // what an earlier version did, and both mutations stayed green against it.
+  const t0 = Date.now();
+  await seed(2027); // a catalog written just now: the full 30-day TTL ahead of it
+  t.mock.timers.enable({ apis: ['Date'], now: t0 });
+  let mediaCalls = 0;
+  globalThis.fetch = (async (input: URL | string | Request) => {
+    const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (!href.includes('/games/media')) throw new Error(`unexpected provider call: ${href}`);
+    mediaCalls += 1;
+    // Year 1 takes two minutes. 120 + 121 = 241 fits; 120 + 242 = 362 does not.
+    if (mediaCalls === 1) t.mock.timers.tick(120_000);
+    return new Response(JSON.stringify([{ id: 101, mediaType: 'tv', outlet: 'ESPN' }]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  const body = await (
+    await GET(
+      new Request('https://turfwar.games/api/cron/schedule-presentation', {
+        headers: { authorization: `Bearer ${CRON_SECRET}` },
+      })
+    )
+  ).json();
+  t.mock.timers.reset();
+
+  assert.equal(body.years[0].venues, 'fresh-cache', 'the catalog is nowhere near its TTL');
+  assert.equal(body.years.length, 2, 'so the second year is judged against one leg, and runs');
+  assert.equal(body.yearsSkippedForBudget, 0);
+});
+
+test('ROUND 3 #3: a catalog that expires mid-run is owed by the year that follows', async (t) => {
+  // The complement of the test above, and the reason the obligation is re-read
+  // rather than decided once: the same run can legitimately answer "not owed"
+  // for one year and "owed" for the next.
+  //
+  // The catalog has 100s of TTL left when the run starts. Year 1 reads it fresh
+  // and spends nothing on venues. Year 1 then takes two minutes, so by year 2
+  // the catalog has genuinely expired — and year 2 must be judged on BOTH legs,
+  // which 120s of elapsed time cannot afford. A run that carried year 1's
+  // reading forward would admit year 2 on one leg and could overrun the ceiling.
+  const t0 = Date.now();
+  await seed(2027, VENUE_CATALOG_TTL_MS - 100_000);
+  t.mock.timers.enable({ apis: ['Date'], now: t0 });
+  let mediaCalls = 0;
+  globalThis.fetch = (async (input: URL | string | Request) => {
+    const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (href.includes('/games/media')) {
+      mediaCalls += 1;
+      if (mediaCalls === 1) t.mock.timers.tick(120_000);
+      return new Response(JSON.stringify([{ id: 101, mediaType: 'tv', outlet: 'ESPN' }]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    // The venue catalog has genuinely expired by now, so the leg really does
+    // reach out — and fails, leaving the obligation exactly where it was.
+    throw new Error('venue provider unavailable');
+  }) as typeof fetch;
+
+  const body = await (
+    await GET(
+      new Request('https://turfwar.games/api/cron/schedule-presentation', {
+        headers: { authorization: `Bearer ${CRON_SECRET}` },
+      })
+    )
+  ).json();
+  t.mock.timers.reset();
+
+  // Year 1's own leg reads `fresh-cache`: the authority captures `now` once per
+  // invocation, at the START of the year, when the catalog still had 100s left.
+  // That reading is TRUE and also irrelevant to year 2, which begins two minutes
+  // later against an expired catalog — which is exactly why the obligation is
+  // re-read per year rather than carried forward from this outcome.
+  assert.equal(body.years[0].venues, 'fresh-cache');
+  assert.equal(body.years.length, 1, 'the second year is not admitted on a one-leg reservation');
+  assert.equal(body.yearsSkippedForBudget, 1);
+  assert.equal(body.reason, 'budget-exhausted');
 });

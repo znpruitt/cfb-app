@@ -183,7 +183,8 @@ an unreadable gate cannot prove the gate is open.
 
 ## Acceptance 9 (new, owner-ruled) — the budget
 
-Passed. `maxDuration = 300` is declared; the job checks its 240s budget before each year,
+Passed. `maxDuration = 300` is declared; the job checks its budget before each year (240s as
+first written, **250s as shipped** — see round 2),
 orders years most-stale-media first, and counts years it never started.
 
 **The arithmetic the prompt got wrong.** The prompt costed one year. The loop is per-year,
@@ -390,6 +391,76 @@ asserted that `undefined` fields are accepted, but every field in its fixture wa
 the mutation that rejects `undefined` stayed green. A second, genuinely legacy row was added,
 and both halves now redden independently.
 
+## Review round 3 — the budget logic was inferred, three times
+
+`/code-review 9e007640 high`. Seven findings, all accurate, all fixed.
+
+### Findings 1 and 3 — and the resolution is that the flag is gone
+
+Round 2 had already been the second wrong version of this logic. Round 3 found two more
+faults in it, and they turned out to have one cause.
+
+**Finding 1**: the discharge set was narrowed in round 2 to the two COMMIT reasons, on the
+reasoning that anything else is "silent about the catalog". `fresh-cache` is not silent — it
+is a positive reading that the catalog IS inside its TTL — so a run that could not prove
+freshness up front held a 242s reservation all the way through and skipped years with
+minutes of headroom.
+
+**Finding 3**: the obligation was sampled ONCE before the loop, so a catalog with a few
+minutes of TTL left read "fresh" and a year starting minutes later paid the venue leg with
+one leg reserved.
+
+Fixing them separately made them collide: a `fresh-cache` reading that discharges is
+measured at *that year's* capture instant, which can already be stale for the next year. So
+**the tracked flag was removed entirely.** The obligation is now re-read from the catalog
+before each year — one cache-only lookup, correct by construction: a commit during the run
+makes the next read fresh, a failed leg leaves it owed, and a year that never touched the
+leg changes nothing.
+
+**The pattern across three rounds is the lesson, and it is worth stating plainly: every
+version of this bug was an INFERENCE about state that could have been read.** Round 1
+inferred the obligation from a year's outcome. Round 2 inferred it from one up-front read
+plus a flag. Only reading it, per year, from the thing that owns it, is right.
+
+`venueRefreshDue()` still measures from the end of the budget window, and the comment now
+says honestly that this is defence in depth which **no test here can distinguish** — the
+per-year read closes the gap by itself, because the reservation check and the authority's
+freshness check use the same instant. It is kept because that property is not local: if the
+authority ever captured its clock later, the gap reopens silently.
+
+### Finding 2 — the run's class depended on how many years were active
+
+A year whose media failed while venues no-opped on a fresh TTL is itself mixed. Counting it
+only as a failure meant ONE season year with a failed `/venues` reported
+`presentation-failed` — "Every year failed" — while the identical fault beside a second
+clean year reported `partial`. **One active year is the normal configuration**, so the
+harsher reading was the common one. The aggregate now mirrors
+`aggregateSchedulePresentationStatus`, the authority's own two-part rule, since it is the
+same question one level up.
+
+### Findings 4–7 — four stale or wrong claims, all mine
+
+| # | What was wrong |
+| --- | --- |
+| 4 | A docblock headed "How the 240s holds" whose own body concluded 250s |
+| 5 | The runbook's activation checklist still said 240s — **the worst place for a stale figure**, since an operator reads it against production evidence |
+| 6 | The closeout contradicted itself on the shipped budget, which is the one thing a ledger must get right |
+| 7 | A test comment described a mechanism the test does not exercise — and the path it named was the untested one finding 1 lived in |
+
+### Two tests of mine were wrong, and one was wrong twice
+
+Round 2's budget test asserted a skip that was an artefact of the broken arithmetic; it was
+**replaced, not relaxed**. Round 1's "a PARTIAL year counts as a failure" asserted exactly
+what finding 2 says is wrong, and was corrected to pin that the classification no longer
+depends on the year count.
+
+And the finding-1 test took three attempts. The first passed with a fast provider that could
+never reach the threshold. The second drove timers at 45s granularity and measured ~250s of
+elapsed for a 123s bound. The third failed for a reason worth recording: **`mock.timers.enable`
+starts `Date` at 0**, which makes every stored `at` look astronomically far in the future, so
+the catalog read infinitely fresh and *both* mutations stayed green. Anchoring the mock clock
+to real time (`now: t0`) is what finally made it discriminate.
+
 ## Verification
 
 Run against the merged tree at `HEAD`, worktree clean, each gate its own command:
@@ -398,7 +469,7 @@ Run against the merged tree at `HEAD`, worktree clean, each gate its own command
 | --- | --- |
 | `npx tsc --noEmit` | exit 0 |
 | `npm run lint:all` | exit 0 |
-| `npm test` | exit 0 — **5566 pass, 0 fail, 0 cancelled** |
+| `npm test` | exit 0 — **5568 pass, 0 fail, 0 cancelled** |
 
 The known-failure set on `main` is empty, so zero failures is the merge condition and it is
 met.

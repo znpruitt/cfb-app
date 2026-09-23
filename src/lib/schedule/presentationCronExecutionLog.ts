@@ -180,13 +180,26 @@ export function aggregateSchedulePresentationCron(
     return { result: 'skipped', reason: 'no-maintenance-target' };
   }
 
+  // MIRRORS `aggregateSchedulePresentationStatus`, the authority's own
+  // aggregation over its two parts, because the question is the same one a level
+  // up: some units failed, some did not.
+  //
+  // `hasNonFailure` is deliberately NOT `hasSuccess`. A year whose own result is
+  // `partial` is ALREADY mixed — one part committed, the other failed — so it is
+  // evidence on both sides. Counting it only as a failure made the run's class
+  // depend on how many years happened to be active: with one season year and a
+  // failed `/venues`, the run reported `presentation-failed` ("Every year
+  // failed") and System Health raised `scheduler-execution-failed`; add a second
+  // clean year and the identical fault reported `partial`. The single-year case
+  // is the NORMAL configuration, so the harsher reading was the common one.
   const hasFailure = years.some(
     (entry) => entry.result === 'failure' || entry.result === 'partial'
   );
+  const hasNonFailure = years.some((entry) => entry.result !== 'failure');
   const hasSuccess = years.some((entry) => entry.result === 'success');
   let result: SchedulePresentationCronExecutionResult;
   let reason: SchedulePresentationCronExecutionReason;
-  if (hasFailure && hasSuccess) {
+  if (hasFailure && hasNonFailure) {
     result = 'partial';
     reason = 'presentation-partial';
   } else if (hasFailure) {
