@@ -18,6 +18,7 @@ import * as pollingPlanner from '../../../../scripts/manage-polling-planner-sche
 import * as odds from '../../../../scripts/manage-odds-schedule';
 import * as rankings from '../../../../scripts/manage-rankings-schedule';
 import * as scheduleRefresh from '../../../../scripts/manage-schedule-refresh-schedule';
+import * as schedulePresentation from '../../../../scripts/manage-schedule-presentation-schedule';
 import * as teamRecords from '../../../../scripts/manage-team-records-schedule';
 import * as usageSample from '../../../../scripts/manage-usage-sample-schedule';
 
@@ -75,11 +76,12 @@ const CLIS: Cli[] = [
   cliFor('odds', odds),
   cliFor('rankings', rankings),
   cliFor('schedule-refresh', scheduleRefresh),
+  cliFor('schedule-presentation', schedulePresentation),
   cliFor('team-records', teamRecords),
   cliFor('usage-sample', usageSample),
   // PLATFORM-102 slice 4 — the two reconciliation schedules and the planner's own
   // trigger. Their `runManageSchedule` export takes injected deps with NO reader,
-  // exactly like the other seven, so the fallback assertions below cover all ten.
+  // exactly like the other seven, so the fallback assertions below cover all eleven.
   cliFor('game-stats-slow', gameStatsSlow),
   cliFor('live-scores-slow', liveScoresSlow),
   cliFor('polling-planner', pollingPlanner),
@@ -130,11 +132,11 @@ function summaryFrom(out: string[]): Record<string, unknown> {
 // The fallback: all seven CLIs, unchanged
 // ---------------------------------------------------------------------------
 
-test('all ten manage CLIs still inspect against their FIXED contract', async () => {
+test('all eleven manage CLIs still inspect against their FIXED contract', async () => {
   // The mutation target for the fallback. Break `resolveExpectedContract` — have
   // the no-reader branch return `{kind: 'unreadable'}`, or drop the `absent`
   // branch — and every case here goes red with exit 3 instead of 0.
-  assert.equal(CLIS.length, 10, 'ten management CLIs exist; assert them, do not assume');
+  assert.equal(CLIS.length, 11, 'eleven management CLIs exist; assert them, do not assume');
 
   for (const cli of CLIS) {
     const { deps, out, err } = harness(readbackFor(cli));

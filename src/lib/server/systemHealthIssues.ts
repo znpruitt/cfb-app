@@ -226,6 +226,36 @@ const EXECUTION_REPAIR_POLICY: Record<ExternalSchedulerJob, ExecutionRepairPolic
   'game-stats': { kind: 'data-maintenance' },
   odds: { kind: 'data-maintenance' },
   'schedule-refresh': { kind: 'data-maintenance' },
+  /**
+   * PLATFORM-757a — `by-reason`, and it is the #733 shape rather than a copy of
+   * `schedule-refresh`'s.
+   *
+   * The Data Maintenance schedule action DOES repair a presentation fault: its
+   * descriptor names `/games/media` and `/venues` in `nominalCost` and
+   * `Presentation caches` in `durableMutations`, because the authorized manual
+   * full-year refresh drives the same authority this job does. So a refresh that
+   * failed, half-failed, or never reached a year is answered by exactly that
+   * action.
+   *
+   * The job's other faults are NOT. `settings-unavailable` is the durable
+   * settings record, `unusable-lifecycle-year` is a league's lifecycle year,
+   * and `registry-malformed` / `canonical-context-unavailable` are the registry
+   * itself — none is a dataset repair, and linking them to Data Maintenance
+   * would send an operator to a page that cannot help.
+   *
+   * The reasons absent here for a different reason, stated so a later reader does
+   * not add them: `automation-paused-or-disabled` and the no-target reasons are
+   * `skipped`, and `presentation-no-op` is `no-op`, so none of them raises an
+   * issue at all and none can reach a repair link.
+   */
+  'schedule-presentation': {
+    kind: 'by-reason',
+    repairable: new Set<SchedulerExecutionReason>([
+      'presentation-failed',
+      'presentation-partial',
+      'budget-exhausted',
+    ]),
+  },
   rankings: { kind: 'data-maintenance' },
   // PLATFORM-118 — Team records has no manual endpoint and no Data Maintenance
   // action.

@@ -13,7 +13,22 @@
  * error stack, or arbitrary error message.
  */
 
-export type SchedulePresentationRefreshTrigger = 'manual' | 'weekly' | 'season-transition';
+/**
+ * Which caller invoked the authority. Purely a LABEL: it selects no behaviour
+ * inside `refreshSchedulePresentation` and reaches only the runtime event line.
+ *
+ * `presentation-weekly` (#757a) is the STANDALONE job. It is deliberately not
+ * `weekly`, which names the inline call inside the weekly schedule cron. During
+ * 757a both run on a Tuesday — that overlap is the whole reason the standalone
+ * job ships additively — and reusing `weekly` would make the two
+ * indistinguishable in logs during precisely the window the slice exists to
+ * observe. Pinned by `schedulePresentationJobRoute.test.ts`.
+ */
+export type SchedulePresentationRefreshTrigger =
+  | 'manual'
+  | 'weekly'
+  | 'season-transition'
+  | 'presentation-weekly';
 
 export type SchedulePresentationRefreshReason =
   | 'refresh-in-progress' // a nonexpired durable lease already holds this part
@@ -80,6 +95,38 @@ const STATUS_FOR_REASON: Record<SchedulePresentationRefreshReason, SchedulePrese
     'durable-commit-failed': 'failure',
     'unexpected-error': 'failure',
   };
+
+/**
+ * Membership tests for the two closed vocabularies, for readers that must
+ * validate a value that arrived from DURABLE STORAGE rather than from this
+ * module — today the scheduler receipt's stored-target guard (#757a).
+ *
+ * `isSchedulePresentationRefreshReason` reads {@link STATUS_FOR_REASON}, which
+ * is a total `Record` over the reason union, so the compiler keeps it exhaustive
+ * for free. A hand-written second list would be a place for the vocabulary to
+ * drift silently the next time a reason is added — and a stored-target guard
+ * that silently stopped recognising a reason would render a valid receipt as
+ * `invalid` on System Health.
+ */
+export function isSchedulePresentationRefreshReason(
+  value: unknown
+): value is SchedulePresentationRefreshReason {
+  return typeof value === 'string' && Object.hasOwn(STATUS_FOR_REASON, value);
+}
+
+const AGGREGATE_STATUSES: Record<SchedulePresentationAggregateStatus, true> = {
+  success: true,
+  partial: true,
+  'no-op': true,
+  failure: true,
+  'in-progress': true,
+};
+
+export function isSchedulePresentationAggregateStatus(
+  value: unknown
+): value is SchedulePresentationAggregateStatus {
+  return typeof value === 'string' && Object.hasOwn(AGGREGATE_STATUSES, value);
+}
 
 /**
  * Build a part result. Status derives from the reason through the single shared

@@ -814,7 +814,7 @@ test('secret canaries and arbitrary attached properties never reach durable stat
 
 // ── F2E2B — exported job list, source helper, and safe read parser ───────────
 
-test('EXTERNAL_SCHEDULER_JOBS is the canonical ten jobs and derives each source', () => {
+test('EXTERNAL_SCHEDULER_JOBS is the canonical eleven jobs and derives each source', () => {
   assert.deepEqual(
     [...EXTERNAL_SCHEDULER_JOBS],
     [
@@ -823,6 +823,9 @@ test('EXTERNAL_SCHEDULER_JOBS is the canonical ten jobs and derives each source'
       'game-stats',
       'odds',
       'schedule-refresh',
+      // PLATFORM-757a. Ordered directly after the schedule job it was split out
+      // of, so the two sit together on System Health.
+      'schedule-presentation',
       'rankings',
       'season-transition',
       'season-rollover',

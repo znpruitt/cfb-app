@@ -146,6 +146,22 @@ const DELIVERY_POLICIES: Record<
     cadenceLabel: 'weekly (Tuesday 12:00 UTC)',
     graceMs: 24 * HOUR_MS,
   },
+  /**
+   * PLATFORM-757a — the standalone presentation job, one hour after the weekly
+   * schedule job so it reads a fresh schedule and the two never hit CFBD at the
+   * same moment.
+   *
+   * The grace matches `schedule-refresh`'s 24 hours, and for the same reason: on
+   * a weekly cadence a late delivery costs at most one week of broadcast
+   * freshness, and channels for the coming Saturday are measured 100% settled by
+   * Tuesday. Paging sooner would make a job that cannot be urgent the noisiest
+   * row on the page.
+   */
+  'schedule-presentation': {
+    cron: '0 13 * * 2',
+    cadenceLabel: 'weekly (Tuesday 13:00 UTC)',
+    graceMs: 24 * HOUR_MS,
+  },
   rankings: {
     cron: '0 4,22 * * *',
     cadenceLabel: 'twice daily (04:00 & 22:00 UTC)',

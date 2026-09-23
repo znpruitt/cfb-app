@@ -30,6 +30,7 @@ import {
   buildSchedulerExecutionReceipt,
   EXTERNAL_SCHEDULER_JOBS,
   rankingsYearsTarget,
+  schedulePresentationTarget,
   scheduleYearsTarget,
   schedulerSourceForJob,
   seasonRolloverYearsTarget,
@@ -102,6 +103,21 @@ function targetFor(job: ExternalSchedulerJob, refusals = 0): SchedulerExecutionT
         ],
         refusals
       );
+    case 'schedule-presentation':
+      return schedulePresentationTarget({
+        totalYears: 1,
+        yearsSkippedForBudget: 0,
+        invalidLifecycleTargets: refusals,
+        years: [
+          {
+            year: YEAR,
+            result: 'success',
+            media: 'written-clean',
+            venues: 'fresh-cache',
+            providerCallAttempted: true,
+          },
+        ],
+      });
     case 'rankings':
       return rankingsYearsTarget(
         [{ year: YEAR, publicationWindow: null, ...cleanRankingsYearOutcome() }],
@@ -126,6 +142,7 @@ const REASON_FOR: Record<ExternalSchedulerJob, SchedulerExecutionReceiptInput['r
   'game-stats': 'no-polling-target',
   odds: 'automation-paused-or-disabled',
   'schedule-refresh': 'no-maintenance-target',
+  'schedule-presentation': 'no-maintenance-target',
   rankings: 'no-ranking-target',
   'season-transition': 'no-preseason-leagues',
   'season-rollover': 'no-season-leagues',

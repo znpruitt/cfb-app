@@ -53,7 +53,11 @@ export const MAINTENANCE_ACTIONS: Record<MaintenanceActionId, MaintenanceActionD
       'Provider-refresh statuses',
       'Standings invalidation on canonical change',
     ],
-    automationOwner: 'Weekly QStash schedule + lifecycle crons',
+    // PLATFORM-757a added a THIRD owner: the presentation caches this action
+    // rewrites are now also refreshed by the standalone weekly presentation job,
+    // not only inline by the schedule cron and the lifecycle crons. Naming only
+    // the first two would be a false claim on an operator surface.
+    automationOwner: 'Weekly QStash schedule + presentation job + lifecycle crons',
     actionClass: 'recovery',
   },
   'scores-aggregate-refresh': {

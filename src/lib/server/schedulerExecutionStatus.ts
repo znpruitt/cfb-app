@@ -21,6 +21,13 @@ import type {
   ScheduleRefreshCronExecutionReason,
   ScheduleRefreshCronYearExecution,
 } from '@/lib/schedule/cronExecutionLog';
+import type { SchedulePresentationCronExecutionReason } from '@/lib/schedule/presentationCronExecutionLog';
+import {
+  isSchedulePresentationAggregateStatus,
+  isSchedulePresentationRefreshReason,
+  type SchedulePresentationAggregateStatus,
+  type SchedulePresentationRefreshReason,
+} from '@/lib/schedule/schedulePresentationResult';
 import type { WeeklyScheduleRefreshOperation } from '@/lib/schedule/weeklyRefreshOperation';
 import type { TeamRecordsCronExecutionReason } from '@/lib/teamRecords/cronExecutionLog';
 import type {
@@ -105,6 +112,14 @@ export const EXTERNAL_SCHEDULER_JOBS = [
   'game-stats',
   'odds',
   'schedule-refresh',
+  /**
+   * PLATFORM-757a — the standalone schedule-presentation job, ordered directly
+   * after the schedule job it was split out of so the two sit together on System
+   * Health. During 757a it runs BESIDE the inline presentation call that
+   * `schedule-refresh` still makes; 757b removes that call once this job is live
+   * and at least one standalone receipt has been observed in production.
+   */
+  'schedule-presentation',
   'rankings',
   'season-transition',
   'season-rollover',
@@ -140,6 +155,7 @@ const JOB_SOURCE: Record<ExternalSchedulerJob, SchedulerSource> = {
   'game-stats': 'qstash',
   odds: 'qstash',
   'schedule-refresh': 'qstash',
+  'schedule-presentation': 'qstash',
   rankings: 'qstash',
   'season-transition': 'vercel-cron',
   'season-rollover': 'vercel-cron',
@@ -171,6 +187,7 @@ export type SchedulerExecutionReason =
   | GameStatsCronExecutionReason
   | OddsCronExecutionReason
   | ScheduleRefreshCronExecutionReason
+  | SchedulePresentationCronExecutionReason
   | RankingsCronExecutionReason
   | SeasonTransitionCronExecutionReason
   | SeasonRolloverCronExecutionReason
@@ -330,6 +347,45 @@ export type SchedulerExecutionTarget =
           operation: WeeklyScheduleRefreshOperation | null;
         } & SchedulerYearOutcome<ScheduleRefreshCronYearExecution['reason']>
       >;
+    }
+  /**
+   * PLATFORM-757a — the standalone schedule-presentation job.
+   *
+   * It carries no partition, row count, or `dataChanged`: the authority already
+   * owns those and records them against its own provider-refresh scopes
+   * (`schedule:media:<year>` / `schedule:venues`). What only the RECEIPT can say
+   * is which years this run reached, what each decided, and — the field #757 is
+   * ultimately about — which years it never got to.
+   */
+  | {
+      kind: 'schedule-presentation';
+      totalYears: number;
+      truncated: boolean;
+      /**
+       * Active PRODUCTION leagues refused this run for a structurally invalid
+       * `status.year`. Run-level: a refused candidate has no usable year to file
+       * it under.
+       */
+      invalidLifecycleTargets: number;
+      /**
+       * Years SELECTED but never started, because the job's remaining budget
+       * could not cover one year's worst case.
+       *
+       * Its own field, never folded into the per-year list or the aggregate. A
+       * skipped year's media is exactly as stale as if nothing had run, so a
+       * receipt reporting success beside a nonzero count here would be a number
+       * whose failure and whose real zero look identical — the defect #804 is
+       * the live example of.
+       */
+      yearsSkippedForBudget: number;
+      years: Array<{
+        year: number;
+        /** The authority's aggregate for the year, or null on a legacy receipt. */
+        result: SchedulePresentationAggregateStatus | null;
+        media: SchedulePresentationRefreshReason | null;
+        venues: SchedulePresentationRefreshReason | null;
+        providerCallAttempted: boolean | null;
+      }>;
     }
   | {
       kind: 'rankings-years';
@@ -493,6 +549,47 @@ function yearOutcome<Reason extends string>(entry: {
 }
 
 /** The bounded `schedule-years` summary from the route's per-year entries. */
+/**
+ * PLATFORM-757a — build the standalone presentation job's receipt target.
+ *
+ * Every field is REQUIRED on the input, for the reason `scheduleYearsTarget`
+ * states: a caller that reconstructed this target without them would record a
+ * run whose outcome nothing can now establish. In particular
+ * `yearsSkippedForBudget` has no default — a zero has to be a run that skipped
+ * nothing, never a caller that forgot to pass it.
+ */
+export function schedulePresentationTarget(input: {
+  totalYears: number;
+  yearsSkippedForBudget: number;
+  invalidLifecycleTargets: number;
+  years: ReadonlyArray<{
+    year: number;
+    result: SchedulePresentationAggregateStatus;
+    media: SchedulePresentationRefreshReason;
+    venues: SchedulePresentationRefreshReason;
+    providerCallAttempted: boolean;
+  }>;
+}): Extract<SchedulerExecutionTarget, { kind: 'schedule-presentation' }> {
+  const years = input.years.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
+    year: entry.year,
+    result: entry.result,
+    media: entry.media,
+    venues: entry.venues,
+    providerCallAttempted: entry.providerCallAttempted,
+  }));
+  return {
+    kind: 'schedule-presentation',
+    // `totalYears` is what the run SELECTED, which is not `years.length` twice
+    // over: the list is bounded, and a budget-skipped year contributes a
+    // selection without an entry.
+    totalYears: input.totalYears,
+    truncated: input.years.length > MAX_SCHEDULER_TARGET_YEARS,
+    invalidLifecycleTargets: input.invalidLifecycleTargets,
+    yearsSkippedForBudget: input.yearsSkippedForBudget,
+    years,
+  };
+}
+
 export function scheduleYearsTarget(
   // REQUIRED metrics: omitting any one would let a new caller silently erase
   // the weekly backstop's receipt evidence with an implicit zero.
@@ -813,6 +910,7 @@ const JOB_TARGET_KIND: Record<ExternalSchedulerJob, SchedulerExecutionTarget['ki
   'game-stats': 'game-stats',
   odds: 'odds',
   'schedule-refresh': 'schedule-years',
+  'schedule-presentation': 'schedule-presentation',
   rankings: 'rankings-years',
   'season-transition': 'season-transition-years',
   'season-rollover': 'season-rollover-years',
@@ -878,6 +976,21 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
         year: target.year,
         cadence: target.cadence,
         eligibleGames: target.eligibleGames,
+      };
+    case 'schedule-presentation':
+      return {
+        kind: 'schedule-presentation',
+        totalYears: target.totalYears,
+        truncated: target.truncated,
+        invalidLifecycleTargets: target.invalidLifecycleTargets ?? 0,
+        yearsSkippedForBudget: target.yearsSkippedForBudget ?? 0,
+        years: target.years.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
+          year: entry.year,
+          result: entry.result ?? null,
+          media: entry.media ?? null,
+          venues: entry.venues ?? null,
+          providerCallAttempted: entry.providerCallAttempted ?? null,
+        })),
       };
     case 'schedule-years':
       return {
@@ -1141,6 +1254,31 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
       );
     case 'team-records':
       return isFiniteNumber(target.year);
+    case 'schedule-presentation':
+      // The counts are REQUIRED even when zero, for the reason the planner's
+      // are: an absent `yearsSkippedForBudget` would render as a run that
+      // skipped nothing, which is also what a fully completed run looks like.
+      // The per-year vocabularies are validated through the authority's own
+      // membership tests, so there is no second spelling of either union here.
+      return (
+        isNonNegativeInteger(target.totalYears) &&
+        typeof target.truncated === 'boolean' &&
+        isNonNegativeInteger(target.invalidLifecycleTargets) &&
+        isNonNegativeInteger(target.yearsSkippedForBudget) &&
+        Array.isArray(target.years) &&
+        target.years.length <= MAX_SCHEDULER_TARGET_YEARS &&
+        target.years.every((entry) => {
+          if (typeof entry !== 'object' || entry === null) return false;
+          const year = entry as Record<string, unknown>;
+          return (
+            isFiniteNumber(year.year) &&
+            (year.result === null || isSchedulePresentationAggregateStatus(year.result)) &&
+            (year.media === null || isSchedulePresentationRefreshReason(year.media)) &&
+            (year.venues === null || isSchedulePresentationRefreshReason(year.venues)) &&
+            (year.providerCallAttempted === null || typeof year.providerCallAttempted === 'boolean')
+          );
+        })
+      );
     case 'usage-sample':
       // A present `day` must be a real UTC calendar date, not merely a string:
       // `''` or arbitrary text would otherwise be rendered as scheduler health

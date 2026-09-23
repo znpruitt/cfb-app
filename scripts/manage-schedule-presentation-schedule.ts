@@ -1,36 +1,47 @@
-// Operator CLI for the EXTERNAL Rankings trigger schedule (PLATFORM-086E2B).
+// Operator CLI for the EXTERNAL weekly schedule-PRESENTATION trigger
+// (PLATFORM-757a).
 //
-// The rankings publication heartbeat runs from an external QStash schedule
-// (Vercel's Hobby plan rejects sub-daily cron expressions at deploy time, and
-// the rankings cadence is application-owned regardless) that calls the route
+// The standalone presentation job runs from an external QStash schedule (the
+// project's scheduling boundary: external provider polling → QStash; internal
+// lifecycle reconciliation → Vercel Cron) that calls the route
 //
-//   GET https://turfwar.games/api/cron/rankings
+//   GET https://turfwar.games/api/cron/schedule-presentation
 //     Authorization: Bearer <CRON_SECRET>   (forwarded by QStash)
 //
-// twice daily at 04:00 and 22:00 UTC. The application's publication policy —
-// not the schedule — owns whether provider work is due (AP/Coaches Sundays,
-// preseason discovery, the opening-week exception, CFP Wednesdays, the final
-// poll); the heartbeat is only the trigger that lets the policy decide.
+// every Tuesday at 13:00 UTC — ONE HOUR AFTER the 12:00 weekly schedule job, so
+// it reads a fresh canonical schedule and the two never hit CFBD at the same
+// moment. The application decides which active season years to refresh and
+// whether the operator's pause allows the run; the weekly trigger is only the
+// heartbeat.
+//
+// WHY THIS JOB EXISTS. The media/venue refresh runs INLINE inside
+// `cron/schedule-refresh` and `cron/season-transition` today, and their worst
+// cases ADD inside one 300-second invocation — which on Hobby is a hard maximum.
+// A killed invocation loses the durable receipt written in its outer `finally`,
+// so System Health cannot tell a killed run from one that never happened
+// (#757). This slice is ADDITIVE: the inline calls stay until 757b, which is
+// gated on this job being live and at least one standalone receipt observed in
+// production.
 //
 // All schedule policy — the fixed message contract, inspect-first/apply-gated
-// safety, fail-closed behavior, provider-side Authorization redaction, exit
-// codes, and the guarantee that only QStash management endpoints are ever hit —
-// lives in the shared, contract-parameterized `scripts/lib/qstashSchedule.ts`;
-// this file only binds the Rankings CONTRACT into it. It carries NO QStash
-// runtime dependency (plain fetch), NEVER deletes, and treats the schedule's
-// identity/destination/message contract as FIXED constants.
+// safety, fail-closed behavior, provider-side Authorization redaction, exit codes,
+// and the guarantee that only QStash management endpoints are ever hit — lives in
+// the shared, contract-parameterized `scripts/lib/qstashSchedule.ts`; this file
+// only binds the presentation CONTRACT into it. It carries NO QStash runtime
+// dependency (plain fetch), NEVER deletes, and treats the schedule's identity/
+// destination/message contract as FIXED constants.
 //
-// This CLI PROVISIONS/controls the schedule; it does NOT itself activate
-// Rankings automation. Activation (creating the schedule against production +
-// opening the gates) is the separate, operator-run post-merge step in the
-// deployment runbook (§8j); until then the route stays unscheduled and no
+// This CLI PROVISIONS/controls the schedule; it does NOT itself activate the
+// presentation job. Activation (creating the schedule against production + the
+// exact-authentication proof) is the separate, operator-run post-merge step in
+// the deployment runbook (§8i); until then the route stays dormant and no
 // schedule exists.
 //
 // Usage:
-//   tsx scripts/manage-rankings-schedule.ts [inspect]        # READ-ONLY: read back + verify the contract
-//   tsx scripts/manage-rankings-schedule.ts upsert --apply   # create/overwrite the fixed schedule
-//   tsx scripts/manage-rankings-schedule.ts pause  --apply   # pause deliveries
-//   tsx scripts/manage-rankings-schedule.ts resume --apply   # resume deliveries
+//   tsx scripts/manage-schedule-presentation-schedule.ts [inspect]        # READ-ONLY: read back + verify the contract
+//   tsx scripts/manage-schedule-presentation-schedule.ts upsert --apply   # create/overwrite the fixed schedule
+//   tsx scripts/manage-schedule-presentation-schedule.ts pause  --apply   # pause deliveries
+//   tsx scripts/manage-schedule-presentation-schedule.ts resume --apply   # resume deliveries
 //
 // Default execution (and any action WITHOUT `--apply`) is read-only.
 //
@@ -44,8 +55,8 @@
 // Rotating `CRON_SECRET` requires pausing then re-upserting ALL ELEVEN schedules
 // (game-stats, game-stats slow, live-scores, live-scores slow, Team records,
 // Odds, weekly schedule, schedule presentation, rankings, usage sample, polling
-// planner) before the new secret is re-enabled on the routes. PLATFORM-757a added
-// the presentation schedule.
+// planner) before the new secret is re-enabled on the routes. PLATFORM-757a
+// added the presentation schedule.
 
 import { pathToFileURL } from 'node:url';
 
@@ -70,17 +81,17 @@ import {
 import { runScheduleCli } from './lib/qstashScheduleCli.ts';
 
 // === The FIXED schedule contract (never operator-tunable) ===
-export const SCHEDULE_ID = 'turfwar-rankings-publication';
-export const DESTINATION = 'https://turfwar.games/api/cron/rankings';
-export const CRON = '0 4,22 * * *';
+export const SCHEDULE_ID = 'turfwar-schedule-presentation-weekly';
+export const DESTINATION = 'https://turfwar.games/api/cron/schedule-presentation';
+export const CRON = '0 13 * * 2';
 export const METHOD = 'GET';
 export const RETRIES = 0;
 export { DEFAULT_QSTASH_BASE };
 export type { FetchLike, RunDeps, ScheduleReadback } from './lib/qstashSchedule.ts';
 
 const USAGE =
-  'usage: tsx scripts/manage-rankings-schedule.ts [inspect]\n' +
-  '       tsx scripts/manage-rankings-schedule.ts <upsert|pause|resume> --apply';
+  'usage: tsx scripts/manage-schedule-presentation-schedule.ts [inspect]\n' +
+  '       tsx scripts/manage-schedule-presentation-schedule.ts <upsert|pause|resume> --apply';
 
 const CONTRACT: ScheduleContract = {
   scheduleId: SCHEDULE_ID,
@@ -89,15 +100,15 @@ const CONTRACT: ScheduleContract = {
   method: METHOD,
   retries: RETRIES,
   usage: USAGE,
-  debugEnvVar: 'MANAGE_RANKINGS_SCHEDULE_DEBUG',
-  failureTag: 'manage-rankings-schedule-failed',
-  authProofRef: '§8j step 6',
+  debugEnvVar: 'MANAGE_SCHEDULE_PRESENTATION_SCHEDULE_DEBUG',
+  failureTag: 'manage-schedule-presentation-schedule-failed',
+  authProofRef: '§8i',
 };
 
 // Contract-independent policy is re-exported straight through.
 export { parseScheduleArgs, redactHeaderNames, resolveQstashBase, scrubSecrets };
 
-// Contract-dependent helpers, bound to the Rankings contract.
+// Contract-dependent helpers, bound to the presentation contract.
 export const buildUpsertRequest = (params: {
   base: string;
   qstashToken: string;

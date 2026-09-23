@@ -39,10 +39,11 @@
 // live-scores and game-stats schedules daily; Upstash documents no scoped
 // management token, so that copy is full-privilege. Owner decision, with the
 // rationale in `docs/deployment-runbook.md` §4.
-// Rotating `CRON_SECRET` requires pausing then re-upserting ALL TEN schedules
+// Rotating `CRON_SECRET` requires pausing then re-upserting ALL ELEVEN schedules
 // (game-stats, game-stats slow, live-scores, live-scores slow, Team records,
-// Odds, weekly schedule, rankings, usage sample, polling planner) before the new
-// secret is re-enabled on the routes. PLATFORM-102 slice 4 added the last three.
+// Odds, weekly schedule, schedule presentation, rankings, usage sample, polling
+// planner) before the new secret is re-enabled on the routes. PLATFORM-757a added
+// the presentation schedule.
 
 import { pathToFileURL } from 'node:url';
 

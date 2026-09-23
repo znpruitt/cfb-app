@@ -30,7 +30,13 @@ import {
   safeStatus,
 } from '@/lib/server/__tests__/systemHealthFixtures';
 import { weekPartitionScope } from '@/lib/providerRefreshScope';
-import { EXTERNAL_SCHEDULER_JOBS } from '@/lib/server/schedulerExecutionStatus';
+import {
+  buildSchedulerExecutionReceipt,
+  EXTERNAL_SCHEDULER_JOBS,
+  schedulePresentationTarget,
+} from '@/lib/server/schedulerExecutionStatus';
+import { requiredStartedAtForJob } from '@/lib/server/schedulerDeliveryHealth';
+import { schedulerJobLabel } from '../systemHealthPresentation';
 import { PROVIDER_DATASETS, type ProviderDataset } from '@/lib/providerDatasets';
 import type { CfbdUsage } from '@/lib/api/cfbdUsage';
 import type { OddsUsageReadState } from '@/lib/server/oddsUsageStore';
@@ -141,7 +147,7 @@ test('stoplight renders six panels with text state labels and no repair links', 
   );
 });
 
-test('scheduler renders 9 human-named rows keeping delivery and execution separate', async () => {
+test('scheduler renders 11 human-named rows keeping delivery and execution separate', async () => {
   const model = await buildModel({
     schedulerDelivery: () =>
       Promise.resolve(
@@ -160,18 +166,20 @@ test('scheduler renders 9 human-named rows keeping delivery and execution separa
   const html = renderToStaticMarkup(
     <SchedulerHealthSection jobs={model.schedulerJobs} nowMs={NOW} />
   );
-  // Human names, all nine.
+  // Human names, all eleven.
   for (const label of [
     'Live scores',
     'Team records',
     'Game stats',
     'Odds polling',
     'Weekly schedule',
+    'Schedule presentation',
     'Rankings publication',
     'CFBD usage sample',
     'Season transition',
     'Season rollover',
-  ]) {
+    'Polling planner',
+  ] satisfies string[]) {
     assert.ok(html.includes(label), `scheduler missing ${label}`);
   }
   // Delivery + execution shown as separate facts.
@@ -190,6 +198,89 @@ test('scheduler renders 9 human-named rows keeping delivery and execution separa
   assert.ok(
     !/\/admin\/(data\/cache|season|aliases)/.test(html),
     'scheduler rows carry no repair links'
+  );
+});
+
+test('PLATFORM-757a: the presentation job renders its own row, reads Late, and shows skipped years', async () => {
+  // ACCEPTANCE 2, the rendering half. Asserting the job name is in
+  // EXTERNAL_SCHEDULER_JOBS proves REGISTRATION, not VISIBILITY — a job that
+  // registers but files under no panel is the integration defect this repo keeps
+  // shipping, and only rendering the page can rule it out.
+  //
+  // The receipt carries a budget stop, because that is the state #757 exists to
+  // make visible: a run that refreshed one year and never reached the second.
+  const model = await buildModel({
+    schedulerDelivery: () =>
+      Promise.resolve(
+        deliverySnapshot(
+          EXTERNAL_SCHEDULER_JOBS.map((job) => {
+            if (job === 'schedule-presentation') {
+              return deliveryRow(
+                'schedule-presentation',
+                'late',
+                lateReceiptFor('schedule-presentation', 'partial')
+              );
+            }
+            return deliveryRow(job, 'on-time', receiptFor(job, 'success'));
+          })
+        )
+      ),
+  });
+  const html = renderToStaticMarkup(
+    <SchedulerHealthSection jobs={model.schedulerJobs} nowMs={NOW} />
+  );
+
+  assert.ok(html.includes('Schedule presentation'), 'the job has a named row');
+  assert.ok(html.includes('Late'), 'an overdue weekly receipt reads Late');
+
+  // The budget stop REACHES THE PAGE. Asserting only that the row exists would
+  // leave `yearsSkippedForBudget` a field nothing renders, which is the same
+  // invisibility as not recording it: an operator would read a `partial` row
+  // with no way to tell a failed refresh from one that never started.
+  const budgetStopped = buildSchedulerExecutionReceipt({
+    job: 'schedule-presentation',
+    invocationId: 'budget-stop',
+    startedAtMs: requiredStartedAtForJob('schedule-presentation', NOW) - 60_000,
+    completedAtMs: requiredStartedAtForJob('schedule-presentation', NOW) - 59_000,
+    result: 'partial',
+    reason: 'budget-exhausted',
+    providerCallAttempted: true,
+    target: schedulePresentationTarget({
+      totalYears: 2,
+      yearsSkippedForBudget: 1,
+      invalidLifecycleTargets: 0,
+      years: [
+        {
+          year: 2026,
+          result: 'success',
+          media: 'written-clean',
+          venues: 'fresh-cache',
+          providerCallAttempted: true,
+        },
+      ],
+    }),
+  });
+  assert.ok(budgetStopped, 'the budget-stopped receipt is buildable');
+  const budgetHtml = renderToStaticMarkup(
+    <SchedulerHealthSection
+      jobs={[deliveryRow('schedule-presentation', 'late', budgetStopped)]}
+      nowMs={NOW}
+    />
+  );
+  assert.ok(
+    budgetHtml.includes('1 year(s) skipped for budget'),
+    'the skipped-year count renders on the row'
+  );
+  assert.ok(budgetHtml.includes('2 year(s)'), 'the selected-year total renders beside it');
+
+  // The row is the PRESENTATION job's, not the schedule job's borrowed. Both are
+  // weekly and both are named "schedule…", so a label collision would read as
+  // success here; the two labels must both be present and distinct.
+  assert.ok(html.includes('Weekly schedule'), 'the schedule job keeps its own row');
+  assert.notEqual(
+    schedulerJobLabel('schedule-presentation'),
+    schedulerJobLabel('schedule-refresh'),
+    'the two weekly schedule jobs must not share a label'
   );
 });
 
