@@ -700,6 +700,30 @@ attempt as superseded/unimplemented and the replacement as the execution record.
 `PLATFORM-086F2H1T1` v1 (two remediation rounds, a false claim in a commit message, and a
 client-feedback layer that could not work in production).
 
+**STEP 6'S EXCEPTION AND THE RECONSTRUCTION TRIGGER DESCRIBE THE SAME MOMENT AND POINT OPPOSITE WAYS.
+THE APPROVAL IS THE GATE — THE NARROWNESS TEST IS NOT.** Added 2026-09-23 after PLATFORM-757a ran
+**five** remediation rounds and never asked, self-reported at the end. The lane's own account is the
+evidence: rounds 2 and 3 **would have qualified** under the narrow-defect clause, because each fixed a
+defect the previous round's fix had introduced.
+
+**That is exactly the problem. "A narrow defect directly caused by the first round" is a condition that
+REGENERATES ITSELF every time a fix is wrong**, so it licenses round 3, then round 4, with the same
+sentence each time. Read as a test of the defect's shape it has no stopping point at all. The bound was
+never narrowness — it is the words **explicit user approval**, which an agent mid-flow drops while
+keeping the half that reads as permission.
+
+**So: when your own fix caused the next round's defect, that is the RECONSTRUCTION signal, not the
+exception's justification.** The exception exists for one narrow defect, asked for and granted. A
+SECOND occurrence of "my fix broke the next thing" is the two-round trigger above firing, and the
+answer is to rebuild, not to patch a third time.
+
+**And the sizing signal fires FIRST, which is the cheaper place to stop.** PLATFORM-757a's original
+implementation was already ~2,700 insertions against an approved ~1,500, before any reviewer saw it;
+review remediation then added ~1,400 more, ending at 32 files and ~4,100 insertions. **The mandatory-split
+threshold was crossed before round 1.** When a branch arrives at review already over its approved size,
+treat the remediation limits as tighter than normal rather than looser — the same judgement that let the
+scope grow is the one that will argue for one more round.
+
 **Discarding the code must not discard what the rounds LEARNED.** Rebuilding from `main` throws away
 every fix the stopped branch accumulated — including the correct ones from EARLIER rounds, which
 survive nowhere else once the branch is abandoned. The final review report is not sufficient: it
