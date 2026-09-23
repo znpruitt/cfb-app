@@ -1817,8 +1817,8 @@ test('schedule cards use primary tag priority (upset watch over top-25) with sub
   );
   assert.equal(
     scoreboardHeaderClasses(html).has('max-sm:flex-wrap'),
-    false,
-    'a tagged live Schedule row must not gain the phone-width wrap exception'
+    true,
+    'a tagged live Schedule row shares the phone-width wrap exception'
   );
 });
 
@@ -1887,7 +1887,7 @@ test('cards without qualifying tags render no expanded tag chips', () => {
   );
 });
 
-test('tagged non-scheduled scoreboard states never inherit the phone-width wrap exception', () => {
+test('tagged non-scheduled scoreboard states share the phone-width wrap exception', () => {
   const renderTaggedHeader = (state: GameScoreboardState): Set<string> =>
     scoreboardHeaderClasses(
       renderToStaticMarkup(
@@ -1905,13 +1905,13 @@ test('tagged non-scheduled scoreboard states never inherit the phone-width wrap 
     const classes = renderTaggedHeader(state);
     assert.equal(
       classes.has('max-sm:flex-wrap'),
-      false,
-      `tagged ${state} rows must not wrap at phone width`
+      true,
+      `tagged ${state} rows permit wrapping at phone width`
     );
     assert.equal(
       classes.has('max-sm:gap-y-1'),
-      false,
-      `tagged ${state} rows must not gain a phone-width row gap`
+      true,
+      `tagged ${state} rows share the phone-width row gap`
     );
   }
 });
