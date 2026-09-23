@@ -121,6 +121,14 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-855-856-MOVEMENT-CAPTION-CODEX-v1
+
+- Purpose: Make the Overview movement caption unconditional and align rank arrows with the delta palette.
+- Scope: `OverviewPanel.tsx`, `OverviewLiveRecords.test.tsx`; owner authorized ledger updates on 2026-09-23. Selectors, movement boundaries, accessible names and DESIGN.md remain unchanged.
+- Outcome: `b1d8fa92` renders `Movement` and consumes `deltaTextColor`. `7c38853a` strengthens test observers and exercises two/three resolved weeks. The #827 closeout now marks retired caption assertions as historical evidence.
+- Review / verification: Owner-supplied combined review targeted `b1d8fa92` against `ab3b7371`: one medium (vacuous zero-delta observer), two lows (fixed column offset, stale ledger), none in production code. One remediation round: hidden owner buttons now fail the zero-delta population assertion; removing the zero guard fails no-arrow assertions; forcing column two fails the three-week colour comparison while two weeks stay green. At clean `7c38853a`, 12 scoped tests, TypeScript and `lint:all` exited 0. Full suite and browser gates passed at `b1d8fa92`; those results are not claimed for later commits. L4 applies.
+- Status: Implemented on `codex/platform-855-856-movement-caption`; confirming independent reviews pending. No merge or deployment claimed.
+
 ### PLATFORM-827-OVERVIEW-LIVE-RECORDS-CODEX-v1
 
 - Purpose: Make Overview's condensed records and ordering agree with the in-season podium while retaining resolved movement.
