@@ -17,7 +17,7 @@ CARRIES: NONE from the Item 87 campaign index, having checked — this is an Ove
          Three standing obligations bind, from AGENTS.md:
          - A claim in a comment needs a test asserting the same behaviour.
          - When your change kills a test, separate its INTENT from its MECHANISM and preserve the
-           intent. This slice kills one assertion by design — see acceptance 4.
+           intent. This slice kills TWO caption assertions by design — see acceptance 4.
          - Every claim needs a mutation that reddens its OWN named assertion, and you say which
            assertion fired.
 ```
@@ -32,6 +32,44 @@ CARRIES: NONE from the Item 87 campaign index, having checked — this is an Ove
 serial with itself and two slices in one component file cost two reviews of the same diff.
 
 **Both are fully ruled. Nothing here is a design question.**
+
+---
+
+## CORRECTED 2026-09-22 AFTER THE READ RECEIPT, before any code was written
+
+**The receipt found a real gap in acceptance 4 and it is accepted in full.** This prompt said the
+slice kills ONE caption assertion. **It kills two.** The second lives in a different test:
+
+- `OverviewLiveRecords.test.tsx:176` — inside *"827: arrows are owner-keyed resolved movement beside
+  live ranks"* (`:173-188`) — asserts `Movement · through W2`.
+- `OverviewLiveRecords.test.tsx:210` — the sparse-history test, already covered below.
+
+**The arrow half of that first test (`:179-187`) survives unchanged**, exactly as `:190-202` does.
+Only its caption line moves. Acceptance 4's table covers the sparse-history test only; this correction
+extends it.
+
+**One acceptance item is ADDED, and it comes straight out of receipt item 3.** The receipt established
+that `deltaTextColor`'s grey branch is unreachable from the arrow today, guarded at `:727-733`, and
+then said what would happen if that guard were relaxed: **a grey DOWNWARD arrow, because `movedUp` is
+false at `delta === 0`** — not the neutral dash the cell renders. That is a worse failure than the
+divergence this slice fixes, and #856 is what creates the coupling that makes it possible. **No test
+pins the zero-delta case today** (searched: the only `:210` hit is the caption string). So it gets one
+— see acceptance 7.
+
+**Receipt items 1, 2, 4 and 5 are accepted as answered.** Two notes for the report rather than the
+code:
+
+- **Item 4 measured `red-400` (6.85:1 on `#0a0a0a`) and not `emerald-400`.** State both figures, and
+  **cite where the background value comes from** rather than assuming it — the condensed rows set no
+  background of their own. `emerald-400` is lighter than `red-400` in OKLCH L, so it is not expected to
+  be the binding one; say so with the number rather than by inference.
+- **Item 5 strengthens the ruling and should be recorded at closeout.** `gbDeltaColor` (`:311`) and
+  `PollMovementBadge` (`:1452`) already render `emerald-400`/`red-400`. **The arrow is the odd one of
+  FOUR movement-ish palettes in this file, not of two.** Note that `gbDeltaColor` deliberately INVERTS
+  the sign (negative = gaining ground), which is a domain difference, not a palette difference — do
+  not "fix" it.
+
+**Nothing else in this prompt changes.** The design premises, citations and scope stand as written.
 
 ---
 
@@ -170,6 +208,13 @@ light mode (`DESIGN.md:829` — *"the whole app is dark-only"*).
    (`deriveMovementPresentation`) has its own movement presentation and is OUT OF SCOPE** — the
    Overview/Standings divergence is [#851](https://github.com/znpruitt/cfb-app/issues/851) and needs
    an owner ruling before any code.
+
+7. **A zero delta renders no arrow, pinned by a test.** ADDED after the read receipt. With two or
+   more resolved snapshots and an owner whose rank did not move, the guard at `:727-733` must still
+   return `null`. This is not defensive padding: #856 couples the arrow to `deltaTextColor`, whose
+   `delta === 0` branch returns grey, and `movedUp` is false at zero — so a relaxed guard yields a
+   grey DOWN arrow for an owner who did not move. Nothing tests that case today. Mutate the guard to
+   confirm your test reddens.
 
 ## Testing requirements, which are not negotiable on this project
 
