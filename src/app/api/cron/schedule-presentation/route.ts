@@ -142,7 +142,7 @@ const VENUE_LEG_WORST_CASE_MS = 3 * CFBD_PEAK_LATENCY_TIMEOUT_MS + 1_000;
  * `APP_STATE_OPENER_TIMEOUT_MS`), not at zero. Under a degraded Neon those terms
  * dominate.
  *
- * Reserving for that was tried and reverted — see the note above
+ * Reserving for that was tried and reverted — see the note below
  * {@link JOB_BUDGET_MS}'s neighbours. The residual is therefore stated rather
  * than papered over: a simultaneous severe store outage can carry even the first
  * year past the ceiling. It is the same exposure the inline callers have today
@@ -418,12 +418,20 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
       // the note by `JOB_BUDGET_MS` rather than reading 242s as a ceiling
       // guarantee. An earlier version of this comment asserted exactly that,
       // while the docblock 280 lines up recorded the same claim as refuted.
+      //
+      // Pinned by 'PLATFORM-861: the FIRST year runs even past the budget, with a
+      // slow store and the venue leg owed' in `__tests__/stall.test.ts`, which
+      // drives elapsed past the whole budget before the loop and still expects
+      // the year to run.
       const elapsedMs = Date.now() - startedAtMs;
       const governed = exec.years.length > 0;
       // CHEAPEST BOUND FIRST, so a run that cannot afford a year under ANY
       // answer does not spend a durable read discovering which answer it would
       // have got. That read is bounded at 15s under contention and rebuilds
-      // every catalog row to reach one field.
+      // every catalog row to reach one field. That the read is not even attempted
+      // for a year which cannot fit under any answer is asserted by
+      // 'PLATFORM-861: a year that cannot fit under ANY answer costs no durable
+      // read' in `__tests__/stall.test.ts`.
       //
       // UNGOVERNED YEARS SKIP IT ENTIRELY. The first year runs whatever the
       // answer is, so reading the catalog for it produces a reservation nothing
@@ -435,7 +443,33 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
           ? YEAR_WORST_CASE_MS + VENUE_LEG_WORST_CASE_MS
           : YEAR_WORST_CASE_MS;
       }
-      if (governed && elapsedMs + reservationMs > JOB_BUDGET_MS) {
+      // MEASURED AGAIN, AFTER THE DURABLE READ — never `elapsedMs`, which was
+      // captured at `:421` before `venueRefreshDue()` awaited (PLATFORM-861).
+      //
+      // That read is bounded by PLATFORM-625 at 15s, not at zero, so under a
+      // degraded store the value from `:421` can under-count the elapsed time at
+      // which this year would actually START by up to 15s — at exactly the
+      // moment the job decides whether the year fits. Worked case: `:421` reads
+      // 8s with the venue leg owed, `8 + 242 = 250` admits, and the year begins
+      // at ~23s and ends near 265s against a 250s promise.
+      //
+      // The error does not compound: `:421` is inside the loop, so each
+      // iteration picks up all prior elapsed time including earlier reads. It is
+      // one bounded read per admission decision, at most 15s, once.
+      //
+      // RE-MEASURING IS SAFE WHERE INFLATING THE RESERVATION IS NOT, which is
+      // the distinction the reverted fix in the note by `JOB_BUDGET_MS` missed. A
+      // fresh clock leaves the reservation at 242s against a 250s budget, so the
+      // starvation condition — a reservation larger than the whole budget —
+      // cannot arise. It can only make `elapsedMs` larger, and larger means a
+      // year that genuinely does not fit is skipped rather than admitted.
+      //
+      // Asserted by 'PLATFORM-861: a slow venue read is charged to the admission
+      // check, not to the year after it' and pinned at the exact boundary by
+      // 'PLATFORM-861: the admission boundary is 8s of elapsed with both legs
+      // owed', both in `__tests__/stall.test.ts`.
+      const admissionElapsedMs = Date.now() - startedAtMs;
+      if (governed && admissionElapsedMs + reservationMs > JOB_BUDGET_MS) {
         // Counted, not silently dropped: a skipped year's media is exactly as
         // stale as if nothing had run, and a receipt that reported success here
         // would be a count whose failure and whose real zero look identical.
