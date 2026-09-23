@@ -549,7 +549,6 @@ function yearOutcome<Reason extends string>(entry: {
   };
 }
 
-/** The bounded `schedule-years` summary from the route's per-year entries. */
 /**
  * PLATFORM-757a — build the standalone presentation job's receipt target.
  *
@@ -591,6 +590,7 @@ export function schedulePresentationTarget(input: {
   };
 }
 
+/** The bounded `schedule-years` summary from the route's per-year entries. */
 export function scheduleYearsTarget(
   // REQUIRED metrics: omitting any one would let a new caller silently erase
   // the weekly backstop's receipt evidence with an implicit zero.

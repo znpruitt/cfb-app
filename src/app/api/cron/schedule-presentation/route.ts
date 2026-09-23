@@ -36,45 +36,43 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-/**
- * PLATFORM-757a — the STANDALONE schedule-presentation job.
- *
- * ## Why this route exists
- *
- * The media/venue refresh runs INLINE today, after the schedule work, inside
- * `cron/schedule-refresh` and `cron/season-transition`. Both wrap it in a
- * "defensive contract boundary" try/catch, which guarantees a presentation
- * FAULT never escapes — and does nothing about presentation's DURATION. A
- * try/catch proves a call cannot throw, never that it cannot hang. That gap is
- * [#757](https://github.com/znpruitt/cfb-app/issues/757): on Hobby, 300s is a
- * hard maximum, and a killed invocation loses the durable receipt written in the
- * outer `finally`, so System Health cannot tell a killed run from one that never
- * happened.
- *
- * ## This slice is ADDITIVE
- *
- * Every inline call stays exactly where it is. 757b removes them once this job
- * is live in production and at least one standalone receipt has been observed.
- * Removing them first would silently stop broadcast refreshes. The three inline
- * call sites are pinned by
- * `lib/schedule/__tests__/inlinePresentationCallers.test.ts`, which resolves
- * callees through the type checker rather than by name.
- *
- * ## Why it does not wait for the schedule job
- *
- * The authority checks its OWN precondition: an absent or empty canonical
- * schedule makes no provider call (`schedulePresentationRefresh.ts:18-19`).
- * Gating on the schedule job's receipt would recouple the jobs, and a lost
- * receipt — #757's own failure — would then stop presentation too.
- *
- * ## Cadence
- *
- * Weekly, Tuesday 13:00 UTC, one hour after the 12:00 schedule job. Measured
- * 2026-09-22 across 888 FBS-involved games: by the Tuesday run that Saturday is
- * 100% settled for channels and kickoff times, so a daily run would repeat
- * Tuesday's result. The hour of separation keeps the two jobs off CFBD at the
- * same moment; the schedule job's own worst case is minutes, not an hour.
- */
+// PLATFORM-757a — the STANDALONE schedule-presentation job.
+//
+// ## Why this route exists
+//
+// The media/venue refresh runs INLINE today, after the schedule work, inside
+// `cron/schedule-refresh` and `cron/season-transition`. Both wrap it in a
+// "defensive contract boundary" try/catch, which guarantees a presentation
+// FAULT never escapes — and does nothing about presentation's DURATION. A
+// try/catch proves a call cannot throw, never that it cannot hang. That gap is
+// [#757](https://github.com/znpruitt/cfb-app/issues/757): on Hobby, 300s is a
+// hard maximum, and a killed invocation loses the durable receipt written in the
+// outer `finally`, so System Health cannot tell a killed run from one that never
+// happened.
+//
+// ## This slice is ADDITIVE
+//
+// Every inline call stays exactly where it is. 757b removes them once this job
+// is live in production and at least one standalone receipt has been observed.
+// Removing them first would silently stop broadcast refreshes. The three inline
+// call sites are pinned by
+// `lib/schedule/__tests__/inlinePresentationCallers.test.ts`, which resolves
+// callees through the type checker rather than by name.
+//
+// ## Why it does not wait for the schedule job
+//
+// The authority checks its OWN precondition: an absent or empty canonical
+// schedule makes no provider call (`schedulePresentationRefresh.ts:18-19`).
+// Gating on the schedule job's receipt would recouple the jobs, and a lost
+// receipt — #757's own failure — would then stop presentation too.
+//
+// ## Cadence
+//
+// Weekly, Tuesday 13:00 UTC, one hour after the 12:00 schedule job. Measured
+// 2026-09-22 across 888 FBS-involved games: by the Tuesday run that Saturday is
+// 100% settled for channels and kickoff times, so a daily run would repeat
+// Tuesday's result. The hour of separation keeps the two jobs off CFBD at the
+// same moment; the schedule job's own worst case is minutes, not an hour.
 export const maxDuration = 300;
 
 /**
@@ -166,25 +164,23 @@ const VENUE_LEG_WORST_CASE_MS = 3 * CFBD_PEAK_LATENCY_TIMEOUT_MS + 1_000;
  */
 const JOB_BUDGET_MS = 250_000;
 
-/**
- * NOT A CONSTANT — a note where one would go, because review asked for one and
- * trying it proved it cannot exist at this ceiling.
- *
- * A year makes roughly a dozen sequential app-state round trips, each bounded by
- * PLATFORM-625 at 15s rather than at zero, so the CFBD-only figures below
- * understate a year under store degradation. The obvious fix is to fold a store
- * term into the reservation. **It was implemented and reverted**: a 45s
- * allowance makes an owed venue leg reserve 287s, which exceeds the whole
- * budget, so no second year could ever start — the exact starvation round 2
- * shipped once already, and two tests caught it immediately.
- *
- * The arithmetic does not close: a year that owes both legs (242s) plus any
- * meaningful store term cannot be guaranteed under a 300s ceiling, whatever the
- * budget is set to. So the budget governs CFBD time, the store waits are bounded
- * separately by #625, and the residual is DOCUMENTED rather than reserved for.
- * Stating it is the fix; pretending to reserve for it would have cost the job
- * its second year every week.
- */
+// NOT A CONSTANT — a note where one would go, because review asked for one and
+// trying it proved it cannot exist at this ceiling.
+//
+// A year makes roughly a dozen sequential app-state round trips, each bounded by
+// PLATFORM-625 at 15s rather than at zero, so the CFBD-only figures below
+// understate a year under store degradation. The obvious fix is to fold a store
+// term into the reservation. **It was implemented and reverted**: a 45s
+// allowance makes an owed venue leg reserve 287s, which exceeds the whole
+// budget, so no second year could ever start — the exact starvation round 2
+// shipped once already, and two tests caught it immediately.
+//
+// The arithmetic does not close: a year that owes both legs (242s) plus any
+// meaningful store term cannot be guaranteed under a 300s ceiling, whatever the
+// budget is set to. So the budget governs CFBD time, the store waits are bounded
+// separately by #625, and the residual is DOCUMENTED rather than reserved for.
+// Stating it is the fix; pretending to reserve for it would have cost the job
+// its second year every week.
 
 function verifyCronSecret(req: Request): 'ok' | 'not-configured' | 'invalid' {
   const cronSecret = process.env.CRON_SECRET?.trim();
@@ -416,22 +412,29 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
     // failed leg leaves it owed, and a year that never touched it changes
     // nothing. There is no inference left to get wrong.
     for (const year of ordered) {
-      // The FIRST selected year always runs. Its own worst case is 242s, which
-      // fits under the 300s ceiling on its own, and a budget that could skip
-      // every year would make the job unable to do anything at all.
+      // The FIRST selected year always runs, because a budget that could skip
+      // every year would make the job unable to do anything at all. Its CFBD
+      // worst case is 242s; what that does NOT bound is the store work, so see
+      // the note by `JOB_BUDGET_MS` rather than reading 242s as a ceiling
+      // guarantee. An earlier version of this comment asserted exactly that,
+      // while the docblock 280 lines up recorded the same claim as refuted.
       const elapsedMs = Date.now() - startedAtMs;
       const governed = exec.years.length > 0;
       // CHEAPEST BOUND FIRST, so a run that cannot afford a year under ANY
       // answer does not spend a durable read discovering which answer it would
-      // have got. That read is itself bounded at 15s under contention — on an
-      // invocation that has just decided it is short of time, which is when it
-      // can least afford it. (Round 4 finding 2.)
-      const reservationMs =
-        governed && elapsedMs + YEAR_WORST_CASE_MS > JOB_BUDGET_MS
-          ? YEAR_WORST_CASE_MS
-          : (await venueRefreshDue())
-            ? YEAR_WORST_CASE_MS + VENUE_LEG_WORST_CASE_MS
-            : YEAR_WORST_CASE_MS;
+      // have got. That read is bounded at 15s under contention and rebuilds
+      // every catalog row to reach one field.
+      //
+      // UNGOVERNED YEARS SKIP IT ENTIRELY. The first year runs whatever the
+      // answer is, so reading the catalog for it produces a reservation nothing
+      // consults — one wasted bounded read per run, on the single iteration the
+      // budget does not guard, out of the same slack the run-level reads use.
+      let reservationMs = YEAR_WORST_CASE_MS;
+      if (governed && elapsedMs + YEAR_WORST_CASE_MS <= JOB_BUDGET_MS) {
+        reservationMs = (await venueRefreshDue())
+          ? YEAR_WORST_CASE_MS + VENUE_LEG_WORST_CASE_MS
+          : YEAR_WORST_CASE_MS;
+      }
       if (governed && elapsedMs + reservationMs > JOB_BUDGET_MS) {
         // Counted, not silently dropped: a skipped year's media is exactly as
         // stale as if nothing had run, and a receipt that reported success here

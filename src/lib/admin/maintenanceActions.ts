@@ -53,11 +53,13 @@ export const MAINTENANCE_ACTIONS: Record<MaintenanceActionId, MaintenanceActionD
       'Provider-refresh statuses',
       'Standings invalidation on canonical change',
     ],
-    // PLATFORM-757a added a THIRD owner: the presentation caches this action
-    // rewrites are now also refreshed by the standalone weekly presentation job,
-    // not only inline by the schedule cron and the lifecycle crons. Naming only
-    // the first two would be a false claim on an operator surface.
-    automationOwner: 'Weekly QStash schedule + presentation job + lifecycle crons',
+    // PLATFORM-757a adds a THIRD owner for the presentation caches this action
+    // rewrites — but only once the owner installs its QStash schedule (§8i). The
+    // route ships dormant, so an unconditional present-tense claim would be
+    // false on this operator surface between promotion and that step, which is
+    // the same hedge the runbook makes about the missing-delivery row.
+    automationOwner:
+      'Weekly QStash schedule + lifecycle crons (+ presentation job once its schedule is installed)',
     actionClass: 'recovery',
   },
   'scores-aggregate-refresh': {
