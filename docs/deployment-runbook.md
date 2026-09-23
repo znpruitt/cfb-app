@@ -22,7 +22,7 @@ it is historical evidence, not a procedure to replay.
 - CFBD supplies schedules, scores, rankings, conferences, and game statistics. The Odds API supplies
   betting lines.
 - Vercel Cron owns the two daily lifecycle jobs declared in `vercel.json`.
-- QStash runs the ten externally scheduled jobs in §8: seven provider jobs, the two reconciliation
+- QStash runs the eleven externally scheduled jobs in §8: eight provider jobs, the two reconciliation
   (slow) schedules, and the daily polling planner that rewrites four of them.
 
 | Scheduler | Route | Cadence (UTC) | Owner |
@@ -34,6 +34,7 @@ it is historical evidence, not a procedure to replay.
 | `turfwar-team-records-hourly` | `/api/cron/team-records` | hourly | QStash |
 | `turfwar-odds-hourly` | `/api/cron/odds` | hourly | QStash |
 | `turfwar-schedule-weekly` | `/api/cron/schedule-refresh` | Tuesdays 12:00 | QStash |
+| `turfwar-schedule-presentation-weekly` | `/api/cron/schedule-presentation` | Tuesdays 13:00 | QStash |
 | `turfwar-rankings-publication` | `/api/cron/rankings` | 04:00 and 22:00 daily | QStash |
 | `turfwar-usage-sample-6h` | `/api/cron/usage-sample` | every 6 hours | QStash |
 
@@ -43,7 +44,7 @@ it is historical evidence, not a procedure to replay.
 > receipts name the promoted production build. Their repository definitions, cadence, and
 > lifecycle-critical policy are unchanged.
 
-All ten routes require the same deployed `CRON_SECRET`. The ten QStash schedules are intentionally
+All eleven routes require the same deployed `CRON_SECRET`. The eleven QStash schedules are intentionally
 absent from `vercel.json`.
 
 ## 2) Create or reconnect the hosted project
@@ -78,7 +79,7 @@ using preview-safe credentials and the child database.
 | `ODDS_API_KEY` | Required for odds refreshes. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Required for Clerk. |
 | `CLERK_SECRET_KEY` | Required for Clerk. |
-| `CRON_SECRET` | Required bearer credential for all nine cron routes. Use a long random value. |
+| `CRON_SECRET` | Required bearer credential for all eleven cron routes. Use a long random value. |
 | `LEAGUE_AUTH_SECRET` | Required when any league has a password. Use a long random value. |
 
 `ADMIN_API_TOKEN` is an optional fallback during Clerk migration. It is not the league-password
@@ -88,7 +89,7 @@ Optional variables: `NEXT_PUBLIC_SEASON`, `PGSSLMODE`, `NEXT_PUBLIC_DEBUG`, `DEB
 `DEBUG_UPSTREAM`. Leave debug variables unset in normal production.
 
 `QSTASH_TOKEN` is different from `CRON_SECRET`: it is the QStash MANAGEMENT credential, used by the
-ten schedule-manager scripts and — since PLATFORM-102 slice 4 — by the deployed polling planner.
+eleven schedule-manager scripts and — since PLATFORM-102 slice 4 — by the deployed polling planner.
 **Never commit it. It IS configured in Vercel** (Production), because the planner rewrites the
 `live-scores` and `game-stats` schedules once a day from inside the application. That is a change of
 security posture and was an owner decision, recorded on Item 102: Upstash documents no scoped or
@@ -99,9 +100,10 @@ schedule is reprovisionable from the repo's fixed contracts). Rotate it if a dep
 compromised, not only if a laptop is.
 
 The deployed `CRON_SECRET` is the credential QStash forwards. If `CRON_SECRET` is missing or
-mismatched, all ten cron routes fail closed with `401`, stopping lifecycle reconciliation, statistics
+mismatched, all eleven cron routes fail closed with `401`, stopping lifecycle reconciliation, statistics
 ingestion, live-score polling, team-record refresh, odds polling, weekly schedule maintenance,
-rankings publication, CFBD usage sampling, and polling-window planning.
+schedule-presentation refresh, rankings publication, CFBD usage sampling, and polling-window
+planning.
 
 ## 5) Configure authentication
 
@@ -535,10 +537,71 @@ does not support those fields, stop and open a reviewed normalization task. Do n
 inference or a latest-postseason fallback. Activation evidence is
 [archived](archive/operations/provider-activation-2026.md#weekly-schedule-maintenance).
 
-### §8i) Schedule-presentation observation — pending
+### §8i) Schedule presentation — provision after merge (PLATFORM-757a)
 
-There is nothing to provision or toggle. Presentation refresh is already attached to the active
-weekly schedule and daily season-transition authorities.
+**This section changed with PLATFORM-757a. It used to say "there is nothing to provision or
+toggle", which was true while presentation ran only inline. There is now a schedule to install.**
+
+Contract: `turfwar-schedule-presentation-weekly`, GET `/api/cron/schedule-presentation`,
+`0 13 * * 2` (Tuesday 13:00 UTC), retries 0.
+
+```bash
+npm run manage:schedule-presentation-schedule            # READ-ONLY inspect
+npm run manage:schedule-presentation-schedule upsert --apply
+```
+
+**Installing this in production is an OWNER step.** The merge ships the route and the CLI; it
+installs no schedule and changes no behaviour, because auto-promotion is off and the route is
+unreachable by any scheduler until the `upsert --apply` above is run against production.
+
+**DO NOT RUN THE UPSERT WHILE [#861](https://github.com/znpruitt/cfb-app/issues/861) IS OPEN.**
+PLATFORM-757a merged with one known budget defect: the job captures its elapsed time before an
+awaited durable read and reuses that stale value to decide whether another year fits, so under a
+degraded store it can under-count elapsed by up to 15 seconds and erode the margin that keeps the
+receipt landing inside the 300-second ceiling. The merge is safe **only because the route ships
+dormant** — and that argument ends the moment this schedule exists. The gate belongs here, at the
+install step, not only in the issue.
+
+**Between promotion and that command, System Health will report this job's delivery as
+missing.** Registering it in `EXTERNAL_SCHEDULER_JOBS` gives it a fixed Tuesday 13:00 policy, so
+from the first promoted deployment the page computes a required slot, finds no receipt, and raises
+`scheduler-delivery-missing`. That is the expected provisioning state, not evidence that anything
+regressed — the same thing §8k says about `team-records`. It clears with the first authenticated
+delivery after the schedule is installed.
+
+**Why 13:00 and not 12:00.** It runs one hour after `turfwar-schedule-weekly` so it reads a fresh
+canonical schedule and the two never hit CFBD in the same minute. The separation is asserted in
+`manageSchedulePresentationSchedule.test.ts`, not merely intended.
+
+**This slice is ADDITIVE — the inline calls remain.** During 757a both the inline presentation call
+inside the weekly schedule cron and this standalone job run on a Tuesday. That overlap is expected,
+not a fault: the two parts are behind independent durable leases, so whichever arrives second is
+told `refresh-in-progress` and does no provider work. Logs tell them apart by trigger —
+`presentation-weekly` is the standalone job, `weekly` is the inline call.
+
+**The operator gate applies.** Global pause, or the Schedule dataset toggle, skips this job with
+`automation-paused-or-disabled` and no provider call. That preserves the property stated at the end
+of this section: an operator pause has always stopped ordinary presentation work, and a standalone
+job that ignored it would have removed that guarantee silently. Lifecycle-critical transition and
+postseason-boundary work remains exempt, exactly as before.
+
+**After activation, confirm from production evidence:**
+
+1. The first authenticated delivery writes a `schedule-presentation` receipt visible on System
+   Health, and the row reads on-time rather than missing.
+2. That receipt's target names the years refreshed, and `0 year(s) skipped for budget` — a nonzero
+   count means the job ran out of its 250s budget before starting a year, which is the condition
+   757b's arithmetic depends on.
+3. One `schedule-presentation-cron` event and one `schedule-presentation-refresh` event with
+   trigger `presentation-weekly`.
+
+**757b is gated on this.** It removes the inline calls, and must not ship until this job is live,
+its schedule installed, and at least one standalone receipt observed in production.
+
+---
+
+Presentation refresh also remains attached to the active weekly schedule and daily
+season-transition authorities for the duration of 757a.
 
 Complete these observations from real production evidence:
 
@@ -617,9 +680,9 @@ Before step 3, System Health will report the newly known `team-records` delivery
 expected provisioning state, not evidence that another job regressed. For an incident after
 activation: global pause on, Team records automation off, pause and inspect the schedule.
 
-### §8l) Rotate `CRON_SECRET` across all ten QStash schedules
+### §8l) Rotate `CRON_SECRET` across all eleven QStash schedules
 
-All ten schedules forward the same secret, so rotation is one coordinated operation. PLATFORM-102
+All eleven schedules forward the same secret, so rotation is one coordinated operation. PLATFORM-102
 slice 4 added three: `turfwar-live-scores-slow`, `turfwar-game-stats-slow` and
 `turfwar-polling-planner-daily`. Rotating only the original seven leaves those three forwarding the
 retired secret — and the planner is the one whose 401 freezes the other schedules at whatever they
@@ -628,16 +691,16 @@ last held.
 1. Enable global pause.
 2. Disable automatic game-stats, scores, records, odds, schedule, and rankings refresh. The usage
    sampler has no dataset toggle — it reads `/info` only and writes no canonical data.
-3. Pause all ten managers with `pause --apply`; inspect all ten and confirm they are paused. In a
+3. Pause all eleven managers with `pause --apply`; inspect all eleven and confirm they are paused. In a
    postseason-boundary window, this Schedule pause—not its dataset toggle—is the critical stop.
 4. Update `CRON_SECRET` in Vercel Production, trigger a fresh production deployment, wait for it to
    become Ready, and promote it. Environment-variable changes do not alter an already-built runtime.
 5. With the matching new `CRON_SECRET` and operator-held `QSTASH_TOKEN` local, run `upsert --apply`
-   for all ten managers. This forwards the new bearer value and reapplies redaction. The four
+   for all eleven managers. This forwards the new bearer value and reapplies redaction. The four
    planner-owned managers additionally need `DATABASE_URL_RO` in `.env.operator.local` — they read the
    planner's recorded intent so `upsert` writes the cron the planner owns instead of the fixed
    fallback, and they REFUSE (exit 3) rather than clobber it if that record cannot be read.
-6. Inspect all ten. Require the exact contracts, paused state, and one redacted Authorization
+6. Inspect all eleven. Require the exact contracts, paused state, and one redacted Authorization
    header. Exit `4` remains indeterminate: inspect and stop.
 7. Resume each schedule only long enough to obtain its gates-closed authentication delivery. Require
    HTTP 200 and no provider attempt/quota change for the five noncritical gated jobs and ordinary
@@ -649,12 +712,12 @@ last held.
    §8m's proof instead (HTTP 200 plus a new entry under `provider-usage / cfbd-observations`); `/info`
    is unbilled, so quota must still not move. A `401` or any policy-divergent activity is a stop
    condition.
-8. Pause again immediately if any proof fails. Otherwise resume all ten, re-enable their datasets,
+8. Pause again immediately if any proof fails. Otherwise resume all eleven, re-enable their datasets,
    and clear global pause last.
 9. Confirm the two Vercel lifecycle routes also return authenticated results with the new secret at
    their next run or through an authorized operator invocation.
 
-Do not rotate only one external schedule: that leaves the other nine forwarding the retired secret.
+Do not rotate only one external schedule: that leaves the other ten forwarding the retired secret.
 
 ### §8m) CFBD usage sampler (Item 127)
 
@@ -814,7 +877,7 @@ receipts (§6c); inspect production before diagnosing a production outage.
 
 1. Confirm `CRON_SECRET` is present in the promoted Vercel Production deployment.
 2. For QStash, inspect the relevant schedule and require exactly one redacted Authorization header.
-3. If the secret was rotated, follow the complete ten-schedule procedure in §8l.
+3. If the secret was rotated, follow the complete eleven-schedule procedure in §8l.
 4. Keep gates closed until an HTTP 200 provider-free authentication proof succeeds.
 
 ### Clerk sign-in fails or redirects repeatedly

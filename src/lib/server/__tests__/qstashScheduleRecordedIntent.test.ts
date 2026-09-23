@@ -18,6 +18,7 @@ import * as pollingPlanner from '../../../../scripts/manage-polling-planner-sche
 import * as odds from '../../../../scripts/manage-odds-schedule';
 import * as rankings from '../../../../scripts/manage-rankings-schedule';
 import * as scheduleRefresh from '../../../../scripts/manage-schedule-refresh-schedule';
+import * as schedulePresentation from '../../../../scripts/manage-schedule-presentation-schedule';
 import * as teamRecords from '../../../../scripts/manage-team-records-schedule';
 import * as usageSample from '../../../../scripts/manage-usage-sample-schedule';
 
@@ -29,7 +30,7 @@ import * as usageSample from '../../../../scripts/manage-usage-sample-schedule';
  * not planner-owned — but `inspect` exists only for the SEVEN `scripts/manage-*`
  * CLIs, and two of the not-planner-owned jobs (`season-transition`,
  * `season-rollover`) are Vercel-native crons with no management script at all. So
- * the fallback is asserted here over all seven CLIs that HAVE an inspect, which is
+ * the fallback is asserted here over every CLI that HAS an inspect, which is
  * the right population precisely because nothing writes a record in production:
  * every one of them must still resolve the fixed contract.
  */
@@ -75,11 +76,12 @@ const CLIS: Cli[] = [
   cliFor('odds', odds),
   cliFor('rankings', rankings),
   cliFor('schedule-refresh', scheduleRefresh),
+  cliFor('schedule-presentation', schedulePresentation),
   cliFor('team-records', teamRecords),
   cliFor('usage-sample', usageSample),
   // PLATFORM-102 slice 4 — the two reconciliation schedules and the planner's own
   // trigger. Their `runManageSchedule` export takes injected deps with NO reader,
-  // exactly like the other seven, so the fallback assertions below cover all ten.
+  // exactly like the original seven, so the fallback assertions below cover all eleven.
   cliFor('game-stats-slow', gameStatsSlow),
   cliFor('live-scores-slow', liveScoresSlow),
   cliFor('polling-planner', pollingPlanner),
@@ -127,14 +129,14 @@ function summaryFrom(out: string[]): Record<string, unknown> {
 }
 
 // ---------------------------------------------------------------------------
-// The fallback: all seven CLIs, unchanged
+// The fallback: every non-planner-owned CLI, unchanged
 // ---------------------------------------------------------------------------
 
-test('all ten manage CLIs still inspect against their FIXED contract', async () => {
+test('all eleven manage CLIs still inspect against their FIXED contract', async () => {
   // The mutation target for the fallback. Break `resolveExpectedContract` — have
   // the no-reader branch return `{kind: 'unreadable'}`, or drop the `absent`
   // branch — and every case here goes red with exit 3 instead of 0.
-  assert.equal(CLIS.length, 10, 'ten management CLIs exist; assert them, do not assume');
+  assert.equal(CLIS.length, 11, 'eleven management CLIs exist; assert them, do not assume');
 
   for (const cli of CLIS) {
     const { deps, out, err } = harness(readbackFor(cli));
@@ -180,7 +182,7 @@ test('all ten manage CLIs still inspect against their FIXED contract', async () 
   }
 });
 
-test('all ten still REFUSE a divergent schedule against the fixed constants', async () => {
+test('all eleven still REFUSE a divergent schedule against the fixed constants', async () => {
   // Positive control for the test above: exit 0 there must mean the contract was
   // actually compared, not that the comparison was skipped.
   for (const cli of CLIS) {

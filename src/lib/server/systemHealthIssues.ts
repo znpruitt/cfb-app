@@ -38,6 +38,7 @@ import {
   type SchedulerExecutionReceipt,
 } from './schedulerExecutionStatus.ts';
 import { formatYearFailureEvidence } from './schedulerYearEvidence.ts';
+import { isFailedPartReason } from '../schedule/schedulePresentationResult.ts';
 import { seasonYearForToday } from '../scores/normalizers.ts';
 import {
   getProviderDatasetDescriptor,
@@ -208,8 +209,9 @@ export type SystemHealthIssueInputs = {
  * by exactly the action on that page. A membership test cannot express that, so
  * the answer is a policy per job and, where it must be, per reason.
  *
- * TOTAL OVER `ExternalSchedulerJob` ON PURPOSE. An eleventh job must decide rather
- * than inherit `data-maintenance` by omission — inheriting it by omission is how
+ * TOTAL OVER `ExternalSchedulerJob` ON PURPOSE. A NEW job must decide rather
+ * than inherit `data-maintenance` by omission — PLATFORM-757a's presentation job
+ * was the eleventh, and it chose `by-reason` — inheriting it by omission is how
  * the planner acquired a link nobody chose for it, and a `Record` makes that a
  * compile error instead of a silent default.
  */
@@ -226,6 +228,42 @@ const EXECUTION_REPAIR_POLICY: Record<ExternalSchedulerJob, ExecutionRepairPolic
   'game-stats': { kind: 'data-maintenance' },
   odds: { kind: 'data-maintenance' },
   'schedule-refresh': { kind: 'data-maintenance' },
+  /**
+   * PLATFORM-757a — `by-reason`, and it is the #733 shape rather than a copy of
+   * `schedule-refresh`'s.
+   *
+   * The Data Maintenance schedule action DOES repair a presentation fault: its
+   * descriptor names `/games/media` and `/venues` in `nominalCost` and
+   * `Presentation caches` in `durableMutations`, because the authorized manual
+   * full-year refresh drives the same authority this job does. So a refresh that
+   * failed, half-failed, or never reached a year is answered by exactly that
+   * action.
+   *
+   * The job's other faults are NOT. `settings-unavailable` is the durable
+   * settings record, `unusable-lifecycle-year` is a league's lifecycle year,
+   * and `registry-malformed` / `canonical-context-unavailable` are the registry
+   * itself — none is a dataset repair, and linking them to Data Maintenance
+   * would send an operator to a page that cannot help.
+   *
+   * `automation-paused-or-disabled` and the no-target reasons are `skipped`, so
+   * they raise no issue and cannot reach a repair link.
+   *
+   * `presentation-no-op` IS reachable here, and an earlier version of this
+   * comment wrongly said it was not. A run whose years all no-opped is degraded
+   * to `failure` when a production target was refused, and the reason stays
+   * `presentation-no-op` — so the pairing raises `scheduler-execution-failed`.
+   * It is deliberately NOT repairable: the fault is a league's lifecycle year,
+   * which Data Maintenance cannot edit. `lifecycle-data-unusable` is the issue
+   * that describes it, and it carries its own guidance.
+   */
+  'schedule-presentation': {
+    kind: 'by-reason',
+    repairable: new Set<SchedulerExecutionReason>([
+      'presentation-failed',
+      'presentation-partial',
+      'budget-exhausted',
+    ]),
+  },
   rankings: { kind: 'data-maintenance' },
   // PLATFORM-118 — Team records has no manual endpoint and no Data Maintenance
   // action.
@@ -260,7 +298,7 @@ const EXECUTION_REPAIR_POLICY: Record<ExternalSchedulerJob, ExecutionRepairPolic
 
 /**
  * FAIL-CLOSED BY CONSTRUCTION, twice over. An unrecognized reason is not in any
- * `repairable` set, so it renders no link; and a `job` outside the ten — which
+ * `repairable` set, so it renders no link; and a `job` outside the registry — which
  * `isValidStoredTarget` should already have rejected — reaches no `kind` the
  * switch names and falls to the same `null`. Neither can invent a destination.
  */
@@ -581,6 +619,33 @@ function schedulerDeliveryIssues(
  * the sentence it was.
  */
 function receiptYearFailureEvidence(target: SchedulerExecutionReceipt['target']): string | null {
+  /**
+   * PLATFORM-757a — the THIRD multi-year job, and the one whose whole reason for
+   * existing is per-year visibility. Without this branch a `presentation-failed`
+   * or `presentation-partial` issue carried only the generic "reported a partial
+   * execution result" sentence, with nothing saying WHICH year failed — exactly
+   * the gap #126B added this function to close for the other two.
+   *
+   * It does not go through `formatYearFailureEvidence`: that reads the
+   * `SchedulerYearOutcome` shape (partitions, rows, `dataChanged`), and a
+   * presentation year has none of those. Its evidence is the two PART reasons,
+   * which is the whole of what the authority reports per year. Only the failing
+   * part is named, so a year whose media failed while venues sat inside their
+   * TTL does not read as though both went wrong.
+   */
+  if (target.kind === 'schedule-presentation') {
+    const detail = target.years
+      .map((entry) => {
+        if (entry.result !== 'failure' && entry.result !== 'partial') return null;
+        const parts = [
+          entry.media && isFailedPartReason(entry.media) ? `media ${entry.media}` : null,
+          entry.venues && isFailedPartReason(entry.venues) ? `venues ${entry.venues}` : null,
+        ].filter((part): part is string => part !== null);
+        return parts.length > 0 ? `${entry.year}: ${parts.join(', ')}` : null;
+      })
+      .filter((entry): entry is string => entry !== null);
+    return detail.length > 0 ? detail.join('; ') : null;
+  }
   if (target.kind !== 'schedule-years' && target.kind !== 'rankings-years') return null;
   const detail = target.years
     .map((entry) => {
@@ -758,9 +823,9 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
  *
  * NO NUMBER reaches the operator, and that is a data constraint rather than a
  * style choice. Each count is per JOB and per RUN, counts RECORDS, and the same
- * corrupt league is counted independently by up to four jobs (season-transition
- * while it is preseason; schedule-refresh, rankings, and season-rollover while
- * it is in season). Summing multiplies one league into several; a maximum
+ * corrupt league is counted independently by up to five jobs (season-transition
+ * while it is preseason; schedule-refresh, schedule-presentation, rankings, and
+ * season-rollover while it is in season). Summing multiplies one league into several; a maximum
  * compares runs that happened at different times; and a deduplicated league
  * count is not derivable at all, because a receipt carries counts and never a
  * slug. Naming the reporting JOBS is the most specific true thing available.
@@ -793,7 +858,7 @@ function lifecycleIntegrityIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
   const reportingJobs = snapshot.jobs
     .filter((row) => {
       const target = row.receipt?.target;
-      // `SchedulerExecutionTarget` is a union and only the four lifecycle-bearing
+      // `SchedulerExecutionTarget` is a union and only the five lifecycle-bearing
       // variants carry the count, so the field is narrowed rather than cast. The
       // `in` test is deliberately structural, not a kind allowlist: the field
       // means the same thing wherever it appears, so a job that starts reporting

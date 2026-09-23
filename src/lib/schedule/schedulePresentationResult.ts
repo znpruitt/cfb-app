@@ -13,7 +13,23 @@
  * error stack, or arbitrary error message.
  */
 
-export type SchedulePresentationRefreshTrigger = 'manual' | 'weekly' | 'season-transition';
+/**
+ * Which caller invoked the authority. Purely a LABEL: it selects no behaviour
+ * inside `refreshSchedulePresentation` and reaches only the runtime event line.
+ *
+ * `presentation-weekly` (#757a) is the STANDALONE job. It is deliberately not
+ * `weekly`, which names the inline call inside the weekly schedule cron. During
+ * 757a both run on a Tuesday — that overlap is the whole reason the standalone
+ * job ships additively — and reusing `weekly` would make the two
+ * indistinguishable in logs during precisely the window the slice exists to
+ * observe. Pinned by `the standalone run is distinguishable from an inline one
+ * in the logs` in `app/api/cron/schedule-presentation/__tests__/route.test.ts`.
+ */
+export type SchedulePresentationRefreshTrigger =
+  | 'manual'
+  | 'weekly'
+  | 'season-transition'
+  | 'presentation-weekly';
 
 export type SchedulePresentationRefreshReason =
   | 'refresh-in-progress' // a nonexpired durable lease already holds this part
@@ -80,6 +96,18 @@ const STATUS_FOR_REASON: Record<SchedulePresentationRefreshReason, SchedulePrese
     'durable-commit-failed': 'failure',
     'unexpected-error': 'failure',
   };
+
+/**
+ * Whether a part reason represents a FAILED part.
+ *
+ * Reads the same total `STATUS_FOR_REASON` map the authority derives every part
+ * status from, so a consumer asking "did this part fail" can never disagree with
+ * the authority's own answer — and a reason added later is classified once, here,
+ * rather than in every reader's private list.
+ */
+export function isFailedPartReason(reason: SchedulePresentationRefreshReason): boolean {
+  return STATUS_FOR_REASON[reason] === 'failure';
+}
 
 /**
  * Build a part result. Status derives from the reason through the single shared

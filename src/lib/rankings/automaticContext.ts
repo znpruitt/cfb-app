@@ -26,76 +26,41 @@
  *   - ABSENT rankings are valid absence — all three poll flags false.
  */
 
-import { isStructurallyValidSeasonYear, TEST_LEAGUE_SLUG, type League } from '../league.ts';
+import {
+  selectActiveSeasonTargetYears,
+  type ActiveSeasonLifecycle,
+  type ActiveSeasonRefusalSink,
+  type ActiveSeasonTargetSelection,
+  type ActiveSeasonTargetYear,
+} from '../activeSeasonTargets.ts';
 import type { ScheduleWireItem } from '../schedule.ts';
 import { resolveStructuredChampionshipItem } from '../schedule/nationalChampionshipRollover.ts';
 import { getAppState } from '../server/appStateStore.ts';
 import { normalizeStoredRankingsEntry } from '../server/rankings.ts';
 import type { RankingsPublicationContext } from './publicationPolicy.ts';
 
-export type RankingsTargetLifecycle = 'preseason' | 'season';
-
-export type RankingsTargetYear = {
-  year: number;
-  lifecycle: RankingsTargetLifecycle;
-};
-
 /**
- * The closed result of target selection: the production-owned target years plus
- * the one fact the caller cannot re-derive from them — whether an otherwise
- * eligible demo target was excluded. Both are produced by the SAME loop, so a
- * caller can never observe years without the exclusion truth that shaped them.
- */
-export type RankingsTargetSelection = {
-  years: RankingsTargetYear[];
-  /** True when an ACTIVE demo league was excluded from selection. */
-  excludedDemoCandidate: boolean;
-};
-
-/**
- * PLATFORM-086F2H1R3 — the run-scoped surface the selector publishes refusals
- * into AS IT COUNTS THEM, rather than returning them after the loop.
+ * Registry target selection MOVED to `lib/activeSeasonTargets.ts` (#757a) and
+ * re-exported here under its established rankings names, so this module's
+ * consumers and tests are unchanged.
  *
- * This is not a style choice. AGENTS.md requires the refusal count to survive a
- * mid-loop throw, and the ownership loop is exactly a loop that can throw: the
- * registry array is typed `League[]` but nothing validates each element, so a
- * non-object member throws on property access. A count returned only on the
- * normal path is discarded whenever a later record throws, and the caller then
- * reports zero refusals on a run that found them — on the response, the runtime
- * event, AND the receipt.
+ * The selection itself is not rankings policy — it is the league registry's
+ * definition of an active season year, and the standalone schedule-presentation
+ * job needs the identical answer. What stays HERE is the part that is genuinely
+ * about rankings: what this module's callers do with the result.
  *
- * Deliberately NOT also on the return value: two channels for one fact can
- * drift, and a caller that read both would double-count. The sink is the single
- * source of truth. Counted per LEAGUE RECORD, not per distinct raw year — three
- * records sharing one unusable year count three, because there is no usable
- * year to deduplicate them by in the first place.
- */
-export type RankingsRefusalSink = { invalidLifecycleTargets: number };
-
-/**
- * Select the distinct target years from the league registry: `preseason` and
- * `season` states only (`offseason` excluded), keyed by `status.year`,
- * ascending. A year with both lifecycle states resolves to `season`. Pure —
- * the caller owns the registry read (and its failure handling).
+ * ## The demo exclusion's rankings-specific consequences
  *
- * PLATFORM-086F2H1T4 — the demo league is MANUAL-ONLY for automatic rankings
- * publication, so ownership resolves from PRODUCTION leagues alone.
- *
- * `TEST_LEAGUE_SLUG` is filtered PER LEAGUE, inside this loop, before the league
- * can contribute year membership or lifecycle precedence. It cannot be filtered
- * against the returned `years`: that would drop an entire year a PRODUCTION
- * league also occupies, removing its automatic publication — a worse regression
- * than the one this fixes.
- *
- * Unlike PLATFORM-086F2H1T3 this is NOT an owner-selector correction with
- * behavioral weight. `season` still outranks `preseason` for a shared year, so a
- * demo league in `season(Y)` did previously determine the reported lifecycle of a
- * year whose only production leagues are in `preseason(Y)` — but
- * `RankingsPublicationContext.lifecycle` is inert (see `publicationPolicy.ts`:
- * no window branches on it, and the publication key omits it), so that direction
- * is a REPORTING-truth fix only: no window decision, publication key, quota
- * gate, provider request, or durable write changes. The per-league placement is
- * required by target survival, not by lifecycle resolution.
+ * The per-league demo exclusion is NOT an owner-selector correction with
+ * behavioral weight for rankings. `season` still outranks `preseason` for a
+ * shared year, so a demo league in `season(Y)` did previously determine the
+ * reported lifecycle of a year whose only production leagues are in
+ * `preseason(Y)` — but {@link RankingsPublicationContext.lifecycle} is inert
+ * (see `publicationPolicy.ts`: no window branches on it, and the publication key
+ * omits it), so that direction is a REPORTING-truth fix only: no window
+ * decision, publication key, quota gate, provider request, or durable write
+ * changes. The per-league placement is required by target survival, not by
+ * lifecycle resolution.
  *
  * That "changes nothing" holds for a SHARED year only. A year the demo occupies
  * ALONE loses automatic publication outright: `rankings/<year>` is never
@@ -121,77 +86,22 @@ export type RankingsRefusalSink = { invalidLifecycleTargets: number };
  * No league-scoped duty transfers to the demo controls, because this path
  * writes none.
  *
- * The DEMO EXCLUSION FLAG is derived from `slug` and `status.state` ONLY —
- * never from `status.year`. That narrow property is what makes the F2H1R3
- * ordering below safe. It is NOT the broader claim that an unvalidated year
- * cannot affect the caller's zero-target reason: as of R3 it plainly can, by
- * producing `unusable-lifecycle-year`. What survives is that a bad year cannot
- * masquerade as, or suppress, the DEMO reason.
+ * ## Why the structural year guard matters HERE specifically
  *
- * PLATFORM-086F2H1R3 — an active PRODUCTION candidate's `status.year` is then
- * validated structurally, AFTER the demo exclusion. The order is load-bearing in
- * one direction: an active DEMO record carrying an unusable year must stay a
- * demo exclusion, so the caller keeps reporting
- * `no-automatic-ranking-target`. Validating first would count it as an invalid
- * production target and undo F2H1T4's reason.
- *
- * `status.year` arrives here straight from durable JSON — `getLeagues()` performs
- * no per-record validation — and the rankings hazard is NOT fractional-only:
- * `Date.UTC('2026', …)` coerces rather than returning NaN, so a STRING year
- * makes the context-free CFP publication window become due and produces a
- * provider URL that looks legitimate. Before this slice such a year became a
- * `lifecycleByYear` key and could claim a publication window, spend quota, call
- * CFBD, and commit rankings under an unusable key.
+ * The shared selector refuses a structurally invalid `status.year`. The rankings
+ * hazard it removes is NOT fractional-only: `Date.UTC('2026', …)` coerces rather
+ * than returning NaN, so a STRING year makes the context-free CFP publication
+ * window become due and produces a provider URL that looks legitimate. Before
+ * F2H1R3 such a year became a target key and could claim a publication window,
+ * spend quota, call CFBD, and commit rankings under an unusable key.
  */
-export function selectRankingsTargetYears(
-  leagues: readonly League[],
-  // REQUIRED: a defaulted or optional sink would let a caller silently record
-  // zero refusals with no compiler signal — the same reasoning that makes
-  // `rankingsYearsTarget`'s count parameter required.
-  refusals: RankingsRefusalSink
-): RankingsTargetSelection {
-  const lifecycleByYear = new Map<number, RankingsTargetLifecycle>();
-  let excludedDemoCandidate = false;
-  for (const league of leagues) {
-    const status = league.status;
-    const isActive = status?.state === 'season' || status?.state === 'preseason';
-
-    // An `offseason` (or status-less) demo record is not an excluded CANDIDATE —
-    // it was never eligible. Setting the flag on the slug alone would make every
-    // empty-target run report the demo reason and leave `no-ranking-target`
-    // unreachable, which is exactly the falsehood this slice exists to avoid.
-    if (isActive && league.slug === TEST_LEAGUE_SLUG) {
-      excludedDemoCandidate = true;
-      continue;
-    }
-
-    // PLATFORM-086F2H1R3 — structural year validity, AFTER the demo exclusion
-    // above and BEFORE the year can own a lifecycle. A refused candidate
-    // contributes no map key and no lifecycle precedence, so it can neither
-    // become a target nor promote a shared year from `preseason` to `season`.
-    //
-    // Offseason and status-less PRODUCTION records are NOT counted: they were
-    // never candidates, exactly as they were never targets.
-    if (isActive && !isStructurallyValidSeasonYear(status.year)) {
-      // Published on the RUN STATE immediately, not accumulated locally: a later
-      // record that throws must not discard a refusal already observed.
-      refusals.invalidLifecycleTargets += 1;
-      continue;
-    }
-
-    if (status?.state === 'season') {
-      lifecycleByYear.set(status.year, 'season');
-    } else if (status?.state === 'preseason' && lifecycleByYear.get(status.year) !== 'season') {
-      lifecycleByYear.set(status.year, 'preseason');
-    }
-  }
-  return {
-    years: [...lifecycleByYear.entries()]
-      .map(([year, lifecycle]) => ({ year, lifecycle }))
-      .sort((a, b) => a.year - b.year),
-    excludedDemoCandidate,
-  };
-}
+export { selectActiveSeasonTargetYears as selectRankingsTargetYears };
+export type {
+  ActiveSeasonLifecycle as RankingsTargetLifecycle,
+  ActiveSeasonRefusalSink as RankingsRefusalSink,
+  ActiveSeasonTargetSelection as RankingsTargetSelection,
+  ActiveSeasonTargetYear as RankingsTargetYear,
+};
 
 export type RankingsPublicationContextResult =
   | { kind: 'ok'; context: RankingsPublicationContext }
@@ -243,7 +153,7 @@ async function readScheduleItems(
  */
 export async function loadRankingsPublicationContext(params: {
   year: number;
-  lifecycle: RankingsTargetLifecycle;
+  lifecycle: ActiveSeasonLifecycle;
   scheduledAt: Date;
 }): Promise<RankingsPublicationContextResult> {
   const { year, lifecycle, scheduledAt } = params;

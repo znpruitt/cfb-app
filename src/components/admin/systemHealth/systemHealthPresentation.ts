@@ -107,6 +107,7 @@ const SCHEDULER_JOB_LABELS: Record<ExternalSchedulerJob, string> = {
   'game-stats': 'Game stats',
   odds: 'Odds polling',
   'schedule-refresh': 'Weekly schedule',
+  'schedule-presentation': 'Schedule presentation',
   rankings: 'Rankings publication',
   'season-transition': 'Season transition',
   'usage-sample': 'CFBD usage sample',
@@ -306,6 +307,43 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
       return `${target.year}${target.week != null ? ` · week ${target.week}` : ''}${target.seasonType ? ` · ${target.seasonType}` : ''}${target.mode ? ` · ${target.mode}` : ''}`;
     case 'odds':
       return `${target.year} · ${target.eligibleGames} eligible game(s)${target.cadence ? ` · ${target.cadence}` : ''}`;
+    case 'schedule-presentation': {
+      // A year names its media reason only when that reason is not the ordinary
+      // committed outcome, so a clean weekly run renders as a short line and the
+      // one year that went wrong is what stands out. Venues are appended only
+      // when they did something other than sit inside their 30-day TTL — which
+      // is what they do on 29 runs out of 30.
+      const yearDetail =
+        target.years.length > 0
+          ? `: ${target.years
+              .map((entry) => {
+                const media =
+                  entry.media &&
+                  entry.media !== 'written-clean' &&
+                  entry.media !== 'unchanged-clean'
+                    ? ` [media: ${entry.media}]`
+                    : '';
+                const venues =
+                  entry.venues && entry.venues !== 'fresh-cache'
+                    ? ` [venues: ${entry.venues}]`
+                    : '';
+                return `${entry.year}${media}${venues}`;
+              })
+              .join(', ')}`
+          : '';
+      // Always rendered when non-zero, and deliberately BEFORE the unusable
+      // count: a budget stop is the fact #757 exists to make visible, and an
+      // operator scanning this row needs it to be the thing they see.
+      const skipped =
+        target.yearsSkippedForBudget > 0
+          ? ` · ${target.yearsSkippedForBudget} year(s) skipped for budget`
+          : '';
+      const unusable =
+        target.invalidLifecycleTargets > 0
+          ? ` · ${target.invalidLifecycleTargets} unusable lifecycle target(s)`
+          : '';
+      return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}${yearDetail}${skipped}${unusable}`;
+    }
     case 'schedule-years': {
       // PLATFORM-086F2H1R2 — refused CANDIDATES (leagues, not distinct years:
       // three records sharing one bad year count three) have no year to file

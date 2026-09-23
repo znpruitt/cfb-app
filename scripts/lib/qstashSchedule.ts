@@ -34,9 +34,9 @@
 // FAILURE refuses instead of falling back.
 //
 // PLATFORM-102 slice 4 wired it, and wired `upsert` to the same authority. FOUR
-// of the ten schedules are planner-owned (`live-scores` and `game-stats`, dense
-// and slow); their CLIs supply a reader through `qstashScheduleCli.ts`, and the
-// other six still resolve `absent` and behave exactly as before. Slice 4 also
+// of the eleven schedules are planner-owned (`live-scores` and `game-stats`,
+// dense and slow); their CLIs supply a reader through `qstashScheduleCli.ts`,
+// and the other seven still resolve `absent` and behave exactly as before. Slice 4 also
 // moved the process-facing wrapper out of this file, so that a Next.js route can
 // drive the same orchestration the operator drives — one place decides how a
 // QStash mutation is confirmed, or the planner and the CLI could report the same
@@ -572,7 +572,7 @@ export type RecordedIntentLookup =
  * INJECTED, never imported. `RunDeps` has no store access and this module does
  * not give it any. Slice 4 wired a real reader — `scripts/lib/plannerIntentReader.ts`,
  * attached in `qstashScheduleCli.ts` — for the FOUR schedules the planner owns;
- * the other six CLIs supply none, so they resolve `absent` and behave
+ * the other seven CLIs supply none, so they resolve `absent` and behave
  * byte-for-byte as they always have.
  *
  * A reader that THROWS resolves to `unavailable`, not `unreadable`: a store

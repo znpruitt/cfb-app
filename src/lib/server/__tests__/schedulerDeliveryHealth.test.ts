@@ -11,6 +11,7 @@ import { CRON as ODDS_CRON } from '../../../../scripts/manage-odds-schedule';
 import { CRON as RANKINGS_CRON } from '../../../../scripts/manage-rankings-schedule';
 import { CRON as USAGE_SAMPLE_CRON } from '../../../../scripts/manage-usage-sample-schedule.ts';
 import { CRON as SCHEDULE_REFRESH_CRON } from '../../../../scripts/manage-schedule-refresh-schedule';
+import { CRON as SCHEDULE_PRESENTATION_CRON } from '../../../../scripts/manage-schedule-presentation-schedule';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -22,6 +23,7 @@ import {
   readBuildCommitSha,
   EXTERNAL_SCHEDULER_JOBS,
   rankingsYearsTarget,
+  schedulePresentationTarget,
   scheduleYearsTarget,
   seasonRolloverYearsTarget,
   seasonTransitionYearsTarget,
@@ -96,6 +98,21 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
         ],
         0
       );
+    case 'schedule-presentation':
+      return schedulePresentationTarget({
+        totalYears: 1,
+        yearsSkippedForBudget: 0,
+        invalidLifecycleTargets: 0,
+        years: [
+          {
+            year: 2026,
+            result: 'success',
+            media: 'written-clean',
+            venues: 'fresh-cache',
+            providerCallAttempted: true,
+          },
+        ],
+      });
     case 'rankings':
       return rankingsYearsTarget(
         [{ year: 2026, publicationWindow: null, ...cleanRankingsYearOutcome() }],
@@ -117,6 +134,7 @@ const REASON_FOR: Record<ExternalSchedulerJob, SchedulerExecutionReceiptInput['r
   'game-stats': 'no-polling-target',
   odds: 'automation-paused-or-disabled',
   'schedule-refresh': 'no-maintenance-target',
+  'schedule-presentation': 'no-maintenance-target',
   rankings: 'no-ranking-target',
   'season-transition': 'no-preseason-leagues',
   'season-rollover': 'no-season-leagues',
@@ -193,6 +211,8 @@ test('policies carry the exact fixed cron strings and grace periods', () => {
   assert.equal(byJob.get('odds')!.graceMs, 2 * HOUR);
   assert.equal(byJob.get('schedule-refresh')!.cron, '0 12 * * 2');
   assert.equal(byJob.get('schedule-refresh')!.graceMs, 24 * HOUR);
+  assert.equal(byJob.get('schedule-presentation')!.cron, '0 13 * * 2');
+  assert.equal(byJob.get('schedule-presentation')!.graceMs, 24 * HOUR);
   assert.equal(byJob.get('rankings')!.cron, '0 4,22 * * *');
   assert.equal(byJob.get('rankings')!.graceMs, 2 * HOUR);
   assert.equal(byJob.get('season-transition')!.cron, '0 0 * * *');
@@ -216,6 +236,7 @@ test('policy crons match the management-script CRON exports and vercel.json', ()
   // from the wrong schedule with no test failing.
   assert.equal(byJob.get('usage-sample')!.cron, USAGE_SAMPLE_CRON);
   assert.equal(byJob.get('schedule-refresh')!.cron, SCHEDULE_REFRESH_CRON);
+  assert.equal(byJob.get('schedule-presentation')!.cron, SCHEDULE_PRESENTATION_CRON);
 
   const vercelPath = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -345,6 +366,106 @@ test('schedule-refresh classifies against Tuesday 12:00 UTC with a 24-hour grace
     ),
     'on-time'
   );
+});
+
+// ── 7b. The standalone presentation job (#757a) ───────────────────────
+test('schedule-presentation classifies against Tuesday 13:00 UTC with a 24-hour grace', async () => {
+  // ACCEPTANCE 2, the classification half: a job that registers but whose policy
+  // measures the wrong slot is late on the wrong day, which is worse than not
+  // registering at all. The hour of separation from `schedule-refresh` is the
+  // point of the slice's cadence, so the two must NOT resolve to the same slot.
+  const now = ms('2026-03-18T14:00:00Z'); // Wednesday; cutoff Tue 14:00 -> required Tue 13:00
+  assert.equal(new Date('2026-03-17T00:00:00Z').getUTCDay(), 2, 'fixture Tuesday');
+  const req = ms('2026-03-17T13:00:00Z');
+  assert.equal(
+    await stateOf('schedule-presentation', validReceipt('schedule-presentation', req), now),
+    'on-time'
+  );
+  assert.equal(
+    await stateOf('schedule-presentation', validReceipt('schedule-presentation', req - 1), now),
+    'late'
+  );
+
+  // The hour of separation is real, not a label. At this instant — Wednesday
+  // 14:00 UTC — the two policies resolve to DIFFERENT required slots (Tue 12:00
+  // for the schedule job, Tue 13:00 for this one), so a receipt can be on-time
+  // against one and late against the other. If the two shared a cron this would
+  // be equality and the separation would be a label only.
+  assert.notEqual(
+    requiredStartedAtForJob('schedule-presentation', now),
+    requiredStartedAtForJob('schedule-refresh', now),
+    'the two weekly jobs must not share a required slot'
+  );
+
+  // A receipt that never arrives at all is `missing`, not `late`. Until this job
+  // is installed in production that is the state its row will hold, and reading
+  // it as `late` would claim a delivery was due from a schedule that does not
+  // exist yet.
+  const noKey = await readSchedulerDeliveryHealth({ nowMs: now, loadEntries: loaderOf([]) });
+  assert.equal(noKey.jobs.find((r) => r.job === 'schedule-presentation')!.deliveryState, 'missing');
+
+  // A key that IS present but unreadable is `invalid` — a third state, and not
+  // the same claim as either. Pinned because the stored-target guard for this
+  // job's new `kind` is what decides it, so a validator that stopped
+  // recognising the target would silently turn every good receipt into this.
+  assert.equal(await stateOf('schedule-presentation', { nope: true }, now), 'invalid');
+});
+
+test('ROUND 2 #6: a presentation receipt from a NEWER build still renders', async () => {
+  // The stored-target guard used to require closed membership in THIS build's
+  // reason vocabulary. After a promote-then-rollback, a receipt written by a
+  // newer build carrying a reason this build does not know would then render the
+  // whole row `invalid` — discarding a perfectly readable receipt over an enum
+  // member that is only ever DISPLAYED, never branched on.
+  //
+  // The sibling jobs have always been tolerant here (`YEAR_REASON_PATTERN`), and
+  // this asserts the presentation target matches them. `undefined` fields are
+  // accepted for the same reason, which is also what makes `rebuildTarget`'s
+  // `?? null` legacy handling reachable at all.
+  const now = ms('2026-03-18T14:00:00Z');
+  const fromNewerBuild = {
+    ...validReceipt('schedule-presentation', ms('2026-03-17T13:00:00Z')),
+    target: {
+      kind: 'schedule-presentation',
+      totalYears: 2,
+      truncated: false,
+      invalidLifecycleTargets: 0,
+      yearsSkippedForBudget: 0,
+      years: [
+        {
+          year: 2026,
+          // None of these exists in this build's unions.
+          result: 'some-future-status',
+          media: 'some-future-reason',
+          venues: 'another-future-reason',
+          providerCallAttempted: true,
+        },
+        {
+          // A LEGACY row: the writer set none of the optional fields. This is
+          // the `undefined` half, and it is asserted separately because the
+          // unknown-vocabulary row above does not exercise it — an earlier
+          // version of this test claimed both and proved only one.
+          year: 2027,
+        },
+      ],
+    },
+  };
+  assert.equal(
+    await stateOf('schedule-presentation', fromNewerBuild, now),
+    'on-time',
+    'an unknown reason must not discard the row'
+  );
+
+  // The SHAPE is still enforced, so this is tolerance and not a hole: a
+  // non-numeric year is still rejected.
+  const malformed = {
+    ...fromNewerBuild,
+    target: {
+      ...fromNewerBuild.target,
+      years: [{ year: 'not-a-year', result: 'success', media: 'written-clean' }],
+    },
+  };
+  assert.equal(await stateOf('schedule-presentation', malformed, now), 'invalid');
 });
 
 // ── 8. Rankings both slots incl. unequal gaps ────────────────────────────────
@@ -896,6 +1017,13 @@ test('every delivery policy is the fixed contract, and there is no other branch'
       graceMs: 24 * HOUR,
     },
     {
+      job: 'schedule-presentation',
+      source: 'qstash',
+      cron: '0 13 * * 2',
+      cadenceLabel: 'weekly (Tuesday 13:00 UTC)',
+      graceMs: 24 * HOUR,
+    },
+    {
       job: 'rankings',
       source: 'qstash',
       cron: '0 4,22 * * *',
@@ -947,7 +1075,7 @@ test('no job\u2019s delivery policy can be narrowed by a caller any more', () =>
   // and the arity assertion below names it.
   const fixed = new Map(schedulerDeliveryPolicies().map((p) => [p.job, p]));
   assert.equal(fixed.size, EXTERNAL_SCHEDULER_JOBS.length);
-  assert.equal(fixed.size, 10);
+  assert.equal(fixed.size, 11);
   assert.equal(schedulerDeliveryPolicy.length, 1, 'takes a job and nothing else');
   assert.equal(schedulerDeliveryPolicies.length, 0);
 
