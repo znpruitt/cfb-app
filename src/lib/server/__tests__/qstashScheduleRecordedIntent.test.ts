@@ -30,7 +30,7 @@ import * as usageSample from '../../../../scripts/manage-usage-sample-schedule';
  * not planner-owned — but `inspect` exists only for the SEVEN `scripts/manage-*`
  * CLIs, and two of the not-planner-owned jobs (`season-transition`,
  * `season-rollover`) are Vercel-native crons with no management script at all. So
- * the fallback is asserted here over all seven CLIs that HAVE an inspect, which is
+ * the fallback is asserted here over every CLI that HAS an inspect, which is
  * the right population precisely because nothing writes a record in production:
  * every one of them must still resolve the fixed contract.
  */
@@ -81,7 +81,7 @@ const CLIS: Cli[] = [
   cliFor('usage-sample', usageSample),
   // PLATFORM-102 slice 4 — the two reconciliation schedules and the planner's own
   // trigger. Their `runManageSchedule` export takes injected deps with NO reader,
-  // exactly like the other seven, so the fallback assertions below cover all eleven.
+  // exactly like the original seven, so the fallback assertions below cover all eleven.
   cliFor('game-stats-slow', gameStatsSlow),
   cliFor('live-scores-slow', liveScoresSlow),
   cliFor('polling-planner', pollingPlanner),
@@ -129,7 +129,7 @@ function summaryFrom(out: string[]): Record<string, unknown> {
 }
 
 // ---------------------------------------------------------------------------
-// The fallback: all seven CLIs, unchanged
+// The fallback: every non-planner-owned CLI, unchanged
 // ---------------------------------------------------------------------------
 
 test('all eleven manage CLIs still inspect against their FIXED contract', async () => {
@@ -182,7 +182,7 @@ test('all eleven manage CLIs still inspect against their FIXED contract', async 
   }
 });
 
-test('all ten still REFUSE a divergent schedule against the fixed constants', async () => {
+test('all eleven still REFUSE a divergent schedule against the fixed constants', async () => {
   // Positive control for the test above: exit 0 there must mean the contract was
   // actually compared, not that the comparison was skipped.
   for (const cli of CLIS) {

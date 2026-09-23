@@ -55,8 +55,10 @@ export const dynamic = 'force-dynamic';
  *
  * Every inline call stays exactly where it is. 757b removes them once this job
  * is live in production and at least one standalone receipt has been observed.
- * Removing them first would silently stop broadcast refreshes. `inlineCallers`
- * in this route's tests pins that the three inline call sites are unchanged.
+ * Removing them first would silently stop broadcast refreshes. The three inline
+ * call sites are pinned by
+ * `lib/schedule/__tests__/inlinePresentationCallers.test.ts`, which resolves
+ * callees through the type checker rather than by name.
  *
  * ## Why it does not wait for the schedule job
  *
@@ -123,15 +125,31 @@ const VENUE_LEG_WORST_CASE_MS = 3 * CFBD_PEAK_LATENCY_TIMEOUT_MS + 1_000;
  * explicit rather than assumed: a year is charged for the venue leg too until
  * some year has settled it (see the loop).
  *
- * The first selected year always runs, and its own worst case — 242s, both legs
- * — fits under the 300s ceiling alone. A later year starts only when
- * `elapsed + reservation ≤ 250s`, and then costs at most that reservation, so
- * the total can never exceed the budget:
+ * The first selected year always runs. A later year starts only when
+ * `elapsed + reservation ≤ 250s`, and then costs at most that reservation:
  *
  * ```text
  * venue leg not owed → reservation 121s → total ≤ 250s
  * venue leg owed     → reservation 242s → admissible only while elapsed ≤ 8s
  * ```
+ *
+ * ## WHAT THIS BOUNDS, AND WHAT IT DOES NOT
+ *
+ * An earlier version of this docblock claimed the first year's worst case "fits
+ * under the 300s ceiling alone". **That was false, and review found it.** The
+ * 121s figure counts CFBD time only. One year also makes roughly a dozen
+ * SEQUENTIAL durable-store round trips — context read, two lease pairs, two
+ * begin-attempt writes, two commit transactions, two status writes — and
+ * PLATFORM-625 bounds each at 15s (`APP_STATE_STATEMENT_TIMEOUT_MS`,
+ * `APP_STATE_OPENER_TIMEOUT_MS`), not at zero. Under a degraded Neon those terms
+ * dominate.
+ *
+ * Reserving for that was tried and reverted — see the note above
+ * {@link JOB_BUDGET_MS}'s neighbours. The residual is therefore stated rather
+ * than papered over: a simultaneous severe store outage can carry even the first
+ * year past the ceiling. It is the same exposure the inline callers have today
+ * and worse (they do their schedule work first), it is not introduced here, and
+ * the defence against it is #625's per-operation bounds, not this budget.
  *
  * **250s, not 240s, and the 10s matters.** At 240s a 242s reservation could
  * never be admitted at any elapsed time, so a run that genuinely owed the venue
@@ -139,13 +157,34 @@ const VENUE_LEG_WORST_CASE_MS = 3 * CFBD_PEAK_LATENCY_TIMEOUT_MS + 1_000;
  * which is how round 1's regression starved a live year behind an uncached one.
  * The budget must be able to admit the largest reservation it can produce.
  *
- * The remaining 50s under the 300s ceiling covers the registry, settings and
- * staleness reads, plus the receipt write.
+ * The remaining 50s under the 300s ceiling covers the run-level reads — the
+ * registry, the settings gate, the per-year staleness and venue reads — plus
+ * the receipt write.
  *
  * This only ever bites under provider degradation. With CFBD healthy a year
  * costs a second or two and every selected year runs.
  */
 const JOB_BUDGET_MS = 250_000;
+
+/**
+ * NOT A CONSTANT — a note where one would go, because review asked for one and
+ * trying it proved it cannot exist at this ceiling.
+ *
+ * A year makes roughly a dozen sequential app-state round trips, each bounded by
+ * PLATFORM-625 at 15s rather than at zero, so the CFBD-only figures below
+ * understate a year under store degradation. The obvious fix is to fold a store
+ * term into the reservation. **It was implemented and reverted**: a 45s
+ * allowance makes an owed venue leg reserve 287s, which exceeds the whole
+ * budget, so no second year could ever start — the exact starvation round 2
+ * shipped once already, and two tests caught it immediately.
+ *
+ * The arithmetic does not close: a year that owes both legs (242s) plus any
+ * meaningful store term cannot be guaranteed under a 300s ceiling, whatever the
+ * budget is set to. So the budget governs CFBD time, the store waits are bounded
+ * separately by #625, and the residual is DOCUMENTED rather than reserved for.
+ * Stating it is the fix; pretending to reserve for it would have cost the job
+ * its second year every week.
+ */
 
 function verifyCronSecret(req: Request): 'ok' | 'not-configured' | 'invalid' {
   const cronSecret = process.env.CRON_SECRET?.trim();
@@ -380,10 +419,20 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
       // The FIRST selected year always runs. Its own worst case is 242s, which
       // fits under the 300s ceiling on its own, and a budget that could skip
       // every year would make the job unable to do anything at all.
-      const reservationMs = (await venueRefreshDue())
-        ? YEAR_WORST_CASE_MS + VENUE_LEG_WORST_CASE_MS
-        : YEAR_WORST_CASE_MS;
-      if (exec.years.length > 0 && Date.now() - startedAtMs + reservationMs > JOB_BUDGET_MS) {
+      const elapsedMs = Date.now() - startedAtMs;
+      const governed = exec.years.length > 0;
+      // CHEAPEST BOUND FIRST, so a run that cannot afford a year under ANY
+      // answer does not spend a durable read discovering which answer it would
+      // have got. That read is itself bounded at 15s under contention — on an
+      // invocation that has just decided it is short of time, which is when it
+      // can least afford it. (Round 4 finding 2.)
+      const reservationMs =
+        governed && elapsedMs + YEAR_WORST_CASE_MS > JOB_BUDGET_MS
+          ? YEAR_WORST_CASE_MS
+          : (await venueRefreshDue())
+            ? YEAR_WORST_CASE_MS + VENUE_LEG_WORST_CASE_MS
+            : YEAR_WORST_CASE_MS;
+      if (governed && elapsedMs + reservationMs > JOB_BUDGET_MS) {
         // Counted, not silently dropped: a skipped year's media is exactly as
         // stale as if nothing had run, and a receipt that reported success here
         // would be a count whose failure and whose real zero look identical.

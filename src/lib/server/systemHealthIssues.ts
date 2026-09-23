@@ -209,8 +209,9 @@ export type SystemHealthIssueInputs = {
  * by exactly the action on that page. A membership test cannot express that, so
  * the answer is a policy per job and, where it must be, per reason.
  *
- * TOTAL OVER `ExternalSchedulerJob` ON PURPOSE. An eleventh job must decide rather
- * than inherit `data-maintenance` by omission — inheriting it by omission is how
+ * TOTAL OVER `ExternalSchedulerJob` ON PURPOSE. A NEW job must decide rather
+ * than inherit `data-maintenance` by omission — PLATFORM-757a's presentation job
+ * was the eleventh, and it chose `by-reason` — inheriting it by omission is how
  * the planner acquired a link nobody chose for it, and a `Record` makes that a
  * compile error instead of a silent default.
  */
@@ -297,7 +298,7 @@ const EXECUTION_REPAIR_POLICY: Record<ExternalSchedulerJob, ExecutionRepairPolic
 
 /**
  * FAIL-CLOSED BY CONSTRUCTION, twice over. An unrecognized reason is not in any
- * `repairable` set, so it renders no link; and a `job` outside the ten — which
+ * `repairable` set, so it renders no link; and a `job` outside the registry — which
  * `isValidStoredTarget` should already have rejected — reaches no `kind` the
  * switch names and falls to the same `null`. Neither can invent a destination.
  */

@@ -4,7 +4,8 @@ Status: Implemented and gated; pre-merge closeout, not a deployment claim.
 Prompt: `PLATFORM-757A-PRESENTATION-JOB-CLAUDE-v1`.
 Branch: `claude/757a-presentation-job`.
 Base: `7e540eee67c4068d3c560be9d62e91c1c824505c`.
-Implementation: `beb49eae` (single commit).
+Implementation: `beb49eae`, then three review-remediation commits — `b11568ea` (round 1),
+`9e007640` (round 2), `53b256fd` (round 3) — plus this round's.
 Merge of current `main` into the branch: clean, no conflicts.
 
 This slice is **additive**. Every inline presentation call stays where it is; 757b removes
@@ -19,12 +20,18 @@ The owner approved slice A on 2026-09-22 at **~26 files / ~1,500 lines**, both
 stop-and-reassess signals, because most of the count is type-forced one-line edits to
 exhaustive `Record` maps plus the runbook sweep.
 
-**The actual diffstat is larger than the approval and is reported as such:
-28 files, 2,659 insertions, 172 deletions.** Split: **1,332 non-test lines, 1,499 test
-lines.** The overrun is in tests, not in production code — acceptance 3's clock-driven
-stall harness and acceptance 4's type-checker pin are each substantially longer than a
-normal assertion block, and both are load-bearing rather than incidental. The production
-side landed close to the estimate.
+**The actual diffstat is larger than the approval and is reported as such.** At the first
+implementation commit it was 28 files / 2,659 insertions / 172 deletions (1,332 non-test,
+1,499 test) — the overrun already in tests rather than production code, because
+acceptance 3's clock-driven stall harness and acceptance 4's type-checker pin are each
+far longer than a normal assertion block.
+
+**Measured at HEAD against the merge-base `547d2fd5`: 31 files, 3,926 insertions, 182
+deletions.** Four rounds of review remediation added ~1,300 lines to the branch after the
+first closeout was written, and this document recorded the earlier figure until round 4
+caught it. The merge condition is that the ledger records what SHIPPED, so the HEAD
+numbers are the ones that govern; the first-commit figures are kept only to show where
+the growth came from.
 
 **Registration: 11 symbols, ~15 edit sites, out of a 26-point checklist.** The receipt's
 "26 registration points" counted everything an audit of the scheduler surface turned up,
@@ -69,8 +76,14 @@ registration, not visibility. It also asserts `1 year(s) skipped for budget` rea
 page — without that, `yearsSkippedForBudget` would be a field nothing renders, which is the
 same invisibility as not recording it.
 
-The existing 9-label list was extended to all eleven; it was **also missing `Polling
-planner`** before this slice, so it is now the whole registry.
+The label list in `sections.test.tsx` was extended to all eleven, and it was **also missing
+`Polling planner`** — so that hardcoded list is now the whole registry.
+
+**An earlier version of this paragraph said the production `SCHEDULER_JOB_LABELS` map was a
+9-entry list missing the planner. That was false**, and round 4 caught it: at the merge-base
+that map already held all ten entries, and it is typed `Record<ExternalSchedulerJob, string>`,
+so a missing member could not have compiled. The gap was in the TEST's hardcoded list only.
+The distinction matters for 757a2's scoping, which is what this section is for.
 
 **Three suites passed while covering nothing of the new job, and were fixed:** the
 per-job cron/grace assertions and the manage-script parity assertion are hardcoded per job
@@ -460,6 +473,64 @@ elapsed for a 123s bound. The third failed for a reason worth recording: **`mock
 starts `Date` at 0**, which makes every stored `at` look astronomically far in the future, so
 the catalog read infinitely fresh and *both* mutations stayed green. Anchoring the mock clock
 to real time (`now: t0`) is what finally made it discriminate.
+
+## Review round 4 — nine findings, and one fix that had to be reverted
+
+`/code-review 53b256fd high`. All nine accurate.
+
+### Finding 1 — the budget's arithmetic counted only CFBD time
+
+`YEAR_WORST_CASE_MS` is `3 × 40s + 1s`, where the `+1s` is the retry backoff. But a year also
+makes roughly a dozen SEQUENTIAL durable-store round trips, and PLATFORM-625 bounds each at
+15s (`APP_STATE_STATEMENT_TIMEOUT_MS`, `APP_STATE_OPENER_TIMEOUT_MS`) — not at zero. The
+docblock's claim that the first year "fits under the 300s ceiling alone" was therefore false
+under a degraded Neon, which is the exact class #625 exists for.
+
+**The obvious fix was implemented and reverted, and the reversal is the finding's real
+answer.** Folding a 45s store allowance into the reservation makes an owed venue leg reserve
+287s — more than the entire budget — so no second year could ever start. That is precisely
+the starvation round 2 shipped, and two existing tests failed the moment it went in.
+
+The arithmetic does not close: a year owing both legs (242s) plus any meaningful store term
+cannot be guaranteed under a 300s ceiling at any budget. So the budget governs CFBD time, the
+store waits stay bounded by #625, and **the residual is documented instead of reserved for** —
+including that the first year, which always runs, is not governed at all. Pretending to
+reserve for it would have cost the job its second year every week. The note now sits in the
+source where a future reader would otherwise re-derive it.
+
+### Finding 2 — a durable read spent deciding a reservation the run cannot use
+
+`venueRefreshDue()` ran before the elapsed check, so each skipped year still cost one
+store read — itself bounded at 15s under contention, on an invocation that had just decided
+it was short of time. The cheapest bound is now tested first, and the read happens only if
+that passes.
+
+### Findings 3 and 4 — both in this document
+
+**3.** The ledger still recorded `beb49eae` as a single implementation commit with 28 files /
+2,659 insertions, four commits after that stopped being true. Measured at HEAD: **31 files,
+3,926 insertions, 182 deletions** — review remediation added ~1,300 lines. `CLAUDE.md`'s
+merge condition is that the closeout records what SHIPPED, and this was the one document
+that had drifted from it.
+
+**4.** This closeout claimed the production `SCHEDULER_JOB_LABELS` map was a 9-entry list
+missing `Polling planner`. **That was false.** At the merge-base it already held all ten
+entries and is typed `Record<ExternalSchedulerJob, string>`, so a missing member could not
+have compiled. The gap was in `sections.test.tsx`'s hardcoded list only. A false claim about
+pre-existing state, in the section 757a2 is meant to scope from.
+
+### Findings 5–9 — the ten→eleven sweep was incomplete, and one runbook omission
+
+| # | Where |
+| --- | --- |
+| 5 | Two counts in `systemHealthIssues.ts` the round-2 sweep reached but did not finish |
+| 6 | A test title and two comments in `qstashScheduleRecordedIntent.test.ts` still naming ten and seven |
+| 7 | `scripts/lib/qstashSchedule.ts` — a shared library the sweep missed entirely, while the closeout claimed it covered "the runbook and the five manage scripts" |
+| 8 | The route docblock named `inlineCallers` "in this route's tests"; the pin lives in `lib/schedule/__tests__/` |
+| 9 | §8i did not warn that System Health reports this job's delivery as **missing** between promotion and schedule installation — §8k says exactly that for `team-records`, and the precedent is now matched |
+
+Finding 7 is the instructive one: a counted sweep still missed a file because the count was
+taken over the places I thought to look.
 
 ## Verification
 

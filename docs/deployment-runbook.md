@@ -554,6 +554,13 @@ npm run manage:schedule-presentation-schedule upsert --apply
 installs no schedule and changes no behaviour, because auto-promotion is off and the route is
 unreachable by any scheduler until the `upsert --apply` above is run against production.
 
+**Between promotion and that command, System Health will report this job's delivery as
+missing.** Registering it in `EXTERNAL_SCHEDULER_JOBS` gives it a fixed Tuesday 13:00 policy, so
+from the first promoted deployment the page computes a required slot, finds no receipt, and raises
+`scheduler-delivery-missing`. That is the expected provisioning state, not evidence that anything
+regressed — the same thing §8k says about `team-records`. It clears with the first authenticated
+delivery after the schedule is installed.
+
 **Why 13:00 and not 12:00.** It runs one hour after `turfwar-schedule-weekly` so it reads a fresh
 canonical schedule and the two never hit CFBD in the same minute. The separation is asserted in
 `manageSchedulePresentationSchedule.test.ts`, not merely intended.
