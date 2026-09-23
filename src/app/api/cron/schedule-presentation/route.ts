@@ -13,10 +13,16 @@ import {
 } from '@/lib/schedule/presentationCronExecutionLog';
 import {
   normalizeScheduleMediaCacheEntry,
+  normalizeVenueCatalogCacheEntry,
   scheduleMediaStateKey,
   SCHEDULE_MEDIA_STATE_SCOPE,
+  VENUE_CATALOG_STATE_KEY,
+  VENUE_CATALOG_STATE_SCOPE,
 } from '@/lib/schedule/schedulePresentation';
-import { refreshSchedulePresentation } from '@/lib/schedule/schedulePresentationRefresh';
+import {
+  refreshSchedulePresentation,
+  VENUE_CATALOG_TTL_MS,
+} from '@/lib/schedule/schedulePresentationRefresh';
 import { getAppState } from '@/lib/server/appStateStore';
 import {
   getProviderRefreshSettings,
@@ -119,20 +125,27 @@ const VENUE_LEG_WORST_CASE_MS = 3 * CFBD_PEAK_LATENCY_TIMEOUT_MS + 1_000;
  *
  * The first selected year always runs, and its own worst case — 242s, both legs
  * — fits under the 300s ceiling alone. A later year starts only when
- * `elapsed + reservation ≤ 240s`, so:
+ * `elapsed + reservation ≤ 250s`, and then costs at most that reservation, so
+ * the total can never exceed the budget:
  *
  * ```text
- * venue leg settled   → reservation 121s → latest start 119s → total ≤ 240s
- * venue leg unsettled → reservation 242s → cannot start after year 1 at all
+ * venue leg not owed → reservation 121s → total ≤ 250s
+ * venue leg owed     → reservation 242s → admissible only while elapsed ≤ 8s
  * ```
  *
- * Worst case across every path is therefore 242s, inside the ceiling, and the
- * receipt always lands.
+ * **250s, not 240s, and the 10s matters.** At 240s a 242s reservation could
+ * never be admitted at any elapsed time, so a run that genuinely owed the venue
+ * leg would skip every year after the first no matter how fast they were —
+ * which is how round 1's regression starved a live year behind an uncached one.
+ * The budget must be able to admit the largest reservation it can produce.
+ *
+ * The remaining 50s under the 300s ceiling covers the registry, settings and
+ * staleness reads, plus the receipt write.
  *
  * This only ever bites under provider degradation. With CFBD healthy a year
  * costs a second or two and every selected year runs.
  */
-const JOB_BUDGET_MS = 240_000;
+const JOB_BUDGET_MS = 250_000;
 
 function verifyCronSecret(req: Request): 'ok' | 'not-configured' | 'invalid' {
   const cronSecret = process.env.CRON_SECRET?.trim();
@@ -164,6 +177,30 @@ async function mediaObservedAtMs(year: number): Promise<number | null> {
     return normalizeScheduleMediaCacheEntry(stored?.value)?.at ?? null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Is the global venue catalog outside its 30-day TTL, and therefore owed by this
+ * run?
+ *
+ * The SAME forced durable read `refreshVenuesPart` makes, and deliberately so:
+ * the obligation is a property of the catalog, and asking the catalog is the
+ * only way to get an answer that a year which never invoked the leg cannot
+ * corrupt.
+ *
+ * A store failure answers `true` — owed. That over-reserves, which costs at most
+ * one skipped year; answering `false` would under-reserve, which costs the
+ * receipt, and this whole job exists because a lost receipt is the expensive
+ * outcome.
+ */
+async function venueRefreshDue(): Promise<boolean> {
+  try {
+    const stored = await getAppState<unknown>(VENUE_CATALOG_STATE_SCOPE, VENUE_CATALOG_STATE_KEY);
+    const priorEntry = normalizeVenueCatalogCacheEntry(stored?.value);
+    return !(priorEntry && Date.now() - priorEntry.at < VENUE_CATALOG_TTL_MS);
+  } catch {
+    return true;
   }
 }
 
@@ -301,27 +338,36 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
 
     // ACCEPTANCE 9 — budget-bounded, most-stale-media first.
     const ordered = await orderByStaleness(selection.years.map((entry) => entry.year));
-    // Whether a LATER year can still be charged for the venue leg.
+    // Is the VENUE leg owed by this run at all?
     //
-    // Both reviewers found the same hole in the first version, which reserved
-    // one media leg per year and relied on "the venue catalog commits during
-    // year 1". It does not always: `refreshVenuesPart` becomes TTL-exempt only
-    // after a SUCCESSFUL DURABLE COMMIT (`schedulePresentationRefresh.ts:452`
-    // reads the committed entry), and every other outcome releases the lease
-    // leaving the catalog exactly as stale as it was. The fastest such outcome
-    // is losing the venue lease to the inline caller — which is the EXPECTED
-    // 757a overlap, not an exotic fault. Year 1 could then finish in ~80s
-    // having refreshed nothing, year 2 would pass a 121s check and spend up to
-    // 242s on both legs, and the invocation would be killed past 300s with its
-    // receipt unwritten: #757 reproduced inside its own fix.
-    let venueLegSettled = false;
+    // ## Why this is a durable READ and not inferred from a year's outcome
+    //
+    // Round 1 inferred it: a year whose venue reason was not `fresh-cache` or a
+    // clean commit left the leg "unsettled". **That was a worse defect than the
+    // one it fixed.** `refreshSchedulePresentation` short-circuits BOTH parts
+    // when the canonical schedule is absent or empty
+    // (`schedulePresentationRefresh.ts:696-704`), so such a year never INVOKES
+    // the venue leg and reports `no-eligible-games` for it — which says nothing
+    // about whether a later year will pay for `/venues`. Round 1 read it as
+    // "still owed", and since the reservation exceeded the whole budget, every
+    // later year was then skipped unconditionally.
+    //
+    // `orderByStaleness` puts a year with NO media entry first, and that is
+    // exactly the year with no schedule — so an ordinary preseason year not yet
+    // cached, sitting beside a live season year, starved the only year that had
+    // anything to refresh, every week, permanently. The precise inversion of
+    // what the ordering exists to do.
+    //
+    // The obligation is a property of the CATALOG, so it is read from the
+    // catalog: the same forced durable freshness read `refreshVenuesPart` makes.
+    let venueLegOwed = await venueRefreshDue();
     for (const year of ordered) {
       // The FIRST selected year always runs. Its own worst case is 242s, which
       // fits under the 300s ceiling on its own, and a budget that could skip
       // every year would make the job unable to do anything at all.
-      const reservationMs = venueLegSettled
-        ? YEAR_WORST_CASE_MS
-        : YEAR_WORST_CASE_MS + VENUE_LEG_WORST_CASE_MS;
+      const reservationMs = venueLegOwed
+        ? YEAR_WORST_CASE_MS + VENUE_LEG_WORST_CASE_MS
+        : YEAR_WORST_CASE_MS;
       if (exec.years.length > 0 && Date.now() - startedAtMs + reservationMs > JOB_BUDGET_MS) {
         // Counted, not silently dropped: a skipped year's media is exactly as
         // stale as if nothing had run, and a receipt that reported success here
@@ -333,20 +379,16 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
       // fresh clock captured at the year's turn, never this route's entry time —
       // route latency must not age an observation or shorten a lease.
       const result = await refreshSchedulePresentation({ year, trigger: 'presentation-weekly' });
-      // Only these three prove no LATER year will pay for `/venues`:
-      // `fresh-cache` means the durable catalog was already inside its TTL, and
-      // the two clean outcomes mean this run just committed it. Everything else
-      // — a lost lease, a provider fault, a rejected payload, a failed commit —
-      // leaves the catalog untouched, so the next year can still be charged.
-      // `stale-observation` is conservatively treated as unsettled even though a
-      // fresher entry does exist durably; over-reserving costs at most one
-      // skipped year, and under-reserving costs the receipt.
-      if (
-        result.venues.reason === 'fresh-cache' ||
-        result.venues.reason === 'written-clean' ||
-        result.venues.reason === 'unchanged-clean'
-      ) {
-        venueLegSettled = true;
+      // A COMMIT — and only a commit — discharges the obligation mid-run: the
+      // catalog is now inside its TTL, so no later year can be charged for it.
+      //
+      // This only ever clears the flag, never sets it. Everything else leaves it
+      // exactly as the durable read found it, which is the point: a year that
+      // never invoked the leg (`no-eligible-games`) and a year whose leg failed
+      // are both silent about the catalog, and silence must not be read as
+      // either answer.
+      if (result.venues.reason === 'written-clean' || result.venues.reason === 'unchanged-clean') {
+        venueLegOwed = false;
       }
       exec.years.push({
         year,

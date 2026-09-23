@@ -337,6 +337,59 @@ Nothing was disputed. Every finding in both reports was verified against the cod
 remediation began, and each fix that changes behaviour carries a mutation that reddens its
 own named assertion.
 
+## Review round 2 — the round-1 fix was a worse regression
+
+`/code-review b11568ea high`. Six findings, all accurate, all fixed.
+
+### Finding 1 — CRITICAL, and it was mine. FIXED
+
+**Round 1's budget fix starved the job.** The reservation for an unsettled venue leg
+(242s) exceeded the whole budget (240s), so the guard was unconditionally true for every
+year after the first — no elapsed time could satisfy it.
+
+And the fastest way to leave the leg "unsettled" turned out to be a **completely healthy
+path**: `refreshSchedulePresentation` short-circuits BOTH parts when the canonical schedule
+is absent (`schedulePresentationRefresh.ts:696-704`), so such a year never invokes the venue
+leg and reports `no-eligible-games` for it. Round 1 read that as "still owed". Since
+`orderByStaleness` puts a year with no media entry **first**, and that is exactly the year
+with no schedule, an ordinary preseason year not yet cached — sitting beside a live season
+year — starved the only year that had anything to refresh. Every week. Permanently, because
+the uncached year never writes a media entry and so sorts first again next Tuesday.
+
+**That is the precise inversion of what the ordering exists to do**, and it would have gone
+live: the reviewer reproduced it against the branch with the real route, and neither round-1
+test caught it (one gave both years a schedule; the other gave neither a media entry, so
+they tied and sorted ascending).
+
+Two changes. The obligation is now read from the **catalog** — the same forced durable
+freshness read `refreshVenuesPart` makes — because it is a property of the catalog, and a
+year that never invoked the leg says nothing about it. Only a commit clears it mid-run;
+silence never does. And the budget moved 240s → 250s, because **a budget must be able to
+admit the largest reservation it can produce**; at 240s a genuinely-owed venue leg could
+never be admitted at any elapsed time, which is the arithmetic that produced the starvation.
+
+The round-1 test that asserted the skip was **replaced, not relaxed**: its premise was the
+broken arithmetic. The real budget behaviour is now pinned in `stall.test.ts` with the clock
+driven, where elapsed time is genuine; raising the budget to 5,000s reddens it.
+
+### Findings 2–6 — all accurate, all fixed
+
+| # | What was wrong | Fix |
+| --- | --- | --- |
+| 2 | The Schedule dataset's operator-facing `currentAutomation` named two automations; the toggle now pauses three — the same class of false operator claim this branch deliberately fixed in `maintenanceActions.ts` | Both it and `plannedPolicy` name the presentation job |
+| 3 | "counted independently by up to four jobs" — now five, and the enumeration is the stated justification for why no number reaches the operator, so it is load-bearing | Corrected |
+| 4 | My comment claimed `presentation-no-op` "raises no issue at all and cannot reach a repair link" — **falsified by round 1's own refusal degradation**, which pairs `failure` with that reason | Comment states the reachable pairing and why it is deliberately not repairable |
+| 5 | "`schedule-refresh` and `rankings` are the only jobs whose one run can span several years" contradicted this same PR's "THE THIRD multi-year job" | Both comments reconciled |
+| 6 | The presentation stored-target validator rejected `undefined` and required closed membership in *this build's* vocabulary, unlike every sibling — making `rebuildTarget`'s legacy handling unreachable, and rendering a newer build's receipt `invalid` after a promote-then-rollback | Matches the siblings' tolerance; shape still enforced |
+
+Finding 6's fix left two helpers with no consumer, so they were **deleted** rather than kept
+as unused exports.
+
+**One test caught me claiming more than I proved.** The first version of finding 6's test
+asserted that `undefined` fields are accepted, but every field in its fixture was present —
+the mutation that rejects `undefined` stayed green. A second, genuinely legacy row was added,
+and both halves now redden independently.
+
 ## Verification
 
 Run against the merged tree at `HEAD`, worktree clean, each gate its own command:
@@ -345,7 +398,7 @@ Run against the merged tree at `HEAD`, worktree clean, each gate its own command
 | --- | --- |
 | `npx tsc --noEmit` | exit 0 |
 | `npm run lint:all` | exit 0 |
-| `npm test` | exit 0 — **5563 pass, 0 fail, 0 cancelled** |
+| `npm test` | exit 0 — **5566 pass, 0 fail, 0 cancelled** |
 
 The known-failure set on `main` is empty, so zero failures is the merge condition and it is
 met.

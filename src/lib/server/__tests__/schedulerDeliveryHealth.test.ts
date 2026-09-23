@@ -411,6 +411,63 @@ test('schedule-presentation classifies against Tuesday 13:00 UTC with a 24-hour 
   assert.equal(await stateOf('schedule-presentation', { nope: true }, now), 'invalid');
 });
 
+test('ROUND 2 #6: a presentation receipt from a NEWER build still renders', async () => {
+  // The stored-target guard used to require closed membership in THIS build's
+  // reason vocabulary. After a promote-then-rollback, a receipt written by a
+  // newer build carrying a reason this build does not know would then render the
+  // whole row `invalid` — discarding a perfectly readable receipt over an enum
+  // member that is only ever DISPLAYED, never branched on.
+  //
+  // The sibling jobs have always been tolerant here (`YEAR_REASON_PATTERN`), and
+  // this asserts the presentation target matches them. `undefined` fields are
+  // accepted for the same reason, which is also what makes `rebuildTarget`'s
+  // `?? null` legacy handling reachable at all.
+  const now = ms('2026-03-18T14:00:00Z');
+  const fromNewerBuild = {
+    ...validReceipt('schedule-presentation', ms('2026-03-17T13:00:00Z')),
+    target: {
+      kind: 'schedule-presentation',
+      totalYears: 2,
+      truncated: false,
+      invalidLifecycleTargets: 0,
+      yearsSkippedForBudget: 0,
+      years: [
+        {
+          year: 2026,
+          // None of these exists in this build's unions.
+          result: 'some-future-status',
+          media: 'some-future-reason',
+          venues: 'another-future-reason',
+          providerCallAttempted: true,
+        },
+        {
+          // A LEGACY row: the writer set none of the optional fields. This is
+          // the `undefined` half, and it is asserted separately because the
+          // unknown-vocabulary row above does not exercise it — an earlier
+          // version of this test claimed both and proved only one.
+          year: 2027,
+        },
+      ],
+    },
+  };
+  assert.equal(
+    await stateOf('schedule-presentation', fromNewerBuild, now),
+    'on-time',
+    'an unknown reason must not discard the row'
+  );
+
+  // The SHAPE is still enforced, so this is tolerance and not a hole: a
+  // non-numeric year is still rejected.
+  const malformed = {
+    ...fromNewerBuild,
+    target: {
+      ...fromNewerBuild.target,
+      years: [{ year: 'not-a-year', result: 'success', media: 'written-clean' }],
+    },
+  };
+  assert.equal(await stateOf('schedule-presentation', malformed, now), 'invalid');
+});
+
 // ── 8. Rankings both slots incl. unequal gaps ────────────────────────────────
 test('rankings classifies against both 04:00/22:00 slots across the unequal gaps', async () => {
   // 06:30 → cutoff 04:30 → required 04:00.

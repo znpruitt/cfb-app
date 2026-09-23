@@ -244,10 +244,16 @@ const EXECUTION_REPAIR_POLICY: Record<ExternalSchedulerJob, ExecutionRepairPolic
    * itself — none is a dataset repair, and linking them to Data Maintenance
    * would send an operator to a page that cannot help.
    *
-   * The reasons absent here for a different reason, stated so a later reader does
-   * not add them: `automation-paused-or-disabled` and the no-target reasons are
-   * `skipped`, and `presentation-no-op` is `no-op`, so none of them raises an
-   * issue at all and none can reach a repair link.
+   * `automation-paused-or-disabled` and the no-target reasons are `skipped`, so
+   * they raise no issue and cannot reach a repair link.
+   *
+   * `presentation-no-op` IS reachable here, and an earlier version of this
+   * comment wrongly said it was not. A run whose years all no-opped is degraded
+   * to `failure` when a production target was refused, and the reason stays
+   * `presentation-no-op` — so the pairing raises `scheduler-execution-failed`.
+   * It is deliberately NOT repairable: the fault is a league's lifecycle year,
+   * which Data Maintenance cannot edit. `lifecycle-data-unusable` is the issue
+   * that describes it, and it carries its own guidance.
    */
   'schedule-presentation': {
     kind: 'by-reason',
@@ -816,9 +822,9 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
  *
  * NO NUMBER reaches the operator, and that is a data constraint rather than a
  * style choice. Each count is per JOB and per RUN, counts RECORDS, and the same
- * corrupt league is counted independently by up to four jobs (season-transition
- * while it is preseason; schedule-refresh, rankings, and season-rollover while
- * it is in season). Summing multiplies one league into several; a maximum
+ * corrupt league is counted independently by up to five jobs (season-transition
+ * while it is preseason; schedule-refresh, schedule-presentation, rankings, and
+ * season-rollover while it is in season). Summing multiplies one league into several; a maximum
  * compares runs that happened at different times; and a deduplicated league
  * count is not derivable at all, because a receipt carries counts and never a
  * slug. Naming the reporting JOBS is the most specific true thing available.

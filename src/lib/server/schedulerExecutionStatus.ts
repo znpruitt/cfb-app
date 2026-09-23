@@ -22,11 +22,9 @@ import type {
   ScheduleRefreshCronYearExecution,
 } from '@/lib/schedule/cronExecutionLog';
 import type { SchedulePresentationCronExecutionReason } from '@/lib/schedule/presentationCronExecutionLog';
-import {
-  isSchedulePresentationAggregateStatus,
-  isSchedulePresentationRefreshReason,
-  type SchedulePresentationAggregateStatus,
-  type SchedulePresentationRefreshReason,
+import type {
+  SchedulePresentationAggregateStatus,
+  SchedulePresentationRefreshReason,
 } from '@/lib/schedule/schedulePresentationResult';
 import type { WeeklyScheduleRefreshOperation } from '@/lib/schedule/weeklyRefreshOperation';
 import type { TeamRecordsCronExecutionReason } from '@/lib/teamRecords/cronExecutionLog';
@@ -199,9 +197,12 @@ export type SchedulerExecutionReason =
  *
  * ## Why only these two jobs
  *
- * `schedule-refresh` and `rankings` are the only jobs whose one run can span
- * several years, so their run-level `result`/`reason` cannot say WHICH year
- * failed. The four single-unit jobs (`live-scores`, `game-stats`, `odds`,
+ * `schedule-refresh` and `rankings` are the two jobs whose one run can span
+ * several years AND whose per-year outcome has this partition/row shape, so
+ * their run-level `result`/`reason` cannot say WHICH year failed.
+ * `schedule-presentation` (PLATFORM-757a) is a third multi-year job, but its
+ * per-year evidence is the two PART reasons rather than this structure, so it
+ * carries its own variant instead of reusing this one. The four single-unit jobs (`live-scores`, `game-stats`, `odds`,
  * `team-records`) process one unit per run and are deliberately NOT widened —
  * owner decision 2026-09-04.
  *
@@ -1270,12 +1271,30 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
         target.years.every((entry) => {
           if (typeof entry !== 'object' || entry === null) return false;
           const year = entry as Record<string, unknown>;
+          // TOLERANT in exactly the two ways `isValidStoredYearOutcome` is, and
+          // for the same reasons. An earlier version required `=== null` and
+          // CLOSED membership in THIS BUILD's vocabulary, which was wrong twice:
+          //
+          //   - it made `rebuildTarget`'s `?? null` legacy handling, and the
+          //     "or null on a legacy receipt" doc comments, unreachable;
+          //   - after a promote-then-rollback, a receipt written by a NEWER build
+          //     carrying a reason this build does not know rendered the whole row
+          //     `invalid` on System Health. Losing a row over an unknown enum
+          //     member is worse than showing it: these values are DISPLAYED,
+          //     never branched on.
+          //
+          // The shape is still enforced; only the vocabulary is open, matching
+          // the loose `YEAR_REASON_PATTERN` the sibling jobs already use.
+          const optional = (value: unknown, ok: (v: unknown) => boolean): boolean =>
+            value === undefined || value === null || ok(value);
+          const looseReason = (v: unknown): boolean =>
+            typeof v === 'string' && YEAR_REASON_PATTERN.test(v);
           return (
             isFiniteNumber(year.year) &&
-            (year.result === null || isSchedulePresentationAggregateStatus(year.result)) &&
-            (year.media === null || isSchedulePresentationRefreshReason(year.media)) &&
-            (year.venues === null || isSchedulePresentationRefreshReason(year.venues)) &&
-            (year.providerCallAttempted === null || typeof year.providerCallAttempted === 'boolean')
+            optional(year.result, looseReason) &&
+            optional(year.media, looseReason) &&
+            optional(year.venues, looseReason) &&
+            optional(year.providerCallAttempted, (v) => typeof v === 'boolean')
           );
         })
       );

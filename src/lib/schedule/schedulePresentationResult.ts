@@ -98,24 +98,6 @@ const STATUS_FOR_REASON: Record<SchedulePresentationRefreshReason, SchedulePrese
   };
 
 /**
- * Membership tests for the two closed vocabularies, for readers that must
- * validate a value that arrived from DURABLE STORAGE rather than from this
- * module — today the scheduler receipt's stored-target guard (#757a).
- *
- * `isSchedulePresentationRefreshReason` reads {@link STATUS_FOR_REASON}, which
- * is a total `Record` over the reason union, so the compiler keeps it exhaustive
- * for free. A hand-written second list would be a place for the vocabulary to
- * drift silently the next time a reason is added — and a stored-target guard
- * that silently stopped recognising a reason would render a valid receipt as
- * `invalid` on System Health.
- */
-export function isSchedulePresentationRefreshReason(
-  value: unknown
-): value is SchedulePresentationRefreshReason {
-  return typeof value === 'string' && Object.hasOwn(STATUS_FOR_REASON, value);
-}
-
-/**
  * Whether a part reason represents a FAILED part.
  *
  * Reads the same total `STATUS_FOR_REASON` map the authority derives every part
@@ -125,20 +107,6 @@ export function isSchedulePresentationRefreshReason(
  */
 export function isFailedPartReason(reason: SchedulePresentationRefreshReason): boolean {
   return STATUS_FOR_REASON[reason] === 'failure';
-}
-
-const AGGREGATE_STATUSES: Record<SchedulePresentationAggregateStatus, true> = {
-  success: true,
-  partial: true,
-  'no-op': true,
-  failure: true,
-  'in-progress': true,
-};
-
-export function isSchedulePresentationAggregateStatus(
-  value: unknown
-): value is SchedulePresentationAggregateStatus {
-  return typeof value === 'string' && Object.hasOwn(AGGREGATE_STATUSES, value);
 }
 
 /**

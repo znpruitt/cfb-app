@@ -110,7 +110,7 @@ function stubStallingBody(): void {
   }) as typeof fetch;
 }
 
-async function seed(): Promise<void> {
+async function seed(extraYear?: number): Promise<void> {
   await setAppState('leagues', 'registry', [
     {
       slug: 'a',
@@ -119,6 +119,17 @@ async function seed(): Promise<void> {
       createdAt: '2022-01-01T00:00:00.000Z',
       status: { state: 'season', year: 2026 },
     } satisfies League,
+    ...(extraYear === undefined
+      ? []
+      : [
+          {
+            slug: 'b',
+            displayName: 'League b',
+            year: extraYear,
+            createdAt: '2022-01-01T00:00:00.000Z',
+            status: { state: 'preseason', year: extraYear },
+          } satisfies League,
+        ]),
   ]);
   const datasets = {} as ProviderRefreshSettings['datasets'];
   for (const dataset of PROVIDER_DATASETS) datasets[dataset] = { enabled: true };
@@ -148,6 +159,30 @@ async function seed(): Promise<void> {
     partialFailure: false,
     failedSeasonTypes: [],
   });
+  if (extraYear !== undefined) {
+    await setAppState('schedule', `${extraYear}-all-all`, {
+      at: 1,
+      items: [
+        {
+          id: '202',
+          week: 1,
+          startDate: '2027-09-05T23:00:00.000Z',
+          neutralSite: false,
+          conferenceGame: false,
+          homeTeam: 'Home',
+          awayTeam: 'Away',
+          homeId: null,
+          awayId: null,
+          homeConference: 'SEC',
+          awayConference: 'SEC',
+          status: 'scheduled',
+          seasonType: 'regular',
+        },
+      ],
+      partialFailure: false,
+      failedSeasonTypes: [],
+    });
+  }
   // A FRESH venue catalog, so the venue part short-circuits on its TTL and this
   // test isolates the media stall. Without it the run would stall twice and the
   // assertion below could not say which site it measured.
@@ -256,4 +291,53 @@ test('ACCEPTANCE 3: the receipt is written even when the provider stalls MID-BOD
   assert.equal(receipt.value.result, 'failure');
   assert.equal(receipt.value.providerCallAttempted, true);
   assert.equal(receipt.value.target.kind, 'schedule-presentation');
+});
+
+test('ACCEPTANCE 9: a year that eats the clock stops the NEXT year from starting', async (t) => {
+  // The budget's real behaviour, with elapsed time that is genuine rather than
+  // an artefact of an oversized reservation. `Date` is mocked alongside
+  // `setTimeout`, so ticking the stalled attempts advances the wall clock the
+  // route reads — which is the only way to reach the branch inside the 30s
+  // per-process cap.
+  //
+  // The venue catalog is fresh, so the leg is NOT owed and each year reserves
+  // one media leg (121s). Year 2026 sorts first (no media entry at all) and its
+  // media stalls through all three attempts, burning ~123s. 2027 then needs
+  // 123 + 121 = 244s... which still fits under 250s, so the tick count below
+  // deliberately carries it past the line.
+  await seed(2027);
+  stubStallingBody();
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+
+  const running = GET(
+    new Request('https://turfwar.games/api/cron/schedule-presentation', {
+      headers: { authorization: `Bearer ${CRON_SECRET}` },
+    })
+  );
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  };
+  for (let i = 0; i < 12; i += 1) {
+    await settle();
+    t.mock.timers.tick(CFBD_PEAK_LATENCY_TIMEOUT_MS + 5_000);
+  }
+  await settle();
+  const res = await running;
+  t.mock.timers.reset();
+
+  const body = await res.json();
+  assert.equal(body.years.length, 1, 'only the first year ran');
+  assert.equal(body.yearsSkippedForBudget, 1, 'the second year was not started');
+  assert.equal(body.reason, 'budget-exhausted');
+
+  // THE POINT, again: the run still filed its receipt.
+  await deferrer.flush();
+  const receipt = await readSchedulerReceipt('schedule-presentation');
+  assert.ok(receipt, 'a budget-stopped run still files its receipt');
+  assert.equal(
+    receipt.value.target.kind === 'schedule-presentation' &&
+      receipt.value.target.yearsSkippedForBudget,
+    1,
+    'and the skipped year reaches it'
+  );
 });

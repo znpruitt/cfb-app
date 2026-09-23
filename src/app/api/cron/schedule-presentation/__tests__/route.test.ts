@@ -560,26 +560,22 @@ test('ACCEPTANCE 9: a year whose media was NEVER refreshed sorts ahead of every 
 // ACCEPTANCE 9 — the budget SKIP itself (review P1: this branch had no route test)
 // ---------------------------------------------------------------------------
 
-test('P1: an unsettled venue leg stops a SECOND year from starting', async () => {
-  // THE DEFECT BOTH REVIEWERS FOUND. The first version reserved one media leg
-  // (121s) per year and assumed year 1 would commit the venue catalog. It does
-  // not always: `refreshVenuesPart` becomes TTL-exempt only after a successful
-  // DURABLE COMMIT, and the fastest way to miss that is losing the venue lease
-  // to the inline caller — the EXPECTED 757a overlap. Year 1 could then finish
-  // in ~80s having refreshed no venues, year 2 would pass a 121s check, and the
-  // invocation could spend another ~242s on both legs and be killed past 300s
-  // with its receipt unwritten.
+test('the venue obligation comes from the CATALOG, not from a year that skipped the leg', async () => {
+  // Round 1's test here asserted that a held venue lease SKIPPED the second
+  // year. That assertion encoded the broken arithmetic rather than a real
+  // property: the reservation exceeded the whole budget, so the skip happened
+  // regardless of how much time was actually left. It is replaced, not merely
+  // relaxed — the genuine budget behaviour is pinned in `stall.test.ts`, where
+  // the clock is driven and elapsed time is real.
   //
-  // With the venue leg unsettled the reservation is 242s, which exceeds the
-  // whole 240s budget, so no second year can start regardless of how fast year
-  // 1 was. That is what this asserts, and it needs no clock control at all.
+  // What belongs HERE is the obligation's SOURCE. The catalog is absent, so the
+  // leg is owed; another holder has the lease, so this run cannot discharge it.
+  // Both years still run, because there is plenty of time — a reservation is a
+  // bound on what MIGHT be spent, never a reason to skip work that fits.
   await seedLeagues([makeLeague('a', 'season', 2026), makeLeague('b', 'preseason', 2027)]);
   await seedSettings();
   await seedCanonicalSchedule(2026);
   await seedCanonicalSchedule(2027);
-  // No venue-catalog entry at all → outside its TTL → the venue leg is due.
-  // Another holder owns the venue lease, so this run yields it immediately and
-  // commits nothing: the catalog stays exactly as stale as it was.
   const held = await acquireSchedulePresentationLease({
     controlScope: VENUE_CATALOG_REFRESH_CONTROL_SCOPE,
     controlKey: VENUE_CATALOG_REFRESH_CONTROL_KEY,
@@ -589,26 +585,70 @@ test('P1: an unsettled venue leg stops a SECOND year from starting', async () =>
   stubProvider({ media: () => MEDIA_PAYLOAD });
 
   const body = await (await GET(authorized())).json();
+  assert.equal(body.years.length, 2, 'both years run — nothing here is short of time');
+  assert.equal(body.yearsSkippedForBudget, 0);
+  for (const entry of body.years) {
+    assert.equal(entry.venues, 'refresh-in-progress', 'the leg stayed owed all run');
+  }
+  assert.equal(providerUrlLog.filter((u) => u.includes('/venues')).length, 0);
+});
 
-  assert.equal(body.years.length, 1, 'exactly one year ran');
-  assert.equal(body.years[0].venues, 'refresh-in-progress', 'the venue leg never settled');
-  assert.equal(body.yearsSkippedForBudget, 1, 'the second year was not started');
-  assert.equal(body.reason, 'budget-exhausted');
-  // And it really did not spend the provider call it was protecting against.
+test('ROUND 2 #1: a year with no canonical schedule must not starve the year that has one', async () => {
+  // THE REGRESSION ROUND 1 INTRODUCED, and it is worse than the defect it fixed.
+  //
+  // `refreshSchedulePresentation` short-circuits BOTH parts when the canonical
+  // schedule is absent (`schedulePresentationRefresh.ts:696-704`), so it never
+  // invokes the venue leg at all and returns `no-eligible-games` for it. Round 1
+  // inferred "the venue leg is still due" from that outcome — but a year that
+  // never INVOKED the leg says nothing about whether a later year will pay for
+  // it. Combined with a 242s reservation that exceeds the whole 240s budget,
+  // every year after the first was then skipped unconditionally.
+  //
+  // And `orderByStaleness` puts a year with no media entry FIRST, which is
+  // exactly the year with no schedule. So the healthy steady state — a preseason
+  // year not yet cached, beside a live season year — starved the only year that
+  // needed refreshing, every week, permanently. That is the precise inversion of
+  // what the ordering exists to do.
+  await seedLeagues([makeLeague('a', 'season', 2026), makeLeague('b', 'preseason', 2027)]);
+  await seedSettings();
+  // 2026 has a schedule and a media entry; 2027 has neither, so it sorts first.
+  await seedCanonicalSchedule(2026);
+  await setAppState(SCHEDULE_MEDIA_STATE_SCOPE, scheduleMediaStateKey(2026), {
+    at: 1_000,
+    items: [],
+  });
+  // The venue catalog is FRESH, so nothing is owed for venues at all.
+  await setAppState(VENUE_CATALOG_STATE_SCOPE, VENUE_CATALOG_STATE_KEY, {
+    at: Date.now(),
+    items: [
+      {
+        id: 3504,
+        name: 'Kyle Field',
+        city: 'College Station',
+        state: 'TX',
+        countryCode: 'US',
+        timezone: null,
+        capacity: null,
+        grass: null,
+        dome: null,
+      },
+    ],
+  });
+  stubProvider({ media: () => MEDIA_PAYLOAD });
+
+  const body = await (await GET(authorized())).json();
+
+  const ranYears = body.years.map((y: { year: number }) => y.year);
+  assert.ok(ranYears.includes(2027), '2027 sorts first and runs');
+  assert.ok(
+    ranYears.includes(2026),
+    '2026 — the ONLY year with anything to refresh — must not be starved by 2027'
+  );
+  assert.equal(body.yearsSkippedForBudget, 0, 'nothing is owed for venues, so nothing is skipped');
   assert.equal(
     providerUrlLog.filter((u) => u.includes('/games/media')).length,
     1,
-    'only the year that ran issued a media request'
-  );
-
-  await deferrer.flush();
-  const receipt = await readSchedulerReceipt('schedule-presentation');
-  assert.equal(receipt?.value.target.kind, 'schedule-presentation');
-  assert.equal(
-    receipt?.value.target.kind === 'schedule-presentation' &&
-      receipt.value.target.yearsSkippedForBudget,
-    1,
-    'the skipped year reaches the durable receipt'
+    '2026 actually issued its media request'
   );
 });
 
