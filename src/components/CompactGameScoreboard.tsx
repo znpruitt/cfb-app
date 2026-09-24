@@ -255,7 +255,7 @@ export default function CompactGameScoreboard({
       ) : null}
       <div
         className={`mb-1.5 flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs dark:text-zinc-400 ${
-          hasTagSlot ? ' max-sm:flex-wrap max-sm:gap-y-1' : ''
+          hasTagSlot ? 'max-sm:flex-wrap max-sm:gap-y-1' : ''
         }`}
         data-scoreboard-header
       >

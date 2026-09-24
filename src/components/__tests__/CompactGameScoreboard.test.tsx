@@ -588,7 +588,7 @@ test('live scoreboard clips metadata and owner suffixes while wrapping the team 
 
   assert.match(
     html,
-    /overflow-hidden whitespace-nowrap text-xs dark:text-zinc-400 ?" data-scoreboard-header/
+    /overflow-hidden whitespace-nowrap text-xs dark:text-zinc-400 " data-scoreboard-header/
   );
   assert.match(html, /title="CFP rank #24"/);
   const document = new JSDOM(html).window.document;

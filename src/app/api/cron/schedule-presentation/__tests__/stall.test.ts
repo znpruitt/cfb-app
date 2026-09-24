@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
 import test from 'node:test';
 
 import { GET } from '../route';
@@ -443,4 +444,399 @@ test('ROUND 3 #3: a catalog that expires mid-run is owed by the year that follow
   assert.equal(body.years.length, 1, 'the second year is not admitted on a one-leg reservation');
   assert.equal(body.yearsSkippedForBudget, 1);
   assert.equal(body.reason, 'budget-exhausted');
+});
+
+/**
+ * PLATFORM-861 — **the admission check must decide on an elapsed time measured
+ * AFTER its durable read resolves.**
+ *
+ * ## Why these tests need a slow STORE read, and why that is hard here
+ *
+ * The defect is invisible with a healthy store: `venueRefreshDue()` returns in
+ * milliseconds, so a value captured before it and a value captured after it are
+ * the same number. A fixture whose venue read resolves immediately proves
+ * nothing at all — it passes identically before and after the fix. The read has
+ * to be made slow enough to cross the admission boundary.
+ *
+ * Nothing in `appStateStore` can inject latency into a read: its test seams
+ * cover failure (`__setAppStateReadFailureForTests`), lock failure, commit
+ * failure and pool substitution, but not timing. Adding one would widen this
+ * slice into a module the whole app shares, so instead these tests reach the
+ * only seam that already exists at the boundary — **the file-fallback store
+ * calls `fs.readFile`, and `node:fs`'s `promises` object is mutable**, so a test
+ * can wrap it and advance the mock clock for the duration of one read. No
+ * production code carries a timing hook.
+ *
+ * ## Why the frame name and not a call count
+ *
+ * A two-year run makes 28 store reads and exactly ONE of them comes from
+ * `venueRefreshDue` — measured, and it is the governed year's, because an
+ * ungoverned year skips the read entirely. Keying on the read's INDEX would then
+ * encode that count, and any unrelated change to the job's store traffic would
+ * move the latency onto a different read and quietly stop testing the claim.
+ * Keying on the calling frame asks the question the test actually cares about:
+ * is THIS the read the admission check is waiting for.
+ */
+const VENUE_READ_FRAME = 'venueRefreshDue';
+const STALENESS_READ_FRAME = 'mediaObservedAtMs';
+
+/**
+ * A bounded durable read's full cost under PLATFORM-625: FOUR composed 15s
+ * bounds, not one.
+ *
+ * **This was 15_000 and called a "full cost" (PLATFORM-866).** One `getAppState`
+ * on the database path runs `getPool().connect()` at `connectionTimeoutMillis`,
+ * `openBoundedTransaction` at `APP_STATE_OPENER_TIMEOUT_MS`, the statement at
+ * `statement_timeout`, and then `commit` — which carries the same bound, because
+ * `APP_STATE_BOUNDED_BEGIN` sets it with `SET LOCAL` and LOCAL holds to the end
+ * of the transaction. Each is 15s, they are sequential, so the read is ~60s.
+ *
+ * **A FLOOR, NOT A CEILING.** Three of the four legs are SERVER-side
+ * `statement_timeout`s, and `appStateStore` says of its `keepAlive` that "this is
+ * DETECTION, not a tight bound … it closes the 'hangs forever' case, NOT the
+ * 'bounded at 15 s' case" — so if a timeout's error packet never lands the wait
+ * is the OS probe/retry schedule. `queryBounded` also has a fifth round trip this
+ * omits: a timed-out `commit` ends the transaction, reverting `SET LOCAL`, and the
+ * catch's `rollback` then runs unbounded. This fixture therefore models the
+ * cheapest degraded read, not the worst one.
+ *
+ * None of those four constants is exported, so this figure is restated rather
+ * than imported and a change to any of them will not redden this file. That is
+ * the same weakness the 15s version had, and naming it is the only honest
+ * mitigation available from here.
+ *
+ * The value is load-bearing in the docblock by `JOB_BUDGET_MS` and in the
+ * admission comment, where it is what turns the pre-fix under-count from margin
+ * erosion into a `maxDuration` breach.
+ */
+const STORE_READ_WORST_CASE_MS = 60_000;
+
+/** What `JOB_BUDGET_MS - (YEAR_WORST_CASE_MS + VENUE_LEG_WORST_CASE_MS)` comes to:
+ * 250s - (121s + 121s). Neither constant is exported, so the boundary pair below
+ * pins the arithmetic behaviourally instead — a year is admitted at exactly this
+ * elapsed and skipped one millisecond past it. */
+const BOTH_LEGS_ADMISSION_BOUNDARY_MS = 8_000;
+
+// A STACK, not a single slot, so a test can install a second probe as a witness
+// for a first one's absence assertion. Each patch wraps whatever `fs.readFile`
+// already is, so every installed probe observes the same call, and they unwind in
+// reverse on teardown.
+const readClockRestores: Array<() => void> = [];
+
+/**
+ * Advance the mock clock for the duration of every durable read issued from
+ * `frame`, and count them.
+ *
+ * `t.mock.timers.tick` is synchronous, so calling it before delegating to the
+ * real `fs.readFile` puts the whole advance inside the awaited read — which is
+ * precisely where production spends it.
+ */
+function installReadClock(
+  t: { mock: { timers: { tick: (ms: number) => void } } },
+  frame: string,
+  advanceMs: number
+): { reads: number } {
+  const original = fs.readFile;
+  const counter = { reads: 0 };
+  fs.readFile = (async (...args: unknown[]) => {
+    if ((new Error('frame probe').stack ?? '').includes(frame)) {
+      counter.reads += 1;
+      t.mock.timers.tick(advanceMs);
+    }
+    return (original as (...a: unknown[]) => Promise<unknown>)(...args);
+  }) as unknown as typeof fs.readFile;
+  readClockRestores.push(() => {
+    fs.readFile = original;
+  });
+  return counter;
+}
+
+/** Media succeeds instantly; the venue leg fails, so an owed catalog STAYS owed
+ * and the next year is still judged on both legs. */
+function stubMediaOkVenuesDown(): void {
+  globalThis.fetch = (async (input: URL | string | Request) => {
+    const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (href.includes('/games/media')) {
+      return new Response(JSON.stringify([{ id: 101, mediaType: 'tv', outlet: 'ESPN' }]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    throw new Error('venue provider unavailable');
+  }) as typeof fetch;
+}
+
+async function runCron(): Promise<{
+  years: Array<{ year: number; venues: string }>;
+  yearsSkippedForBudget: number;
+  reason: string;
+}> {
+  return (await (
+    await GET(
+      new Request('https://turfwar.games/api/cron/schedule-presentation', {
+        headers: { authorization: `Bearer ${CRON_SECRET}` },
+      })
+    )
+  ).json()) as {
+    years: Array<{ year: number; venues: string }>;
+    yearsSkippedForBudget: number;
+    reason: string;
+  };
+}
+
+test.afterEach(() => {
+  while (readClockRestores.length > 0) readClockRestores.pop()?.();
+});
+
+test('PLATFORM-861: a slow venue read is charged to the admission check, not to the year after it', async (t) => {
+  // THE DEFECT, AND THE ONE TEST THAT FAILS AGAINST PRE-FIX `main`.
+  //
+  // The catalog is exactly at its TTL, so the leg is owed for every year, and the
+  // venue provider is down, so year 1 cannot settle the obligation — year 2 is
+  // judged on both legs, a 242s reservation.
+  //
+  // `Date` is mocked and anchored to real time, and NOTHING advances it except
+  // the venue read itself. So year 2 reaches its `elapsedMs` capture with elapsed
+  // 0, and 0 + 242 = 242 <= 250 admits on the stale value. The read then costs
+  // its PLATFORM-625 floor, ~60s, and 60 + 242 = 302 > 250 — so a check that
+  // re-measures skips the year and a check that reuses the stale capture admits
+  // it.
+  //
+  // Referred to by NAME, not by line number: these two sentences cited `:421`
+  // until PLATFORM-866, and `:421` is a bare `//` line — the `route.ts` half of
+  // that same remediation was applied and this half was not, so the comment
+  // explaining the fix misdirected exactly where the fix said not to.
+  //
+  // WHY THE FIXTURE CROSSES THE BOUNDARY: the margin with both legs owed is 8s
+  // (250 - 242), and a degraded store read is worth ~60s or more. The defect's whole
+  // reachability argument is that one read outweighs the margin — and at 60s it
+  // does so by enough to carry the year past the 300s ceiling, not merely past
+  // the budget.
+  const t0 = Date.now();
+  await seed(2027, VENUE_CATALOG_TTL_MS);
+  t.mock.timers.enable({ apis: ['Date'], now: t0 });
+  stubMediaOkVenuesDown();
+  const venueReads = installReadClock(t, VENUE_READ_FRAME, STORE_READ_WORST_CASE_MS);
+
+  const body = await runCron();
+  t.mock.timers.reset();
+
+  assert.equal(venueReads.reads, 1, 'only the GOVERNED year reads the catalog — year 1 skips it');
+  assert.equal(
+    body.years.length,
+    1,
+    'the slow read is charged to the year it precedes, so 2027 is skipped'
+  );
+  assert.equal(body.yearsSkippedForBudget, 1);
+  assert.equal(body.reason, 'budget-exhausted');
+});
+
+test('PLATFORM-861: a year IS admitted at exactly the both-legs boundary', async (t) => {
+  // The lower half of the constants pin, and the reason the fix cannot starve a
+  // later year: re-measuring makes the decision honest, not stricter. At exactly
+  // 8s of elapsed, 8 + 242 = 250 is NOT greater than the budget, so the year
+  // runs. Together with the test below this pins
+  // `JOB_BUDGET_MS - (YEAR_WORST_CASE_MS + VENUE_LEG_WORST_CASE_MS)` at 8s and
+  // the comparison as strict `>`, neither constant being exported.
+  const t0 = Date.now();
+  await seed(2027, VENUE_CATALOG_TTL_MS);
+  t.mock.timers.enable({ apis: ['Date'], now: t0 });
+  stubMediaOkVenuesDown();
+  const venueReads = installReadClock(t, VENUE_READ_FRAME, BOTH_LEGS_ADMISSION_BOUNDARY_MS);
+
+  const body = await runCron();
+  t.mock.timers.reset();
+
+  assert.equal(venueReads.reads, 1);
+  assert.equal(body.years.length, 2, 'exactly 250s of promise is still a promise the job can keep');
+  assert.equal(body.yearsSkippedForBudget, 0);
+});
+
+test('PLATFORM-861: one millisecond past the boundary and the year is skipped', async (t) => {
+  // The upper half. 8.001s + 242s = 250.001s > 250s.
+  const t0 = Date.now();
+  await seed(2027, VENUE_CATALOG_TTL_MS);
+  t.mock.timers.enable({ apis: ['Date'], now: t0 });
+  stubMediaOkVenuesDown();
+  const venueReads = installReadClock(t, VENUE_READ_FRAME, BOTH_LEGS_ADMISSION_BOUNDARY_MS + 1);
+
+  const body = await runCron();
+  t.mock.timers.reset();
+
+  assert.equal(venueReads.reads, 1);
+  assert.equal(body.years.length, 1, 'one millisecond over the budget is over the budget');
+  assert.equal(body.yearsSkippedForBudget, 1);
+});
+
+test('PLATFORM-861: a year that cannot fit under ANY answer costs no durable read', async (t) => {
+  // ACCEPTANCE 2 — the cheap pre-check keeps its value from BEFORE the read, and
+  // that ordering is what the fix must not disturb. It was itself a review
+  // finding (757a round 4, finding 2).
+  //
+  // The catalog is fresh here, so the answer would have been "not owed" and a
+  // one-leg reservation. The point is that the job never finds out: year 1 burns
+  // 130s, and 130 + 121 exceeds the budget under the CHEAPEST possible answer, so
+  // spending a bounded read to discover which answer applies is wasted. Keyed on
+  // the read's calling frame, so this asserts the absence of the read itself
+  // rather than the absence of some side effect of it.
+  //
+  // ## THE ABSENCE ASSERTION NEEDS A WITNESS, AND HAD NONE (PLATFORM-866)
+  //
+  // `venueReads.reads === 0` is the only absence claim in this group, and the
+  // counter only increments when a stack carries the frame name — so "the read
+  // never happened" and "the probe cannot see reads" render identically. Measured:
+  // blinding `VENUE_READ_FRAME` to a nonexistent frame reddened the three tests
+  // above and left THIS ONE GREEN. The other probes carry implicit controls
+  // (`reads === 1`, `reads >= 1`); an absence assertion cannot.
+  //
+  // So a second probe watches a frame this run MUST reach — `orderByStaleness`
+  // reads media freshness for both years before the loop — with a zero advance so
+  // it changes no timing. If the mechanism ever stops seeing reads (a pool path
+  // when `DATABASE_URL` is set, an inlined helper, a lowered
+  // `Error.stackTraceLimit`), the witness goes to zero and says so, instead of the
+  // real assertion passing blind.
+  //
+  // The witness proves the MECHANISM sees reads. It does not prove that
+  // `VENUE_READ_FRAME` still names a real function — blinding only that constant
+  // leaves this test green, because zero is what it expects. The three tests above
+  // pin that name (they assert `reads === 1`), so the GROUP covers it; the static
+  // check below makes this test independently sound rather than relying on its
+  // neighbours, since a reader deleting one of them would not know they had
+  // removed this one's support.
+  const t0 = Date.now();
+  await seed(2027);
+  t.mock.timers.enable({ apis: ['Date'], now: t0 });
+  let mediaCalls = 0;
+  globalThis.fetch = (async (input: URL | string | Request) => {
+    const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (!href.includes('/games/media')) throw new Error(`unexpected provider call: ${href}`);
+    mediaCalls += 1;
+    // 130s, so `130 + 121 = 251 > 250` fails the pre-check for year 2.
+    if (mediaCalls === 1) t.mock.timers.tick(130_000);
+    return new Response(JSON.stringify([{ id: 101, mediaType: 'tv', outlet: 'ESPN' }]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+  const routeSource = await fs.readFile(new URL('../route.ts', import.meta.url), 'utf8');
+  assert.ok(
+    routeSource.includes(`function ${VENUE_READ_FRAME}(`),
+    `${VENUE_READ_FRAME} is not a function in route.ts, so a stack could never carry it`
+  );
+  // ORDER MATTERS, and it was wrong (PLATFORM-866). Each probe wraps whatever
+  // `fs.readFile` already is, so the one installed LAST is outermost and captures
+  // its stack one frame SHALLOWER than the one it wraps. The witness was installed
+  // last, which made it a weaker observer than the probe whose blindness it exists
+  // to rule out — and stack truncation, which its own comment names, is exactly a
+  // cause that hides a deep frame while leaving a shallow one visible. Installed
+  // FIRST, the witness sits innermost and is a true lower bound: if it can see its
+  // frame from there, the venue probe can see one from shallower.
+  const witnessReads = installReadClock(t, STALENESS_READ_FRAME, 0);
+  const venueReads = installReadClock(t, VENUE_READ_FRAME, STORE_READ_WORST_CASE_MS);
+
+  const body = await runCron();
+  t.mock.timers.reset();
+
+  assert.ok(
+    witnessReads.reads >= 1,
+    `the frame probe can see durable reads in this run (witness saw ${witnessReads.reads}), ` +
+      'so the zero below means the read was ABSENT and not that the probe was blind'
+  );
+  assert.equal(
+    venueReads.reads,
+    0,
+    'the durable read was never attempted for a year that cannot fit'
+  );
+  assert.equal(body.years.length, 1);
+  assert.equal(body.yearsSkippedForBudget, 1);
+});
+
+test('PLATFORM-861: the FIRST year runs even past the budget, with a slow store and the venue leg owed', async (t) => {
+  // ACCEPTANCE 3 — THE STARVATION GUARD, stated as strongly as the code allows.
+  //
+  // Round 1 shipped a reservation larger than the whole budget and starved every
+  // year after the first; the reverted round-4 store term would have done it
+  // again. The first year is the floor under both: it is UNGOVERNED, so no
+  // elapsed time and no reservation can skip it.
+  //
+  // The clock is driven past the ENTIRE budget before the loop begins — 400s,
+  // charged to the staleness read that orders the years — and the year must still
+  // run. A weaker fixture (a few seconds of elapsed) would pass against a
+  // governed first year too, and prove nothing.
+  const t0 = Date.now();
+  await seed(undefined, VENUE_CATALOG_TTL_MS);
+  t.mock.timers.enable({ apis: ['Date'], now: t0 });
+  stubMediaOkVenuesDown();
+  const stalenessReads = installReadClock(t, STALENESS_READ_FRAME, 400_000);
+
+  const body = await runCron();
+  t.mock.timers.reset();
+
+  assert.ok(stalenessReads.reads >= 1, 'the clock really was driven, before the loop');
+  assert.equal(
+    body.years.length,
+    1,
+    'the first year is ungoverned and runs whatever the clock says'
+  );
+  assert.equal(body.yearsSkippedForBudget, 0);
+  assert.equal(
+    body.years[0].venues,
+    'provider-fetch-failed',
+    'and it ran with the venue leg genuinely owed, not short-circuited on a fresh TTL'
+  );
+});
+
+test('every PLATFORM-861 test name cited in route.ts resolves to a test in this file', async () => {
+  // THE GUARD FOR THE DEFECT REVIEW FOUND ON THIS BRANCH. The first version of
+  // the admission comment cited a test called 'PLATFORM-861: the admission
+  // boundary is 8s of elapsed with both legs owed'. No such test was ever
+  // written — the string existed only in the comment.
+  //
+  // A DANGLING CITATION IS WORSE THAN NO CITATION. The binding rule is that a
+  // comment asserting runtime behaviour names the test asserting the same thing,
+  // and its whole value is that a reader can go read that test. A name that
+  // resolves to nothing spends the reader's trust and then strands them: they
+  // cannot tell whether the test was deleted, renamed, or never existed, so they
+  // cannot tell whether the comment's claim is covered or merely asserted.
+  //
+  // Checking the citation resolves is not the same as checking it is the RIGHT
+  // test, and this test does not claim to do that. It closes the failure mode
+  // that actually occurred, which is the name pointing at nothing.
+  //
+  // ## THE FIRST VERSION OF THIS GUARD WAS VACUOUS, AND HOW IS THE LESSON
+  //
+  // It searched the whole of this FILE's text for each cited name. The comment
+  // directly above quotes the dangling name in order to explain it — so the
+  // mutation that should have reddened this test found its own name in this
+  // test's documentation and passed. **Quoting the mistake reproduced it**, the
+  // same shape as `CLAUDE.md`'s rule about closing keywords in commit messages.
+  //
+  // The fix is to stop keying on the file's TEXT and key on the quantity the
+  // check is actually about: the set of names that `test(...)` DECLARES. A
+  // citation resolves when a test by that name exists, not when the string
+  // appears somewhere in the file — prose, however careful, is not a test.
+  const source = await fs.readFile(new URL('../route.ts', import.meta.url), 'utf8');
+  const selfSource = await fs.readFile(new URL('./stall.test.ts', import.meta.url), 'utf8');
+  // Comment continuations wrap across lines, so the leading `// ` of each line is
+  // stripped before matching a quoted name that may span two or three of them.
+  const flatten = (text: string): string => text.replace(/\n\s*\/\/ ?/g, ' ').replace(/\s+/g, ' ');
+  const cited = [...flatten(source).matchAll(/'(PLATFORM-861:[^']+)'/g)].map((m) => m[1]);
+  const declared = new Set(
+    [...selfSource.matchAll(/^test\(\s*'([^']+)'/gm)].map((match) => match[1])
+  );
+
+  assert.ok(cited.length >= 5, `expected route.ts to cite its tests, found ${cited.length}`);
+  // A positive control on the extraction itself: if the `test(...)` pattern ever
+  // stops matching, `declared` goes empty and every citation would "fail" for the
+  // wrong reason — a check that cannot see is not a check that found nothing.
+  assert.ok(
+    declared.size >= 10,
+    `the test-name extraction saw only ${declared.size} declarations, so it is not reading this file`
+  );
+  for (const name of cited) {
+    assert.ok(
+      declared.has(name),
+      `route.ts cites a test that does not exist in stall.test.ts: ${JSON.stringify(name)}`
+    );
+  }
 });

@@ -103,7 +103,7 @@ New temporary mutations, all restored and each exiting 1:
 The scoped corrected tests pass (42/42). Exact-commit gates and confirming reviews for this
 owner-authorized correction are recorded on PR #864; the round-1 passes below are historical.
 
-At that clean, unchanged commit: `npm test` exited 0 (5581 passed, zero failed/skipped),
+At clean, unchanged `0b7318cb` (historical round-1 results): `npm test` exited 0 (5581 passed, zero failed/skipped),
 `npm run test:browser:required` exited 0 (16 passed, zero failed/skipped), `npx tsc --noEmit`
 exited 0, and pre-push `npm run lint:all` exited 0. The final docs-only commit receives its own gate
 run, recorded on [PR #864](https://github.com/znpruitt/cfb-app/pull/864), rather than inheriting these
@@ -136,3 +136,21 @@ All probes were temporary and restored. Exact-commit gates and full-branch confi
 are recorded on PR #864. Deferred separately: [#868](https://github.com/znpruitt/cfb-app/issues/868)
 (required browser gate discovery drift) and [#869](https://github.com/znpruitt/cfb-app/issues/869)
 (the design rationale above phone width). Neither is implemented here.
+
+## Final owner-authorized separator correction
+
+The conditional string no longer supplies a second leading space; the static literal owns the
+separator, and the existing untagged-header matcher requires it. Removing that literal space now
+concatenates `dark:text-zinc-400max-sm:flex-wrap` on tagged rows, so existing class and geometry
+assertions can detect the regression. No test was added; the optional matcher was strengthened.
+
+The review verdicts answered different questions: Codex found no runtime regression, while
+`/code-review` found missing coverage of the separator itself. Both were correct: other scanned
+files still emit `dark:text-zinc-400`, while the old conditional space masked removing the literal
+separator. This correction makes that removal observable instead of relying on a temporary probe.
+
+The owner accepted the review gate and authorized this correction and merge. Current main is
+integrated, including the owner's DESIGN.md rationale correction `dd69113f`; the phone-only rule
+survives. Finding 5 is deferred as #870: it is pre-existing infrastructure, and Codex's in-scope
+silence is recorded as evidence against expanding this slice. Exact-commit gates and the temporary
+separator-deletion mutation are recorded on PR #864.
