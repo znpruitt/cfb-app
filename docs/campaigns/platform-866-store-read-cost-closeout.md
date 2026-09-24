@@ -4,7 +4,12 @@ Status: Implemented and gated; pre-merge closeout, not a deployment claim.
 Issue: [#866](https://github.com/znpruitt/cfb-app/issues/866). **No prompt file** — the owner filed
 the issue from the post-merge review of #861 and authorized the slice directly, so no `PROMPT_ID` was
 assigned and none is invented here.
-Branch: `claude/866-store-read-cost`, off `origin/main` at `41652614`.
+Branch: `claude/866-store-read-cost`, off `origin/main` at `40ab8485`.
+**CORRECTED in round 2:** this said `41652614`, which was `origin/main` when #861 merged but not when
+this branch was cut — `main` had advanced to `40ab8485` in between. `54a00f71^` and
+`git merge-base HEAD origin/main` both give `40ab8485`, and this document's own review line
+(`--base 40ab8485`) contradicted its Base line. **That is precisely the class §5 below corrects
+in the #861 closeout**, committed in the same breath as the correction.
 
 **No production behaviour changes.** Every edit is a comment, a test, or a document. The #861
 behavioural line is unchanged and was independently confirmed correct on every path by the post-merge
@@ -36,21 +41,29 @@ statement is. **~60s, not 15s and not 45s** — and, per review round 1 below, *
 rather than a ceiling**, because three of the four legs are server-side timeouts whose error packet may
 never land and a timed-out `commit` leaves the catch's `rollback` unbounded.
 
-### It moves the severity twice, both upward, and past the ceiling
+### What the under-count costs, and what it does NOT
 
-| under-count | year starts | year ends | vs the 300s `maxDuration` |
-| --- | --- | --- | --- |
-| 15s (as #861 recorded) | ~23s | ~265s | 35s of margin |
-| 45s (three bounds counted) | ~53s | ~295s | 5s of margin |
-| **60s (composed)** | **~68s** | **~310s** | **breached, and 60s is a floor** |
+| under-count | year starts | + 242s of CFBD time ends at |
+| --- | --- | --- |
+| 15s (as #861 recorded) | ~23s | ~265s |
+| **60s (composed)** | **~68s** | **~310s** |
 
-**So the pre-fix defect was not "bounded margin erosion with no traced case breaching 300s."** In the
-worst case it could run the function past its own ceiling and lose the receipt — which is #757's
-failure reproduced inside the job built to prevent it.
+> **THE THRESHOLD FRAMING WAS WRONG, AND REVIEW ROUND 2 FOUND IT.** These ends add 242s of **CFBD
+> time only**, which the `JOB_BUDGET_MS` docblock states explicitly. The same degradation that makes
+> the admission read cost 15s or 60s also applies to the year's own dozen sequential store round
+> trips, which at these rates add hundreds of seconds by themselves — so the 300s ceiling is reachable
+> at **every** row, including 15s, and "35s of margin" / "5s of margin" were not margin. Counting
+> store latency in the admission read while omitting it from the year's body is what manufactured the
+> threshold.
+>
+> **What the under-count actually costs: the budget admits a year it was designed to refuse.** That is
+> a budget-correctness defect and it is sufficient on its own; re-measuring fixes exactly it. Ceiling
+> reachability under a degraded store is a SEPARATE, PRE-EXISTING residual — the first year is
+> ungoverned so no admission check protects it, and the store terms are deliberately unreserved —
+> which neither #861 nor #866 introduces or removes.
 
-**#861's fix removes it.** Re-measuring makes elapsed read ~68s, `68 + 242 > 250`, and the year is
-correctly skipped. **This corrects the record, not a live defect.** Stated plainly because a severity
-revision on a shipped fix invites the opposite reading.
+**#861's fix addresses exactly the budget-correctness half.** Re-measuring makes elapsed read ~68s,
+`68 + 242 > 250`, and the year is correctly skipped.
 
 ### Provenance, which is the reusable part
 
@@ -259,6 +272,87 @@ otherwise have hidden that only one guard was being tested.
 contention" and "at most 15s, once", and `docs/campaigns/platform-757a-presentation-job-closeout.md`
 carries the same figure**, both with no supersession marker. This closeout enumerates "its prompt" as
 one of the five sites the figure travelled to, so leaving it unmarked contradicts this document.
-`docs/prompts/` is planning's, like `docs/next-tasks.md`, so it is flagged rather than edited — but
-the earlier version of this closeout named only `next-tasks.md` as deliberately untouched, which
+**The two files are withheld for DIFFERENT reasons, and round 2 found that this section gave only
+one.** `docs/prompts/` is planning's, like `docs/next-tasks.md`. But
+`platform-757a-presentation-job-closeout.md` is in `docs/campaigns/` — **a directory this very commit
+edits** — so "planning's file" was never the reason for it. The real reason is authorization: the
+owner authorized exactly one pre-existing correction for this slice, the `JOB_BUDGET_MS` docblock, and
+"nothing else pre-existing". Another slice's closeout is outside that grant, so it is relayed rather
+than edited — and it still carries the 15s figure at several points, including a "265s against a 250s
+promise, eating 15s of the 50s ceiling margin" line that #866 now contradicts twice over.
+
+The earlier version of this section also named only `next-tasks.md` as deliberately untouched, which
 implied the prompt had been handled. It had not.
+
+---
+
+## Review round 2 — six findings, and the headline conclusion was one of them
+
+`/code-review 46bff0a6 high`. Six findings, two medium, all reproduced before acceptance. **Codex has
+not reviewed `46bff0a6`**; only the round-1 Codex report at `40ab8485` exists, and it was clean.
+
+Round 2 cleared, by its own re-testing: the four-bound composition and all five of its line citations;
+the restore stack's LIFO unwinding; the witness-ordering argument; that `--base 40ab8485` is a real
+merge-base; and that raising the fixture to 60s weakens no #861 assertion.
+
+### The threshold claim was false, and it was this slice's headline
+
+**`year ends` = `year starts + 242s`, and 242s counts CFBD time ONLY** — which the `JOB_BUDGET_MS`
+docblock states, in a paragraph this slice edited. The rows' premise is a degraded store, since that is
+the only condition under which the admission read costs 15s or 60s. **In that same condition the
+year's own dozen sequential store round trips are equally degraded, adding hundreds of seconds by
+themselves.** So the 300s ceiling is reachable at *every* row, including 15s; "35s of margin" and "5s
+of margin" were not margin; and "60s crosses a threshold that 15s did not" does not follow.
+
+**Counting store latency in the admission read while omitting it from the year's body is what
+manufactured the threshold.** The arithmetic in each row was right, which is why it survived — the
+error was in what the rows were allowed to conclude.
+
+Corrected at all four durable sites: the `route.ts` comment, both closeouts, and the registry. The
+45s row is gone rather than re-labelled, since its only purpose was to sit on a slope the table no
+longer claims.
+
+**What the under-count actually costs: the budget admits a year it was designed to refuse.** That is a
+budget-correctness defect, it is sufficient on its own, and re-measuring fixes exactly it. Ceiling
+reachability under a degraded store is separate and pre-existing — the first year is ungoverned, so no
+admission check can protect it, and the store terms are deliberately unreserved. Round 1 also claimed
+"re-measuring removes that … not a live defect"; that holds for the governed admission path only, and
+now says so.
+
+### The gate's SCRIPT exit was 0 on every path
+
+`check_861_promoted; echo "gate exit: $?"` ends in a successful `echo`, so the block's status was the
+echo's. Measured: `CHECK BROKEN` → script exit **0**; `NOT PROMOTED` → **0**; `PROMOTED` → **0**.
+
+**Round 1's verification table recorded the FUNCTION's return, not the script's — so the re-verification
+did not cover the quantity the section exists to protect.** Third instance of one defect in one
+section: first the message, then the function's contract, now the block's status. Each fix moved the
+conflation one level out rather than removing it.
+
+Now `check_861_promoted; gate=$?; echo "gate exit: $gate"; ( exit "$gate" )`. The subshell makes `$?`
+the verdict for anything wrapping the block **without** exiting an interactive shell, which a bare
+`exit` would. Verified in zsh and bash, as a script and sourced.
+
+### The remaining four
+
+- **A citation with a wrong path AND line numbers** — `server/appStateStore.ts:656-692`; the file is
+  `src/lib/server/appStateStore.ts`, and this slice's own text argues twice that self-references must
+  be by name. The citation guard only validates `'PLATFORM-861: …'` test names, so nothing reddened.
+  Now named, not numbered.
+- **The Base line said `41652614`** — `origin/main` when #861 merged, but `main` had advanced to
+  `40ab8485` before this branch was cut. Corrected above, with the irony noted in place.
+- **The relay gave one reason for two files.** `docs/prompts/` is planning's; the 757a closeout is in
+  `docs/campaigns/`, which this commit edits, so that reason never covered it. The real reason is the
+  authorization boundary — one pre-existing correction was granted, "nothing else pre-existing".
+- **Two comment lines were left unreflowed** at 115 and 89 characters after mid-sentence insertions.
+  Prettier does not reflow comments, so `lint:all` stayed green. Reflowed; `route.ts:109`'s 89-character
+  formula line is pre-existing and deliberately untouched.
+
+### What this round says about the slice
+
+Three of the six findings are **defects introduced by round 1's own corrections** — the script exit,
+the citation, the Base line — and a fourth, the threshold, was introduced by this slice's founding
+commit. **Every one of them is an over-claim in the safe-looking direction**: a stricter severity, a
+more precise citation, a tidier ledger. That is the same shape as the 15s figure this slice exists to
+correct, and the reason it keeps recurring is that a correction feels like evidence of care and is
+therefore read less sceptically than the thing it replaces.

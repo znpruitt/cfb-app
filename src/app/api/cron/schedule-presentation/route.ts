@@ -143,8 +143,9 @@ const VENUE_LEG_WORST_CASE_MS = 3 * CFBD_PEAK_LATENCY_TIMEOUT_MS + 1_000;
  *
  * **60s, AND THIS LINE USED TO SAY 15s (PLATFORM-866).** It named
  * `APP_STATE_STATEMENT_TIMEOUT_MS` and `APP_STATE_OPENER_TIMEOUT_MS` in one
- * breath and never composed them. ONE round trip through `queryBounded`
- * (`server/appStateStore.ts:656-692`) is FOUR sequential 15s bounds:
+ * breath and never composed them. ONE round trip through `queryBounded` in
+ * `src/lib/server/appStateStore.ts` — named, not line-numbered, for the reason
+ * given at the admission check below — is FOUR sequential 15s bounds:
  * `getPool().connect()` at `connectionTimeoutMillis`, `openBoundedTransaction`
  * at `APP_STATE_OPENER_TIMEOUT_MS`, the statement at `statement_timeout`, and
  * the `commit` — which carries the same bound, because
@@ -204,10 +205,10 @@ const JOB_BUDGET_MS = 250_000;
 // budget is set to. PLATFORM-866 sharpened this rather than changing it: at ~60s
 // per round trip the reverted 45s allowance was smaller than a SINGLE round
 // trip's worst case, so it would not have been sufficient even at the cost of
-// the starvation it caused. So the budget governs CFBD time, the store waits are bounded
-// separately by #625, and the residual is DOCUMENTED rather than reserved for.
-// Stating it is the fix; pretending to reserve for it would have cost the job
-// its second year every week.
+// the starvation it caused. So the budget governs CFBD time, the store waits
+// are bounded separately by #625, and the residual is DOCUMENTED rather than
+// reserved for. Stating it is the fix; pretending to reserve for it would have
+// cost the job its second year every week.
 
 function verifyCronSecret(req: Request): 'ok' | 'not-configured' | 'invalid' {
   const cronSecret = process.env.CRON_SECRET?.trim();
@@ -456,8 +457,9 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
       // answer does not spend a durable read discovering which answer it would
       // have got. That read costs at least roughly 60s under contention — four
       // composed 15s bounds, and not a ceiling; see the docblock by
-      // `JOB_BUDGET_MS` — and rebuilds every catalog row to reach one field. That the read is not even attempted
-      // for a year which cannot fit under any answer is asserted by
+      // `JOB_BUDGET_MS` — and rebuilds every catalog row to reach one field.
+      // That the read is not even attempted for a year which cannot fit under any
+      // answer is asserted by
       // 'PLATFORM-861: a year that cannot fit under ANY answer costs no durable
       // read' in `__tests__/stall.test.ts`.
       //
@@ -486,30 +488,41 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
       // which this year would actually START by 60s OR MORE — at exactly the
       // moment the job decides whether the year fits.
       //
-      // AT LEAST ~60s, NOT 15s, AND THE DIFFERENCE CROSSES A THRESHOLD
-      // (PLATFORM-866). One `getAppState` composes FOUR sequential 15s bounds and
-      // is not ceilinged by them; the docblock by `JOB_BUDGET_MS` names all of
-      // that. #861 recorded 15s, inherited from that docblock. The figures below
-      // are therefore FLOORS, and the 45s row is this slice's own intermediate
-      // derivation — recorded in `campaigns/platform-866-store-read-cost-closeout.md`,
-      // and NOT the 45s store allowance 757a tried and reverted, which was a
-      // chosen number rather than a composition.
+      // AT LEAST ~60s, NOT 15s (PLATFORM-866). One `getAppState` composes FOUR
+      // sequential 15s bounds and is not ceilinged by them; the docblock by
+      // `JOB_BUDGET_MS` names all of that. #861 recorded 15s, inherited from that
+      // docblock.
       //
       // Worked case, with the venue leg owed and `elapsedMs` reading 8s so
-      // `8 + 242 = 250` admits. Read the rows as successive corrections of the
-      // same estimate, each a FLOOR:
+      // `8 + 242 = 250` admits. The under-count sets when the year STARTS:
       //
-      //   under-count   year starts   year ends   vs the 300s ceiling
-      //   15s           ~23s          ~265s       35s of margin
-      //   45s           ~53s          ~295s       5s of margin
-      //   60s           ~68s          ~310s       BREACHED, and 60s is a floor
+      //   under-count   year starts   + 242s of CFBD time ends at
+      //   15s           ~23s          ~265s
+      //   60s           ~68s          ~310s
       //
-      // So the pre-fix behaviour was not margin erosion, which is what #861 and
-      // its closeout both claimed: in the worst case it could run the function
-      // past its own `maxDuration` and lose the receipt, which is #757's failure
-      // reproduced inside the job built to prevent it. **Re-measuring removes
-      // that** — elapsed reads ~68s, `68 + 242 > 250`, and the year is correctly
-      // skipped — so this comment corrects the RECORD, not a live defect.
+      // **DO NOT READ THOSE ENDS AS CEILING HEADROOM, AND AN EARLIER VERSION OF
+      // THIS COMMENT DID.** It ran a third row at 45s, labelled the first two "35s
+      // of margin" and "5s of margin", and concluded that 60s "crosses a
+      // threshold" the smaller figures did not. **That was wrong, and the docblock
+      // by `JOB_BUDGET_MS` already said why: 242s counts CFBD time ONLY.** The same
+      // degradation that makes this read cost 15s or 60s also applies to the year's
+      // own dozen sequential store round trips, which at these rates add hundreds
+      // of seconds by themselves — so the 300s ceiling is reachable at EVERY row,
+      // including 15s, and none of those ends is a margin. Counting store latency
+      // in the admission read while omitting it from the year's body is what
+      // manufactured the threshold.
+      //
+      // SO WHAT THE UNDER-COUNT ACTUALLY COSTS, stated without the borrowed drama:
+      // the budget admits a year it was designed to refuse. That is a
+      // budget-correctness defect and it is sufficient on its own. Re-measuring
+      // fixes exactly it — elapsed reads ~68s, `68 + 242 > 250`, year correctly
+      // skipped.
+      //
+      // Ceiling reachability under a degraded store is a SEPARATE and PRE-EXISTING
+      // residual, documented by `JOB_BUDGET_MS` and unchanged by either slice: the
+      // first year is ungoverned, so no admission check can protect it, and the
+      // store terms are deliberately not reserved for. #861 did not introduce it
+      // and does not remove it.
       //
       // The error does not compound: `elapsedMs` is captured inside the loop, so
       // each iteration picks up all prior elapsed time including earlier reads.

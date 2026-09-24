@@ -573,7 +573,8 @@ broken rather than that they used the wrong tool. Two steps, both verified:
 **A FUNCTION, deliberately, with three distinct exit codes: `0` promoted, `1` not promoted, `2` the
 check itself is broken.** `return` inside a function behaves identically in bash and zsh, whether the
 block is pasted into a live shell or run as a script — which bare top-level guards do not (see the
-note below this block).
+notes below this block). **The block's own exit status carries the verdict too**, via the trailing
+subshell; the third note says why that needed saying.
 
 ```bash
 check_861_promoted() {
@@ -613,7 +614,13 @@ check_861_promoted() {
   esac
 }
 
-check_861_promoted; echo "gate exit: $?"
+check_861_promoted
+gate=$?
+echo "gate exit: $gate"
+# Leaves $? == $gate for anything wrapping this block, WITHOUT exiting an
+# interactive shell the way a bare `exit` would. Verified in zsh and bash, run as
+# a script and sourced.
+( exit "$gate" )
 ```
 
 The `--is-ancestor` test is the whole gate: it answers "is the fix in what production is serving",

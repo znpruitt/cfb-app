@@ -37,17 +37,24 @@ correction had already shipped.
 Worked case: the capture reads 8s with the venue leg owed, `8 + 242 = 250` admits, and the year
 begins at ~68s and ends near **310s — past the 300s `maxDuration` ceiling.**
 
-| under-count | year starts | year ends | vs the 300s ceiling |
-| --- | --- | --- | --- |
-| 15s (as first recorded) | ~23s | ~265s | 35s of margin |
-| 45s (three bounds counted) | ~53s | ~295s | 5s of margin |
-| **60s (composed)** | **~68s** | **~310s** | **breached, and 60s is a floor** |
+| under-count | year starts | + 242s of CFBD time ends at |
+| --- | --- | --- |
+| 15s (as first recorded) | ~23s | ~265s |
+| **60s (composed)** | **~68s** | **~310s** |
 
-**So the pre-fix behaviour was not "bounded margin erosion", which is what this closeout and #861
-both originally claimed.** In the worst case it could run the function past its own ceiling and lose
-the receipt — #757's failure reproduced inside the job built to prevent it. The fix removes it:
-re-measuring makes elapsed read ~68s, `68 + 242 > 250`, and the year is correctly skipped. **This is a
-correction to the RECORD, not a live defect.**
+> **THE THRESHOLD FRAMING WAS WRONG, AND REVIEW ROUND 2 FOUND IT.** These ends add 242s of **CFBD
+> time only**, which the `JOB_BUDGET_MS` docblock states explicitly. The same degradation that makes
+> the admission read cost 15s or 60s also applies to the year's own dozen sequential store round
+> trips, which at these rates add hundreds of seconds by themselves — so the 300s ceiling is reachable
+> at **every** row, including 15s, and "35s of margin" / "5s of margin" were not margin. Counting
+> store latency in the admission read while omitting it from the year's body is what manufactured the
+> threshold.
+>
+> **What the under-count actually costs: the budget admits a year it was designed to refuse.** That is
+> a budget-correctness defect and it is sufficient on its own; re-measuring fixes exactly it. Ceiling
+> reachability under a degraded store is a SEPARATE, PRE-EXISTING residual — the first year is
+> ungoverned so no admission check protects it, and the store terms are deliberately unreserved —
+> which neither #861 nor #866 introduces or removes.
 
 **The error does not compound.** The capture is inside the loop, so each iteration re-reads the clock
 and picks up all prior elapsed time, including earlier venue reads. It is one bounded read per
