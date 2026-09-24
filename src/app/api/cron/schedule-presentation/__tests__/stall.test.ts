@@ -481,14 +481,35 @@ const VENUE_READ_FRAME = 'venueRefreshDue';
 const STALENESS_READ_FRAME = 'mediaObservedAtMs';
 
 /**
- * A bounded durable read's full cost under PLATFORM-625.
+ * A bounded durable read's full cost under PLATFORM-625: FOUR composed 15s
+ * bounds, not one.
  *
- * Mirrors `APP_STATE_STATEMENT_TIMEOUT_MS`, which `appStateStore` does not
- * export, so it is restated rather than imported. The figure is load-bearing in
- * the prose above `JOB_BUDGET_MS` and is what makes the under-count 15s rather
- * than a rounding error.
+ * **This was 15_000 and called a "full cost" (PLATFORM-866).** One `getAppState`
+ * on the database path runs `getPool().connect()` at `connectionTimeoutMillis`,
+ * `openBoundedTransaction` at `APP_STATE_OPENER_TIMEOUT_MS`, the statement at
+ * `statement_timeout`, and then `commit` — which carries the same bound, because
+ * `APP_STATE_BOUNDED_BEGIN` sets it with `SET LOCAL` and LOCAL holds to the end
+ * of the transaction. Each is 15s, they are sequential, so the read is ~60s.
+ *
+ * **A FLOOR, NOT A CEILING.** Three of the four legs are SERVER-side
+ * `statement_timeout`s, and `appStateStore` says of its `keepAlive` that "this is
+ * DETECTION, not a tight bound … it closes the 'hangs forever' case, NOT the
+ * 'bounded at 15 s' case" — so if a timeout's error packet never lands the wait
+ * is the OS probe/retry schedule. `queryBounded` also has a fifth round trip this
+ * omits: a timed-out `commit` ends the transaction, reverting `SET LOCAL`, and the
+ * catch's `rollback` then runs unbounded. This fixture therefore models the
+ * cheapest degraded read, not the worst one.
+ *
+ * None of those four constants is exported, so this figure is restated rather
+ * than imported and a change to any of them will not redden this file. That is
+ * the same weakness the 15s version had, and naming it is the only honest
+ * mitigation available from here.
+ *
+ * The value is load-bearing in the docblock by `JOB_BUDGET_MS` and in the
+ * admission comment, where it is what turns the pre-fix under-count from margin
+ * erosion into a `maxDuration` breach.
  */
-const STORE_READ_WORST_CASE_MS = 15_000;
+const STORE_READ_WORST_CASE_MS = 60_000;
 
 /** What `JOB_BUDGET_MS - (YEAR_WORST_CASE_MS + VENUE_LEG_WORST_CASE_MS)` comes to:
  * 250s - (121s + 121s). Neither constant is exported, so the boundary pair below
@@ -496,7 +517,11 @@ const STORE_READ_WORST_CASE_MS = 15_000;
  * elapsed and skipped one millisecond past it. */
 const BOTH_LEGS_ADMISSION_BOUNDARY_MS = 8_000;
 
-let restoreReadClock: (() => void) | null = null;
+// A STACK, not a single slot, so a test can install a second probe as a witness
+// for a first one's absence assertion. Each patch wraps whatever `fs.readFile`
+// already is, so every installed probe observes the same call, and they unwind in
+// reverse on teardown.
+const readClockRestores: Array<() => void> = [];
 
 /**
  * Advance the mock clock for the duration of every durable read issued from
@@ -520,9 +545,9 @@ function installReadClock(
     }
     return (original as (...a: unknown[]) => Promise<unknown>)(...args);
   }) as unknown as typeof fs.readFile;
-  restoreReadClock = () => {
+  readClockRestores.push(() => {
     fs.readFile = original;
-  };
+  });
   return counter;
 }
 
@@ -560,8 +585,7 @@ async function runCron(): Promise<{
 }
 
 test.afterEach(() => {
-  restoreReadClock?.();
-  restoreReadClock = null;
+  while (readClockRestores.length > 0) readClockRestores.pop()?.();
 });
 
 test('PLATFORM-861: a slow venue read is charged to the admission check, not to the year after it', async (t) => {
@@ -572,14 +596,22 @@ test('PLATFORM-861: a slow venue read is charged to the admission check, not to 
   // judged on both legs, a 242s reservation.
   //
   // `Date` is mocked and anchored to real time, and NOTHING advances it except
-  // the venue read itself. So year 2 reaches its capture at `:421` with elapsed
+  // the venue read itself. So year 2 reaches its `elapsedMs` capture with elapsed
   // 0, and 0 + 242 = 242 <= 250 admits on the stale value. The read then costs
-  // its full PLATFORM-625 bound, 15s, and 15 + 242 = 257 > 250 — so a check that
-  // re-measures skips the year and a check that reuses `:421` admits it.
+  // its PLATFORM-625 floor, ~60s, and 60 + 242 = 302 > 250 — so a check that
+  // re-measures skips the year and a check that reuses the stale capture admits
+  // it.
+  //
+  // Referred to by NAME, not by line number: these two sentences cited `:421`
+  // until PLATFORM-866, and `:421` is a bare `//` line — the `route.ts` half of
+  // that same remediation was applied and this half was not, so the comment
+  // explaining the fix misdirected exactly where the fix said not to.
   //
   // WHY THE FIXTURE CROSSES THE BOUNDARY: the margin with both legs owed is 8s
-  // (250 - 242), and a bounded store read is worth up to 15s. The defect's whole
-  // reachability argument is that 15 > 8.
+  // (250 - 242), and a degraded store read is worth ~60s or more. The defect's whole
+  // reachability argument is that one read outweighs the margin — and at 60s it
+  // does so by enough to carry the year past the 300s ceiling, not merely past
+  // the budget.
   const t0 = Date.now();
   await seed(2027, VENUE_CATALOG_TTL_MS);
   t.mock.timers.enable({ apis: ['Date'], now: t0 });
@@ -647,6 +679,30 @@ test('PLATFORM-861: a year that cannot fit under ANY answer costs no durable rea
   // spending a bounded read to discover which answer applies is wasted. Keyed on
   // the read's calling frame, so this asserts the absence of the read itself
   // rather than the absence of some side effect of it.
+  //
+  // ## THE ABSENCE ASSERTION NEEDS A WITNESS, AND HAD NONE (PLATFORM-866)
+  //
+  // `venueReads.reads === 0` is the only absence claim in this group, and the
+  // counter only increments when a stack carries the frame name — so "the read
+  // never happened" and "the probe cannot see reads" render identically. Measured:
+  // blinding `VENUE_READ_FRAME` to a nonexistent frame reddened the three tests
+  // above and left THIS ONE GREEN. The other probes carry implicit controls
+  // (`reads === 1`, `reads >= 1`); an absence assertion cannot.
+  //
+  // So a second probe watches a frame this run MUST reach — `orderByStaleness`
+  // reads media freshness for both years before the loop — with a zero advance so
+  // it changes no timing. If the mechanism ever stops seeing reads (a pool path
+  // when `DATABASE_URL` is set, an inlined helper, a lowered
+  // `Error.stackTraceLimit`), the witness goes to zero and says so, instead of the
+  // real assertion passing blind.
+  //
+  // The witness proves the MECHANISM sees reads. It does not prove that
+  // `VENUE_READ_FRAME` still names a real function — blinding only that constant
+  // leaves this test green, because zero is what it expects. The three tests above
+  // pin that name (they assert `reads === 1`), so the GROUP covers it; the static
+  // check below makes this test independently sound rather than relying on its
+  // neighbours, since a reader deleting one of them would not know they had
+  // removed this one's support.
   const t0 = Date.now();
   await seed(2027);
   t.mock.timers.enable({ apis: ['Date'], now: t0 });
@@ -662,11 +718,30 @@ test('PLATFORM-861: a year that cannot fit under ANY answer costs no durable rea
       headers: { 'content-type': 'application/json' },
     });
   }) as typeof fetch;
+  const routeSource = await fs.readFile(new URL('../route.ts', import.meta.url), 'utf8');
+  assert.ok(
+    routeSource.includes(`function ${VENUE_READ_FRAME}(`),
+    `${VENUE_READ_FRAME} is not a function in route.ts, so a stack could never carry it`
+  );
+  // ORDER MATTERS, and it was wrong (PLATFORM-866). Each probe wraps whatever
+  // `fs.readFile` already is, so the one installed LAST is outermost and captures
+  // its stack one frame SHALLOWER than the one it wraps. The witness was installed
+  // last, which made it a weaker observer than the probe whose blindness it exists
+  // to rule out — and stack truncation, which its own comment names, is exactly a
+  // cause that hides a deep frame while leaving a shallow one visible. Installed
+  // FIRST, the witness sits innermost and is a true lower bound: if it can see its
+  // frame from there, the venue probe can see one from shallower.
+  const witnessReads = installReadClock(t, STALENESS_READ_FRAME, 0);
   const venueReads = installReadClock(t, VENUE_READ_FRAME, STORE_READ_WORST_CASE_MS);
 
   const body = await runCron();
   t.mock.timers.reset();
 
+  assert.ok(
+    witnessReads.reads >= 1,
+    `the frame probe can see durable reads in this run (witness saw ${witnessReads.reads}), ` +
+      'so the zero below means the read was ABSENT and not that the probe was blind'
+  );
   assert.equal(
     venueReads.reads,
     0,

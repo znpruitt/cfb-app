@@ -570,24 +570,82 @@ status, url, created, aliases and builds, and nothing else; verified 2026-09-23.
 because it is the obvious thing to reach for, and a reader who tries it concludes the check is
 broken rather than that they used the wrong tool. Two steps, both verified:
 
+**A FUNCTION, deliberately, with three distinct exit codes: `0` promoted, `1` not promoted, `2` the
+check itself is broken.** `return` inside a function behaves identically in bash and zsh, whether the
+block is pasted into a live shell or run as a script — which bare top-level guards do not (see the
+notes below this block). **The block's own exit status carries the verdict too**, via the trailing
+subshell; the third note says why that needed saying.
+
 ```bash
-# 1. What the ALIAS serves — authoritative, per §4. A target listing is NOT:
-#    with auto-promotion off, the newest READY production deployment may be unpromoted.
-dpl=$(vercel inspect turfwar.games 2>&1 | awk '$1=="id"{print $2}')
+check_861_promoted() {
+  local dpl tok sha ancestry
+  # 1. What the ALIAS serves — authoritative, per §4. A target listing is NOT:
+  #    with auto-promotion off, the newest READY production deployment may be unpromoted.
+  dpl=$(vercel inspect turfwar.games 2>&1 | awk '$1=="id"{print $2}')
+  [ -n "$dpl" ] || { echo "CHECK BROKEN: no deployment id from vercel inspect"; return 2; }
 
-# 2. That deployment's commit. `withGitRepoInfo=true` is what populates `meta`.
-tok=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser(
-  '~/Library/Application Support/com.vercel.cli/auth.json')))['token'])")
-sha=$(curl -s -H "Authorization: Bearer $tok" \
-  "https://api.vercel.com/v13/deployments/$dpl?withGitRepoInfo=true" \
-  | python3 -c "import json,sys;print(json.load(sys.stdin)['meta']['githubCommitSha'])")
+  # 2. That deployment's commit. `withGitRepoInfo=true` is what populates `meta`.
+  tok=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser(
+    '~/Library/Application Support/com.vercel.cli/auth.json')))['token'])") \
+    || { echo "CHECK BROKEN: no Vercel CLI token — run 'vercel login'"; return 2; }
+  sha=$(curl -sf -H "Authorization: Bearer $tok" \
+    "https://api.vercel.com/v13/deployments/$dpl?withGitRepoInfo=true" \
+    | python3 -c "import json,sys;print(json.load(sys.stdin)['meta']['githubCommitSha'])")
+  [ -n "$sha" ] || { echo "CHECK BROKEN: no githubCommitSha for $dpl"; return 2; }
 
-git merge-base --is-ancestor 6f2c8f5a "$sha" && echo "PROMOTED — upsert is safe"
+  # 3. BOTH commits must exist locally. `--is-ancestor` exits 128 for an object it
+  #    cannot resolve, and 128 must never be read as "not promoted". `git fetch`
+  #    does not deepen a shallow clone, so say what to run.
+  git fetch -q origin || { echo "CHECK BROKEN: git fetch origin failed"; return 2; }
+  for commit in "$sha" 6f2c8f5a; do
+    git cat-file -e "$commit^{commit}" 2>/dev/null \
+      || { echo "CHECK BROKEN: $commit absent from this clone — shallow? 'git fetch --unshallow'"; return 2; }
+  done
+
+  # 4. Only now is a non-zero status meaningful, and only 1 means "not an ancestor".
+  # NOT named `status`: that is a READ-ONLY special variable in zsh (an alias for
+  # `$?`), and assigning it aborts the function with "read-only variable: status".
+  git merge-base --is-ancestor 6f2c8f5a "$sha"
+  ancestry=$?
+  case $ancestry in
+    0) echo "PROMOTED ($sha) — upsert is safe"; return 0 ;;
+    1) echo "NOT PROMOTED ($sha) — gate holds, do not run the upsert"; return 1 ;;
+    *) echo "CHECK BROKEN: git merge-base exited $ancestry, which is not a verdict"; return 2 ;;
+  esac
+}
+
+check_861_promoted
+gate=$?
+echo "gate exit: $gate"
+# Leaves $? == $gate for anything wrapping this block, WITHOUT exiting an
+# interactive shell the way a bare `exit` would. Verified in zsh and bash, run as
+# a script and sourced.
+( exit "$gate" )
 ```
 
 The `--is-ancestor` test is the whole gate: it answers "is the fix in what production is serving",
-which a SHA equality check would get wrong for every later promotion. After it passes, this step has
-no outstanding blocker.
+which a SHA equality check would get wrong for every later promotion. After it prints `PROMOTED`,
+this step has no outstanding blocker.
+
+**Every step fails LOUDLY and distinctly, and that is the point (PLATFORM-866).** The first version
+of this block was `… --is-ancestor … && echo "PROMOTED"` with no else branch and no checks on
+the three values it derived — so a missing token, an API error, an `awk` that matched nothing, or a
+commit simply not fetched into the local clone all produced **silence, which is exactly what an
+honest "not promoted" produced.** A gate whose broken state is indistinguishable from its safe state
+is the shape `AGENTS.md` records: `CHECK BROKEN` and `NOT PROMOTED` must never be the same output,
+because one means "look at your tooling" and the other means "wait for the promotion".
+
+**THE SECOND VERSION HAD THE SAME DEFECT IN THE EXIT CODE, AND IS WHY THIS IS A FUNCTION.** It
+guarded each step with `{ echo "CHECK BROKEN: …"; return 2>/dev/null || exit 1; }`, which was written
+to work whether the block was sourced or run as a script. **In zsh it does neither.** Measured on this
+machine: run as a zsh script, the `CHECK BROKEN` branch prints its message and the script **exits 0**,
+because a top-level `return` succeeds and `|| exit 1` never fires; pasted into an interactive zsh,
+`return` does not abort at all and execution **falls through every guard** to the verdict line, which
+is the line an operator trusts. So the message said broken and the exit code said fine. That was
+caught by review, not by the dry-run recorded in this section's first closeout — **that dry-run
+retyped the block with a plain `exit 1` and ran it under bash, so it verified a paraphrase in the
+wrong shell.** Re-verify by extracting the function from THIS file and running it under zsh, both as a
+script and sourced.
 
 **Between promotion and that command, System Health will report this job's delivery as
 missing.** Registering it in `EXTERNAL_SCHEDULER_JOBS` gives it a fixed Tuesday 13:00 policy, so
