@@ -194,20 +194,37 @@ appears somewhere in the file — prose, however careful, is not a test. The gua
 positive control, asserting the extraction saw at least ten declarations, so a pattern that stopped
 matching would fail loudly instead of passing everything.
 
-## §8i — a DEVIATION from the owner's proposed wording, flagged rather than taken silently
+## §8i — the gate's condition is PROMOTION, and the predicate is runnable
 
-The ruling was convert-don't-delete, compressed to two sentences, ending "the upsert above has no
-outstanding blocker", citing the fix commit's SHA. That wording was applied in `900165f9` and
-`/code-review` then found a real hole in it: **`upsert --apply` runs against production and
-auto-promotion is off**, so between merge and promotion the schedule can be installed while
-production still serves the pre-fix job — precisely the exposure the gate existed for. The old
-wording gave a checkable predicate ("while #861 is open"); "no outstanding blocker" does not, and the
-next paragraph still assumes promotion precedes the command.
+The owner's ruling was convert-don't-delete, compressed, ending "the upsert above has no outstanding
+blocker" and citing the fix commit's SHA. That wording was applied in `900165f9`, and `/code-review`
+then found a real hole in it: **`upsert --apply` runs against production and auto-promotion is off**,
+so between merge and promotion the schedule can be installed while production still serves the
+pre-fix job — precisely the exposure the gate existed for. The old wording gave a checkable predicate
+("while #861 is open"); "no outstanding blocker" does not, and the next paragraph still assumes
+promotion precedes the command.
 
-The section now ties the condition to **promotion** rather than merge and names how to check it.
-**This is stricter than the approved wording, not looser** — it keeps a gate in force longer, and
-loosening a production gate is the step reserved to the owner, not tightening one. It is recorded
-here as a deviation for the owner to accept or revert.
+The section was re-tied to **promotion** and flagged as a deviation rather than taken silently.
+**The owner accepted it and named their own wording as the error**, against the binding *merged is
+not live* rule: a production gate discharged on the merge event violates it.
+
+**Then amended once more, because the first predicate could not be run.** The deviation said to
+`vercel inspect` the production deployment — and `vercel inspect` prints **no commit SHA** (id, name,
+target, status, url, created, aliases, builds, and nothing else; verified independently on
+2026-09-23). A gate whose check cannot be evaluated is the shape that gets skipped, which would have
+reintroduced the problem the deviation existed to fix. §8i now carries a two-step check, both halves
+verified end to end and dry-run as written:
+
+1. `vercel inspect turfwar.games` for the deployment **the alias serves** — authoritative per §4. A
+   target listing is not: with auto-promotion off, the newest READY production deployment may be
+   unpromoted, so "latest production deployment" and "what is being served" are different questions.
+2. That deployment's `meta.githubCommitSha` from `https://api.vercel.com/v13/deployments/<id>?withGitRepoInfo=true`
+   — `withGitRepoInfo=true` is what populates `meta` — then `git merge-base --is-ancestor 6f2c8f5a <sha>`.
+
+`--is-ancestor` rather than SHA equality is the point: it answers "is the fix in what production is
+serving", which equality would get wrong for every later promotion. **Dry-run at closeout time it
+correctly reported NOT PROMOTED**, production serving `d3874dc6` (757a's merge) — a positive control
+that the gate can answer no, not only yes.
 
 ## Known limitations and what is NOT claimed
 
