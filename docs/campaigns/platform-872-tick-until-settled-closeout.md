@@ -113,15 +113,25 @@ harness deletes a run's log only when it exited 0.
 
 ## 5. Verification
 
-Each gate its own command and its own exit code, never behind a pipe.
+Each gate its own command and its own exit code, never behind a pipe. All against `380a8e52`, worktree
+clean.
 
-- `npx tsc --noEmit` — exit 0.
-- `npm run test:file -- src/app/api/cron/schedule-presentation/__tests__/stall.test.ts` — exit 0,
-  12/12 pass (11 before, plus the cap's positive control).
-- **200 runs at five-way contention, plus 60 unloaded — see the verification line appended below.**
-  Acceptance 2 asks for high N rather than one green pass, because at 2.5% a single pass has a 97.5%
-  chance of looking fixed either way.
-- `npm run lint:all` and `npm test` — see below.
+| gate | exit | result |
+| --- | --- | --- |
+| `npx tsc --noEmit` | 0 | — |
+| `npm run lint:all` | 0 | 139 markdown files, 0 issues; Prettier clean |
+| `npm test` | 0 | 5588/5588 pass, 0 `not ok` lines |
+| `npm run test:file -- …/stall.test.ts` | 0 | 12/12 (11 before, plus the cap's positive control) |
+
+**Acceptance 2 — high N, 260 runs, zero non-zero exits:** 200 at five-way contention and 60
+unloaded, each run judged on its exit code. Acceptance 2 asks for this rather than one green pass
+because at 2.5% a single pass has a 97.5% chance of looking fixed either way.
+
+**What 260 green runs do and do not establish.** They do not by themselves demonstrate the defect is
+gone, because the unmodified file also passed 300 (§3) — the natural rate is below what this machine
+reproduces. The load-bearing evidence is the mutation table in §3, where the same budget that kills
+the old loops 5/5 leaves the new one green, plus the §2 distribution showing the old margin was one
+tick wide. The high-N run establishes that the new loop introduced no new instability.
 
 ## 6. Method note: three instruments, three wrong quantities
 
