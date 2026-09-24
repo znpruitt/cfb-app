@@ -288,8 +288,20 @@ implied the prompt had been handled. It had not.
 
 ## Review round 2 — six findings, and the headline conclusion was one of them
 
-`/code-review 46bff0a6 high`. Six findings, two medium, all reproduced before acceptance. **Codex has
-not reviewed `46bff0a6`**; only the round-1 Codex report at `40ab8485` exists, and it was clean.
+`/code-review 46bff0a6 high`. Six findings, two medium, all reproduced before acceptance.
+
+**Codex then reviewed the REMEDIATED tip** — `/codex:review --base 40ab8485 --scope branch` against
+`a0b93584` — and returned no actionable regressions. Verified before being treated as gathered: exit
+0, no capacity-failure sentence, and four transcript `git diff` lines carrying the base prefix
+`40ab8485b657`.
+
+**The two reviewers therefore saw DIFFERENT commits this round**, which the standing rule does not
+contemplate: Claude reviewed `46bff0a6` and Codex `a0b93584`, after remediation. Recorded rather than
+smoothed over. The rule exists so remediation does not begin before both reports are in, and reviewing
+the later commit is strictly more informative than repeating the earlier one — but it is not the letter
+of the rule, and a reader comparing SHAs would otherwise find the discrepancy unexplained. An earlier
+version of this line said Codex had not reviewed the round at all, which was true when written and
+false by merge time.
 
 Round 2 cleared, by its own re-testing: the four-bound composition and all five of its line citations;
 the restore stack's LIFO unwinding; the witness-ordering argument; that `--base 40ab8485` is a real
