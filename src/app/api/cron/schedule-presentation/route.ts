@@ -443,31 +443,41 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
           ? YEAR_WORST_CASE_MS + VENUE_LEG_WORST_CASE_MS
           : YEAR_WORST_CASE_MS;
       }
-      // MEASURED AGAIN, AFTER THE DURABLE READ — never `elapsedMs`, which was
-      // captured at `:421` before `venueRefreshDue()` awaited (PLATFORM-861).
+      // MEASURED AGAIN, AFTER THE DURABLE READ — never `elapsedMs`, which this
+      // iteration captured above, BEFORE `venueRefreshDue()` awaited
+      // (PLATFORM-861).
+      //
+      // Referred to by NAME and not by line number on purpose: the first version
+      // of this comment cited `:421`, and the five lines it itself added pushed
+      // that capture to `:426` — so the comment explaining the fix misdirected to
+      // a blank comment line. A self-reference that the edit invalidates is the
+      // same defect class as the `above`/`below` wrinkle fixed by `JOB_BUDGET_MS`.
       //
       // That read is bounded by PLATFORM-625 at 15s, not at zero, so under a
-      // degraded store the value from `:421` can under-count the elapsed time at
-      // which this year would actually START by up to 15s — at exactly the
-      // moment the job decides whether the year fits. Worked case: `:421` reads
-      // 8s with the venue leg owed, `8 + 242 = 250` admits, and the year begins
-      // at ~23s and ends near 265s against a 250s promise.
+      // degraded store `elapsedMs` can under-count the elapsed time at which this
+      // year would actually START by up to 15s — at exactly the moment the job
+      // decides whether the year fits. Worked case: `elapsedMs` reads 8s with the
+      // venue leg owed, `8 + 242 = 250` admits, and the year begins at ~23s and
+      // ends near 265s against a 250s promise.
       //
-      // The error does not compound: `:421` is inside the loop, so each
-      // iteration picks up all prior elapsed time including earlier reads. It is
-      // one bounded read per admission decision, at most 15s, once.
+      // The error does not compound: `elapsedMs` is captured inside the loop, so
+      // each iteration picks up all prior elapsed time including earlier reads.
+      // It is one bounded read per admission decision, at most 15s, once.
       //
       // RE-MEASURING IS SAFE WHERE INFLATING THE RESERVATION IS NOT, which is
       // the distinction the reverted fix in the note by `JOB_BUDGET_MS` missed. A
       // fresh clock leaves the reservation at 242s against a 250s budget, so the
       // starvation condition — a reservation larger than the whole budget —
-      // cannot arise. It can only make `elapsedMs` larger, and larger means a
-      // year that genuinely does not fit is skipped rather than admitted.
+      // cannot arise. It can only make the measured elapsed larger, and larger
+      // means a year that genuinely does not fit is skipped rather than admitted.
       //
       // Asserted by 'PLATFORM-861: a slow venue read is charged to the admission
-      // check, not to the year after it' and pinned at the exact boundary by
-      // 'PLATFORM-861: the admission boundary is 8s of elapsed with both legs
-      // owed', both in `__tests__/stall.test.ts`.
+      // check, not to the year after it' in `__tests__/stall.test.ts`. The
+      // boundary itself takes a PAIR to pin, because neither `JOB_BUDGET_MS` nor
+      // the leg constants are exported: 'PLATFORM-861: a year IS admitted at
+      // exactly the both-legs boundary' fixes the lower side at 8s and
+      // 'PLATFORM-861: one millisecond past the boundary and the year is skipped'
+      // fixes the upper side and the strict `>`.
       const admissionElapsedMs = Date.now() - startedAtMs;
       if (governed && admissionElapsedMs + reservationMs > JOB_BUDGET_MS) {
         // Counted, not silently dropped: a skipped year's media is exactly as

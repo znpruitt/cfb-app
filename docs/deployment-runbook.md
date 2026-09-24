@@ -554,13 +554,18 @@ npm run manage:schedule-presentation-schedule upsert --apply
 installs no schedule and changes no behaviour, because auto-promotion is off and the route is
 unreachable by any scheduler until the `upsert --apply` above is run against production.
 
-**The [#861](https://github.com/znpruitt/cfb-app/issues/861) install gate is CLEARED.**
-PLATFORM-757a merged with a known budget defect — the admission check reasoned about an elapsed time
-measured before an awaited durable read — and the merge was safe only because the route shipped
-dormant, which is why the gate sat here at the install step. The fix landed in `6f2c8f5a`
-(PR [#865](https://github.com/znpruitt/cfb-app/pull/865)); the reservation is unchanged at 242s
-against a 250s budget, so it cannot starve a later year. The upsert above has no outstanding
-blocker.
+**The [#861](https://github.com/znpruitt/cfb-app/issues/861) gate is discharged, and the condition
+is now PROMOTION, not merge.** PLATFORM-757a merged with a known budget defect — the admission check
+reasoned about an elapsed time measured before an awaited durable read — and the merge was safe only
+because the route shipped dormant, which is why the gate sat here at the install step. The fix landed
+in `6f2c8f5a` (PR [#865](https://github.com/znpruitt/cfb-app/pull/865)); the reservation is unchanged
+at 242s against a 250s budget, so it cannot starve a later year.
+
+**Run the upsert only once a deployment containing `6f2c8f5a` is promoted.** Merging is not
+promoting — auto-promotion is off — so between the merge and the promotion, production still serves
+the pre-fix job, and installing the schedule then is exactly the exposure this gate existed for.
+`vercel inspect` the current production deployment, or check that the commit is in the promoted
+build, before running it. After that this step has no outstanding blocker.
 
 **Between promotion and that command, System Health will report this job's delivery as
 missing.** Registering it in `EXTERNAL_SCHEDULER_JOBS` gives it a fixed Tuesday 13:00 policy, so

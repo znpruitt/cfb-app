@@ -710,3 +710,58 @@ test('PLATFORM-861: the FIRST year runs even past the budget, with a slow store 
     'and it ran with the venue leg genuinely owed, not short-circuited on a fresh TTL'
   );
 });
+
+test('every PLATFORM-861 test name cited in route.ts resolves to a test in this file', async () => {
+  // THE GUARD FOR THE DEFECT REVIEW FOUND ON THIS BRANCH. The first version of
+  // the admission comment cited a test called 'PLATFORM-861: the admission
+  // boundary is 8s of elapsed with both legs owed'. No such test was ever
+  // written — the string existed only in the comment.
+  //
+  // A DANGLING CITATION IS WORSE THAN NO CITATION. The binding rule is that a
+  // comment asserting runtime behaviour names the test asserting the same thing,
+  // and its whole value is that a reader can go read that test. A name that
+  // resolves to nothing spends the reader's trust and then strands them: they
+  // cannot tell whether the test was deleted, renamed, or never existed, so they
+  // cannot tell whether the comment's claim is covered or merely asserted.
+  //
+  // Checking the citation resolves is not the same as checking it is the RIGHT
+  // test, and this test does not claim to do that. It closes the failure mode
+  // that actually occurred, which is the name pointing at nothing.
+  //
+  // ## THE FIRST VERSION OF THIS GUARD WAS VACUOUS, AND HOW IS THE LESSON
+  //
+  // It searched the whole of this FILE's text for each cited name. The comment
+  // directly above quotes the dangling name in order to explain it — so the
+  // mutation that should have reddened this test found its own name in this
+  // test's documentation and passed. **Quoting the mistake reproduced it**, the
+  // same shape as `CLAUDE.md`'s rule about closing keywords in commit messages.
+  //
+  // The fix is to stop keying on the file's TEXT and key on the quantity the
+  // check is actually about: the set of names that `test(...)` DECLARES. A
+  // citation resolves when a test by that name exists, not when the string
+  // appears somewhere in the file — prose, however careful, is not a test.
+  const source = await fs.readFile(new URL('../route.ts', import.meta.url), 'utf8');
+  const selfSource = await fs.readFile(new URL('./stall.test.ts', import.meta.url), 'utf8');
+  // Comment continuations wrap across lines, so the leading `// ` of each line is
+  // stripped before matching a quoted name that may span two or three of them.
+  const flatten = (text: string): string => text.replace(/\n\s*\/\/ ?/g, ' ').replace(/\s+/g, ' ');
+  const cited = [...flatten(source).matchAll(/'(PLATFORM-861:[^']+)'/g)].map((m) => m[1]);
+  const declared = new Set(
+    [...selfSource.matchAll(/^test\(\s*'([^']+)'/gm)].map((match) => match[1])
+  );
+
+  assert.ok(cited.length >= 5, `expected route.ts to cite its tests, found ${cited.length}`);
+  // A positive control on the extraction itself: if the `test(...)` pattern ever
+  // stops matching, `declared` goes empty and every citation would "fail" for the
+  // wrong reason — a check that cannot see is not a check that found nothing.
+  assert.ok(
+    declared.size >= 10,
+    `the test-name extraction saw only ${declared.size} declarations, so it is not reading this file`
+  );
+  for (const name of cited) {
+    assert.ok(
+      declared.has(name),
+      `route.ts cites a test that does not exist in stall.test.ts: ${JSON.stringify(name)}`
+    );
+  }
+});
