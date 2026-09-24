@@ -480,6 +480,18 @@ to real time (`now: t0`) is what finally made it discriminate.
 
 ### Finding 1 — the budget's arithmetic counted only CFBD time
 
+> **SUPERSEDED 2026-09-24 BY [#866](https://github.com/znpruitt/cfb-app/issues/866), merged `119fa6d2`.**
+> **Every "15s" figure below is wrong.** One bounded `getAppState` composes FOUR sequential 15s bounds
+> — `connect()`, `openBoundedTransaction`, the statement, and the `commit` under the same
+> `set local statement_timeout` — so the worst case is **~60s**, not 15s.
+> **And ~60s is a FLOOR, not a ceiling.** `YEAR_WORST_CASE_MS` is CFBD-only; under the same store
+> degradation the year's own dozen round trips are slow too, so the 300s ceiling is reachable at every
+> figure. Planning escalated this to "the worst case breaches 300s" and **that escalation was refuted at
+> review** — it composed the store read's terms and left the year's uncomposed (`AGENTS.md`).
+> **The surviving claim is narrower and is the one that matters: the budget admits a year it was
+> designed to refuse.** The fix is unaffected — re-measuring is right at any figure, and the
+> reservation is untouched at 242s against 250s.
+
 `YEAR_WORST_CASE_MS` is `3 × 40s + 1s`, where the `+1s` is the retry backoff. But a year also
 makes roughly a dozen SEQUENTIAL durable-store round trips, and PLATFORM-625 bounds each at
 15s (`APP_STATE_STATEMENT_TIMEOUT_MS`, `APP_STATE_OPENER_TIMEOUT_MS`) — not at zero. The

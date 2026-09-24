@@ -22,6 +22,20 @@ CARRIES: NONE from the Item 87 campaign index, having checked — this is a sche
 
 ---
 
+> **SUPERSEDED 2026-09-24 BY [#866](https://github.com/znpruitt/cfb-app/issues/866), merged `119fa6d2`.**
+> **Every "15s" figure below is wrong.** One bounded `getAppState` composes FOUR sequential 15s bounds
+> — `connect()`, `openBoundedTransaction`, the statement, and the `commit` under the same
+> `set local statement_timeout` — so the worst case is **~60s**, not 15s.
+> **And ~60s is a FLOOR, not a ceiling.** `YEAR_WORST_CASE_MS` is CFBD-only; under the same store
+> degradation the year's own dozen round trips are slow too, so the 300s ceiling is reachable at every
+> figure. Planning escalated this to "the worst case breaches 300s" and **that escalation was refuted at
+> review** — it composed the store read's terms and left the year's uncomposed (`AGENTS.md`).
+> **The surviving claim is narrower and is the one that matters: the budget admits a year it was
+> designed to refuse.** The fix is unaffected — re-measuring is right at any figure, and the
+> reservation is untouched at 242s against 250s.
+
+---
+
 ## RECEIPT ADJUDICATED 2026-09-23 — proceed, with five rulings
 
 **All three corrections accepted, all verified by planning against the files.**
