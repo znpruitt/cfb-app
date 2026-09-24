@@ -554,13 +554,40 @@ npm run manage:schedule-presentation-schedule upsert --apply
 installs no schedule and changes no behaviour, because auto-promotion is off and the route is
 unreachable by any scheduler until the `upsert --apply` above is run against production.
 
-**DO NOT RUN THE UPSERT WHILE [#861](https://github.com/znpruitt/cfb-app/issues/861) IS OPEN.**
-PLATFORM-757a merged with one known budget defect: the job captures its elapsed time before an
-awaited durable read and reuses that stale value to decide whether another year fits, so under a
-degraded store it can under-count elapsed by up to 15 seconds and erode the margin that keeps the
-receipt landing inside the 300-second ceiling. The merge is safe **only because the route ships
-dormant** — and that argument ends the moment this schedule exists. The gate belongs here, at the
-install step, not only in the issue.
+**The [#861](https://github.com/znpruitt/cfb-app/issues/861) gate is discharged, and the condition
+is now PROMOTION, not merge.** PLATFORM-757a merged with a known budget defect — the admission check
+reasoned about an elapsed time measured before an awaited durable read — and the merge was safe only
+because the route shipped dormant, which is why the gate sat here at the install step. The fix landed
+in `6f2c8f5a` (PR [#865](https://github.com/znpruitt/cfb-app/pull/865)); the reservation is unchanged
+at 242s against a 250s budget, so it cannot starve a later year.
+
+**Run the upsert only once a deployment containing `6f2c8f5a` is promoted.** Merging is not
+promoting — auto-promotion is off — so between the merge and the promotion, production still serves
+the pre-fix job, and installing the schedule then is exactly the exposure this gate existed for.
+
+**`vercel inspect` CANNOT answer this — it prints no commit SHA.** It gives id, name, target,
+status, url, created, aliases and builds, and nothing else; verified 2026-09-23. Stated explicitly
+because it is the obvious thing to reach for, and a reader who tries it concludes the check is
+broken rather than that they used the wrong tool. Two steps, both verified:
+
+```bash
+# 1. What the ALIAS serves — authoritative, per §4. A target listing is NOT:
+#    with auto-promotion off, the newest READY production deployment may be unpromoted.
+dpl=$(vercel inspect turfwar.games 2>&1 | awk '$1=="id"{print $2}')
+
+# 2. That deployment's commit. `withGitRepoInfo=true` is what populates `meta`.
+tok=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser(
+  '~/Library/Application Support/com.vercel.cli/auth.json')))['token'])")
+sha=$(curl -s -H "Authorization: Bearer $tok" \
+  "https://api.vercel.com/v13/deployments/$dpl?withGitRepoInfo=true" \
+  | python3 -c "import json,sys;print(json.load(sys.stdin)['meta']['githubCommitSha'])")
+
+git merge-base --is-ancestor 6f2c8f5a "$sha" && echo "PROMOTED — upsert is safe"
+```
+
+The `--is-ancestor` test is the whole gate: it answers "is the fix in what production is serving",
+which a SHA equality check would get wrong for every later promotion. After it passes, this step has
+no outstanding blocker.
 
 **Between promotion and that command, System Health will report this job's delivery as
 missing.** Registering it in `EXTERNAL_SCHEDULER_JOBS` gives it a fixed Tuesday 13:00 policy, so

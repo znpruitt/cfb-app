@@ -121,6 +121,14 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-861-ELAPSED-CAPTURE-CLAUDE-v1
+
+- Purpose: schedule-presentation's per-year admission check reused an `elapsedMs` captured BEFORE an awaited durable read, so under a degraded store it could under-count elapsed by up to 15s at exactly the moment it decides whether another year fits. Measure elapsed after the await. 757a's own closing-round finding, and the gate on installing §8i.
+- Scope: `api/cron/schedule-presentation/route.ts`'s admission check plus its tests; runbook §8i's install gate. Constants, the reservation's composition, the first-year exemption and year ordering all untouched. One authorized pre-existing fix: a docblock pointing "above" at a note that sits below it.
+- Outcome: one line — a fresh `Date.now()` for the admission check only, the cheap pre-check keeping its pre-read value (757a round 4, finding 2). The trap the prompt named was avoided: folding a store term into the reservation was tried and reverted in 757a because 242s + 45s exceeds the whole 250s budget, so no second year could ever be admitted. **Re-measuring changes the measurement, not the promise** — the reservation stays 242s, so the starvation condition cannot arise, and a fresh clock can only skip a year that genuinely does not fit.
+- Review / verification: both reviewers on `900165f9`, gathered before any remediation. `/code-review high` returned one medium and three lows — a **dangling test citation** naming a test that never existed, four stale self-referential line numbers the same edit invalidated, §8i's clearance tied to nothing observable, and a cross-document contradiction in planning's queue. `/codex:review --base 844b05b7` clean, verified by exit code, body and the transcript's diff base prefix. One remediation round. Every claim carries a mutation that reddened its own named assertion, and the new tests fail against `main`'s actual `route.ts`, not a hand-reverted copy. Proving the fix needed a SLOW durable read, and no store seam injects latency, so the tests wrap `node:fs`'s mutable `promises.readFile`, keyed on the calling FRAME; no production code gained a timing hook. [Full evidence, the two named regression tests, and the §8i deviation](campaigns/platform-861-elapsed-capture-closeout.md).
+- Status: Implemented on `claude/861-elapsed-capture` (PR #865); pre-merge closeout. No deployment claimed. §8i's gate is discharged but **re-tied to PROMOTION rather than merge** — raised as a deviation from the owner's wording and accepted, because `upsert --apply` hits production and auto-promotion is off, so discharging on the merge event breaks the binding _merged is not live_ rule. Amended once more: the predicate now runs, since `vercel inspect` prints no commit SHA. `docs/next-tasks.md:290` still says §8i is gated on this issue; planning's file, a post-merge flip.
+
 ### PLATFORM-855-856-MOVEMENT-CAPTION-CODEX-v1
 
 - Purpose: Make the Overview movement caption unconditional and align rank arrows with the delta palette.
@@ -139,7 +147,8 @@ These consolidate recurring historical observations, not new project-governance 
   [#861](https://github.com/znpruitt/cfb-app/issues/861): `route.ts:421` captures `elapsedMs` before an
   awaited durable read, so the budget can under-count elapsed by up to 15s under a degraded store. Bounded
   margin erosion, no traced case breaches 300s, one-line fix. Runbook §8i gates installing the QStash
-  schedule on it. Five remediation rounds were run where one was allowed; `AGENTS.md` `cb43d6b5` records
+  schedule on it — **superseded: #861 is fixed in PR #865, and §8i now gates on PROMOTION of that
+  fix rather than on the issue; see PLATFORM-861 above.** Five remediation rounds were run where one was allowed; `AGENTS.md` `cb43d6b5` records
   the lesson and names this branch. Owner approved slice A at ~26 files / ~1,500 lines; the real diffstat is **28 files, 2,659 insertions, 172 deletions** (1,332 non-test, 1,499 test) — reported as an overrun, concentrated in the acceptance-3 stall harness and the acceptance-4 type-checker pin. Installing the schedule in production is an OWNER step (§8i). Follow-ups: 757a2 (change history), 757b (remove the inline calls; gated on this job being live with one observed receipt), [#858](https://github.com/znpruitt/cfb-app/issues/858) (the cron's inline year-selection copy), [#857](https://github.com/znpruitt/cfb-app/issues/857) (`no-usable-ids` suppressing venues).
 
 ### PLATFORM-827-OVERVIEW-LIVE-RECORDS-CODEX-v1
