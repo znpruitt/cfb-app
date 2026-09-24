@@ -154,3 +154,9 @@ integrated, including the owner's DESIGN.md rationale correction `dd69113f`; the
 survives. Finding 5 is deferred as #870: it is pre-existing infrastructure, and Codex's in-scope
 silence is recorded as evidence against expanding this slice. Exact-commit gates and the temporary
 separator-deletion mutation are recorded on PR #864.
+
+## Merge status
+
+Merged as `37354e6d` via [PR #864](https://github.com/znpruitt/cfb-app/pull/864) on 2026-09-24.
+Final correction gates are recorded at `81f5c986`, not claimed as a new run on the merge commit.
+The preview grant ended at merge. No production promotion performed.
