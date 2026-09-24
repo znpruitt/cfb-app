@@ -39,7 +39,7 @@ Before measurements were taken at `26c0e1e4`; `62d20b89` changed only docs. Afte
 
 At 390px the header is 338px wide. Header-only wrapping leaves the tag slot at 203.75px; the completed
 change gives both lines all 338px and right-aligns the tags. The per-state phone tests cover
-360/375/390/414/430/639px. The desktop test covers 640/820/1280px and measures neighbouring fixture
+360/375/390/414/430/639px. The desktop test covers 640/900/1280px and measures neighbouring fixture
 cards at the latter two widths.
 
 There is no content-width threshold. The receipt's 203.75px league-tag pair and 288.438px CFP
@@ -112,3 +112,27 @@ results.
 Implementation and the owner-authorized harness correction await merge. Every commit is pushed to the feature branch and
 `preview` under the owner's slice-scoped grant. Preview succeeded at `0b7318cb`; a docs-only push
 may skip a new deployment. No merge or production promotion is claimed.
+
+## Owner-authorized third remediation — findings 3 and 4 only
+
+Round 3 reviewed `1995984d`. The owner authorized just the scrollbar-sensitive fixture width and
+Tailwind token separator corrections. This narrowly reopens the production freeze for one space
+before the header template interpolation; the phone-only wrap predicate and DESIGN.md are unchanged.
+The existing static header matcher accepts that whitespace. The desktop test now uses 900px in
+place of 820px, including its expected-column branch.
+
+Verification before commit:
+
+- Isolated Tailwind v4.1.13 source extraction, with separate stylesheet identities for each build:
+  `max-sm:max-h-4` immediately adjoining `${` is not emitted; with a separating space it is emitted.
+- Placing that cap at the corrected template boundary fails all five `header contains both lines
+  and their gap` assertions and the independent visible-tag assertions (8/9 browser tests fail).
+- The host's `scrollbar-gutter: stable` reserved no classic gutter, so it did not reproduce the
+  report. An explicit 15px right-gutter model does: 900px passes all nine browser tests; reverting
+  only the desktop width/expectation to 820px fails `820px: measured peer-card column count` (1 vs 2).
+  This is a controlled gutter model, not an observation on a classic-scrollbar device.
+
+All probes were temporary and restored. Exact-commit gates and full-branch confirming review results
+are recorded on PR #864. Deferred separately: [#868](https://github.com/znpruitt/cfb-app/issues/868)
+(required browser gate discovery drift) and [#869](https://github.com/znpruitt/cfb-app/issues/869)
+(the design rationale above phone width). Neither is implemented here.

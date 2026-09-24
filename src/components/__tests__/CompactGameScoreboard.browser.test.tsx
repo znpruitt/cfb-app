@@ -284,12 +284,12 @@ test('every state retains one header line above the phone breakpoint', async (t)
     t,
     { directoryPrefix: 'cfb-header-desktop-', markup: fixtureMarkup },
     async (page) => {
-      for (const width of [640, 820, 1280]) {
+      for (const width of [640, 900, 1280]) {
         await page.setViewport(width, 800);
         const columns = await page.evaluate<number>(
           `getComputedStyle(document.querySelector('[data-header-grid]')).gridTemplateColumns.trim().split(/\\s+/).length`
         );
-        assert.equal(columns, width >= 820 ? 2 : 1, `${width}px: measured peer-card column count`);
+        assert.equal(columns, width >= 900 ? 2 : 1, `${width}px: measured peer-card column count`);
         for (const state of STATES) {
           const m = await measure(page, state);
           assert.ok(
