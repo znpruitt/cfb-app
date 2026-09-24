@@ -32,7 +32,9 @@ fifth is a figure that was wrong before #861 started and which #861 propagated i
 
 The fourth is the one both earlier passes missed. `APP_STATE_BOUNDED_BEGIN` sets the timeout with
 `SET LOCAL`, and LOCAL holds to the end of the transaction, so the `commit` is bounded exactly as the
-statement is. **~60s, not 15s and not 45s.**
+statement is. **~60s, not 15s and not 45s** — and, per review round 1 below, **~60s is itself a FLOOR
+rather than a ceiling**, because three of the four legs are server-side timeouts whose error packet may
+never land and a timed-out `commit` leaves the catch's `rollback` unbounded.
 
 ### It moves the severity twice, both upward, and past the ceiling
 
@@ -40,7 +42,7 @@ statement is. **~60s, not 15s and not 45s.**
 | --- | --- | --- | --- |
 | 15s (as #861 recorded) | ~23s | ~265s | 35s of margin |
 | 45s (three bounds counted) | ~53s | ~295s | 5s of margin |
-| **60s (composed)** | **~68s** | **~310s** | **breached** |
+| **60s (composed)** | **~68s** | **~310s** | **breached, and 60s is a floor** |
 
 **So the pre-fix defect was not "bounded margin erosion with no traced case breaching 300s."** In the
 worst case it could run the function past its own ceiling and lose the receipt — which is #757's
@@ -86,8 +88,10 @@ Two additions, because one was not enough:
   left the test green, because zero is what it expects. The neighbours pin the name, but relying on
   them makes this test silently dependent on tests a future reader might delete.
 
-Both proven: blinding both frames reddens it on the witness message; blinding only the venue frame
-reddens it on the static check. **The reviewer's exact mutation now fails.**
+Both proven, and **independently** — see round 1 below for the corrected mutation pairing, which is
+the staleness frame alone for the witness and the venue frame alone for the static check. Blinding BOTH
+fires the static check first, so "both mutations red" would have hidden that only one guard was under
+test. **The reviewer's exact mutation now fails.**
 
 ## 3. Two stale `:421` citations in the test file
 
@@ -102,12 +106,15 @@ were unchecked. A missing token, an API error, an `awk` that matched nothing, or
 into the local clone all exited non-zero **silently — the same output as an honest "not promoted."**
 Written in the same session that recorded that shape in `AGENTS.md`.
 
-Now every step fails loudly and distinctly, with `CHECK BROKEN` separated from `NOT PROMOTED`, plus a
-`git fetch` and an existence check before the ancestry test. **All three paths dry-run as written:**
+Now every step fails loudly and distinctly, with `CHECK BROKEN` separated from `NOT PROMOTED`.
 
-- happy path → `NOT PROMOTED (d3874dc6…) — gate holds`, exit 0 (correct; the fix is not promoted)
-- unreachable alias → `CHECK BROKEN: no deployment id from vercel inspect`, exit 1
-- unfetchable SHA → `CHECK BROKEN: … is not in this clone even after fetch`, exit 1
+> **THIS SECTION ORIGINALLY CLAIMED "all three paths dry-run as written" AND REPORTED EXIT 1 FOR THE
+> BROKEN PATHS. BOTH WERE FALSE**, and review round 1 below is where that is set out: the dry-run ran a
+> retyped block with a plain `exit 1` under **bash**, on a **zsh** machine, so it verified a paraphrase
+> in the wrong shell. The real text exited **0** on the broken path in a zsh script and fell through
+> every guard when pasted into an interactive zsh. The gate is now a shell function with three distinct
+> exit codes, re-verified by extracting it from the committed file and running it under both shells in
+> both modes — the table is in round 1.
 
 ## 5. The #861 closeout's Base line was false in the merged tree
 
@@ -152,3 +159,106 @@ is the finding, not a reassurance** — it is why the wrong value survived two r
 - **The static frame check is a source-text assertion.** It proves the name exists, not that the
   runtime stack will carry it; the witness covers the runtime half.
 - **`docs/next-tasks.md` is untouched** — planning's file, per DOCS-012.
+
+---
+
+## Review round 1 — six findings, and two of them falsified claims this closeout had made
+
+`/code-review 54a00f71 high` returned six findings; `/codex:review --base 40ab8485` was clean, verified
+by exit code, body, and six transcript `git diff` lines carrying the base prefix `40ab8485b657`. Both
+gathered before any remediation. All six accepted; all six reproduced first.
+
+**Two of them contradicted this document**, which is the part worth reading:
+
+### The dry-run claim was false, and that is how the gate defect survived
+
+This closeout said the §8i gate's three paths "dry-run as written". **They did not.** The scratch
+script substituted a plain `exit 1` for the runbook's `return 2>/dev/null || exit 1`, and ran under
+**bash** on a machine whose shell is **zsh**. A paraphrase, in the wrong shell, reported as the
+artifact.
+
+What the real text does, measured: as a zsh **script**, the `CHECK BROKEN` branch prints its message
+and the script **exits 0**, because a top-level `return` succeeds and `|| exit 1` never fires. Pasted
+into an **interactive** zsh, `return` does not abort and execution **falls through every guard** to
+the verdict line. So the gate written to separate "broken" from "not promoted" said `CHECK BROKEN` and
+then exited as though fine — the same conflation, moved from the message into the exit code.
+
+**A verification claim licenses the reader to stop checking.** This one was wrong in the direction
+that mattered, on the one artifact in the slice an operator executes.
+
+### ~60s is a FLOOR, not a ceiling — the correction over-claimed in the same direction as the error
+
+`appStateStore` says so where it configures `keepAlive`: *"this is DETECTION, not a tight bound … it
+closes the 'hangs forever' case, NOT the 'bounded at 15 s' case."* Three of the four legs are
+server-side `statement_timeout`s, so if the error packet never lands the wait is the OS probe/retry
+schedule. And `queryBounded` has a **fifth** round trip this document omitted: a timed-out `commit`
+has already ended the transaction, reverting `SET LOCAL`, so the catch's `rollback` runs **unbounded**.
+
+So "at most ~60s" was the same species of over-claim as "at most 15s", at a larger number. Corrected
+to "at least". **It strengthens the ceiling-breach conclusion rather than weakening it** — which is
+precisely why it was easy to miss: the error pointed the safe way.
+
+## What the remediation changed
+
+**The gate is now a shell function with three distinct exit codes** — `0` promoted, `1` not promoted,
+`2` the check is broken. `return` inside a function behaves identically in bash and zsh, script or
+sourced, which bare top-level guards do not.
+
+**And rewriting it found a defect no reviewer had: `status` is a READ-ONLY special variable in zsh.**
+The first version of the function declared `local … status` and assigned `status=$?`, which aborts with
+*"read-only variable: status"* — the function did not run at all under zsh, in either mode. Found by
+extracting the block from the committed file and running it, which is the method this round adopted
+precisely because the previous round's paraphrase had hidden a defect. Renamed to `ancestry`.
+
+**`--is-ancestor` exit 128 is no longer read as a verdict.** Measured: unresolvable object → **128**,
+genuine not-an-ancestor → **1**, ancestor → **0**. The previous `if/else` folded 128 into "not
+promoted". The status is now captured and `case`-matched, `1` alone means not promoted, and **both**
+commits — the production SHA and the hardcoded fix commit — are existence-checked, since `git fetch`
+does not deepen a shallow clone. On a `--depth 1` clone the old block would have reported "not
+promoted" for a promoted fix.
+
+**The witness probe is now installed FIRST.** Each probe wraps whatever `fs.readFile` already is, so
+the one installed last is outermost and captures its stack one frame **shallower** than the probe it
+wraps. The witness was last — a weaker observer than the one whose blindness it exists to rule out,
+and stack truncation (a cause its own comment names) is exactly what hides a deep frame while leaving
+a shallow one visible. Installed first it is innermost, and a true lower bound.
+
+**The 45s attribution is sourced or dropped.** "A later pass derived 45s by counting three of the
+four" was unsourced, and worse, collided with 757a's 45s store *allowance* — a chosen number, not a
+composition. The route comment now names this closeout as the source and says explicitly that it is
+not 757a's figure.
+
+### Verification of the rewritten gate, done the way the failed claim should have been
+
+Extracted from the committed `docs/deployment-runbook.md` by regex, run unmodified:
+
+| shell / mode | scenario | output | gate exit |
+| --- | --- | --- | --- |
+| zsh script | healthy | `NOT PROMOTED (d3874dc6…)` | 1 |
+| zsh sourced | healthy | `NOT PROMOTED (d3874dc6…)` | 1 |
+| bash script | healthy | `NOT PROMOTED (d3874dc6…)` | 1 |
+| zsh script | `vercel` broken | `CHECK BROKEN: no deployment id…` | 2 |
+| zsh script | fix commit unresolvable | `CHECK BROKEN: … absent from this clone — shallow?…` | 2 |
+| zsh script | `merge-base` returns 128 | `CHECK BROKEN: git merge-base exited 128, which is not a verdict` | 2 |
+
+### Mutations, re-proven after the probe swap
+
+| mutation | assertion that fired |
+| --- | --- |
+| blind `VENUE_READ_FRAME` only | `venueRefreshDueXX_BLIND is not a function in route.ts…` |
+| blind `STALENESS_READ_FRAME` only | `the frame probe can see durable reads in this run (witness saw 0)…` |
+
+The two guards are **independently** proven: the static check and the witness fire on different
+mutations. Blinding both frames fires the static check first, which is why the staleness-only mutation
+is the one that exercises the witness — a detail worth recording, because "both mutations red" would
+otherwise have hidden that only one guard was being tested.
+
+## Relay to planning — not a lane edit
+
+**`docs/prompts/platform-861-elapsed-capture-claude-v1.md` still says "bounded at 15s under
+contention" and "at most 15s, once", and `docs/campaigns/platform-757a-presentation-job-closeout.md`
+carries the same figure**, both with no supersession marker. This closeout enumerates "its prompt" as
+one of the five sites the figure travelled to, so leaving it unmarked contradicts this document.
+`docs/prompts/` is planning's, like `docs/next-tasks.md`, so it is flagged rather than edited — but
+the earlier version of this closeout named only `next-tasks.md` as deliberately untouched, which
+implied the prompt had been handled. It had not.

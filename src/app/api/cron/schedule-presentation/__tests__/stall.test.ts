@@ -491,6 +491,15 @@ const STALENESS_READ_FRAME = 'mediaObservedAtMs';
  * `APP_STATE_BOUNDED_BEGIN` sets it with `SET LOCAL` and LOCAL holds to the end
  * of the transaction. Each is 15s, they are sequential, so the read is ~60s.
  *
+ * **A FLOOR, NOT A CEILING.** Three of the four legs are SERVER-side
+ * `statement_timeout`s, and `appStateStore` says of its `keepAlive` that "this is
+ * DETECTION, not a tight bound … it closes the 'hangs forever' case, NOT the
+ * 'bounded at 15 s' case" — so if a timeout's error packet never lands the wait
+ * is the OS probe/retry schedule. `queryBounded` also has a fifth round trip this
+ * omits: a timed-out `commit` ends the transaction, reverting `SET LOCAL`, and the
+ * catch's `rollback` then runs unbounded. This fixture therefore models the
+ * cheapest degraded read, not the worst one.
+ *
  * None of those four constants is exported, so this figure is restated rather
  * than imported and a change to any of them will not redden this file. That is
  * the same weakness the 15s version had, and naming it is the only honest
@@ -589,7 +598,7 @@ test('PLATFORM-861: a slow venue read is charged to the admission check, not to 
   // `Date` is mocked and anchored to real time, and NOTHING advances it except
   // the venue read itself. So year 2 reaches its `elapsedMs` capture with elapsed
   // 0, and 0 + 242 = 242 <= 250 admits on the stale value. The read then costs
-  // its full PLATFORM-625 bound, ~60s, and 60 + 242 = 302 > 250 — so a check that
+  // its PLATFORM-625 floor, ~60s, and 60 + 242 = 302 > 250 — so a check that
   // re-measures skips the year and a check that reuses the stale capture admits
   // it.
   //
@@ -599,7 +608,7 @@ test('PLATFORM-861: a slow venue read is charged to the admission check, not to 
   // explaining the fix misdirected exactly where the fix said not to.
   //
   // WHY THE FIXTURE CROSSES THE BOUNDARY: the margin with both legs owed is 8s
-  // (250 - 242), and a bounded store read is worth up to ~60s. The defect's whole
+  // (250 - 242), and a degraded store read is worth ~60s or more. The defect's whole
   // reachability argument is that one read outweighs the margin — and at 60s it
   // does so by enough to carry the year past the 300s ceiling, not merely past
   // the budget.
@@ -714,8 +723,16 @@ test('PLATFORM-861: a year that cannot fit under ANY answer costs no durable rea
     routeSource.includes(`function ${VENUE_READ_FRAME}(`),
     `${VENUE_READ_FRAME} is not a function in route.ts, so a stack could never carry it`
   );
-  const venueReads = installReadClock(t, VENUE_READ_FRAME, STORE_READ_WORST_CASE_MS);
+  // ORDER MATTERS, and it was wrong (PLATFORM-866). Each probe wraps whatever
+  // `fs.readFile` already is, so the one installed LAST is outermost and captures
+  // its stack one frame SHALLOWER than the one it wraps. The witness was installed
+  // last, which made it a weaker observer than the probe whose blindness it exists
+  // to rule out — and stack truncation, which its own comment names, is exactly a
+  // cause that hides a deep frame while leaving a shallow one visible. Installed
+  // FIRST, the witness sits innermost and is a true lower bound: if it can see its
+  // frame from there, the venue probe can see one from shallower.
   const witnessReads = installReadClock(t, STALENESS_READ_FRAME, 0);
+  const venueReads = installReadClock(t, VENUE_READ_FRAME, STORE_READ_WORST_CASE_MS);
 
   const body = await runCron();
   t.mock.timers.reset();

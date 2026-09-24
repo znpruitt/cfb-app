@@ -138,8 +138,8 @@ const VENUE_LEG_WORST_CASE_MS = 3 * CFBD_PEAK_LATENCY_TIMEOUT_MS + 1_000;
  * 121s figure counts CFBD time only. One year also makes roughly a dozen
  * SEQUENTIAL durable-store round trips — context read, two lease pairs, two
  * begin-attempt writes, two commit transactions, two status writes — and
- * PLATFORM-625 bounds each at roughly 60s, not at zero. Under a degraded Neon
- * those terms dominate.
+ * PLATFORM-625 bounds each at AT LEAST roughly 60s, not at zero. Under a degraded
+ * Neon those terms dominate.
  *
  * **60s, AND THIS LINE USED TO SAY 15s (PLATFORM-866).** It named
  * `APP_STATE_STATEMENT_TIMEOUT_MS` and `APP_STATE_OPENER_TIMEOUT_MS` in one
@@ -152,6 +152,17 @@ const VENUE_LEG_WORST_CASE_MS = 3 * CFBD_PEAK_LATENCY_TIMEOUT_MS + 1_000;
  * of the transaction. The 15s figure was inherited from here into #861's body,
  * its prompt and its tests, and a number that comes from the repo reads as
  * sourced.
+ *
+ * **AND ~60s IS A FLOOR, NOT A CEILING (also PLATFORM-866).** Three of those four
+ * legs are SERVER-side `statement_timeout`s, and this module says so itself where
+ * it configures `keepAlive`: *"this is DETECTION, not a tight bound … it closes
+ * the 'hangs forever' case, NOT the 'bounded at 15 s' case."* If the timeout's
+ * error packet never lands, the wait is the OS keepalive probe/retry schedule.
+ * `queryBounded` also has a FIFTH round trip the composition above omits: when
+ * `commit` times out the transaction has already ended, `SET LOCAL` has reverted
+ * with it, and the `catch`'s `rollback` runs with no bound at all. So write
+ * "at least ~60s" — which strengthens the ceiling-breach conclusion below rather
+ * than weakening it.
  *
  * Reserving for that was tried and reverted — see the note below
  * {@link JOB_BUDGET_MS}'s neighbours. The residual is therefore stated rather
@@ -179,9 +190,10 @@ const JOB_BUDGET_MS = 250_000;
 // trying it proved it cannot exist at this ceiling.
 //
 // A year makes roughly a dozen sequential app-state round trips, each bounded by
-// PLATFORM-625 at roughly 60s rather than at zero (four composed 15s bounds —
-// see the docblock above; this line also said 15s until PLATFORM-866), so the
-// CFBD-only figures below understate a year under store degradation. The obvious fix is to fold a store
+// PLATFORM-625 at AT LEAST roughly 60s rather than at zero (four composed 15s
+// bounds, and not a ceiling — see the docblock above; this line also said 15s
+// until PLATFORM-866), so the CFBD-only figures below understate a year under
+// store degradation. The obvious fix is to fold a store
 // term into the reservation. **It was implemented and reverted**: a 45s
 // allowance makes an owed venue leg reserve 287s, which exceeds the whole
 // budget, so no second year could ever start — the exact starvation round 2
@@ -442,9 +454,9 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
       const governed = exec.years.length > 0;
       // CHEAPEST BOUND FIRST, so a run that cannot afford a year under ANY
       // answer does not spend a durable read discovering which answer it would
-      // have got. That read is bounded at roughly 60s under contention — four
-      // composed 15s bounds, see the docblock by `JOB_BUDGET_MS` — and rebuilds
-      // every catalog row to reach one field. That the read is not even attempted
+      // have got. That read costs at least roughly 60s under contention — four
+      // composed 15s bounds, and not a ceiling; see the docblock by
+      // `JOB_BUDGET_MS` — and rebuilds every catalog row to reach one field. That the read is not even attempted
       // for a year which cannot fit under any answer is asserted by
       // 'PLATFORM-861: a year that cannot fit under ANY answer costs no durable
       // read' in `__tests__/stall.test.ts`.
@@ -469,22 +481,28 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
       // a blank comment line. A self-reference that the edit invalidates is the
       // same defect class as the `above`/`below` wrinkle fixed by `JOB_BUDGET_MS`.
       //
-      // That read is bounded by PLATFORM-625 at roughly 60s, not at zero, so
+      // That read costs at least roughly 60s under PLATFORM-625, not zero, so
       // under a degraded store `elapsedMs` can under-count the elapsed time at
-      // which this year would actually START by up to ~60s — at exactly the
+      // which this year would actually START by 60s OR MORE — at exactly the
       // moment the job decides whether the year fits.
       //
-      // ~60s, NOT 15s, AND THE DIFFERENCE CROSSES A THRESHOLD (PLATFORM-866).
-      // One `getAppState` composes FOUR sequential 15s bounds; the docblock by
-      // `JOB_BUDGET_MS` names them. #861 recorded 15s, inherited from that
-      // docblock, and a later pass derived 45s by counting three of the four.
+      // AT LEAST ~60s, NOT 15s, AND THE DIFFERENCE CROSSES A THRESHOLD
+      // (PLATFORM-866). One `getAppState` composes FOUR sequential 15s bounds and
+      // is not ceilinged by them; the docblock by `JOB_BUDGET_MS` names all of
+      // that. #861 recorded 15s, inherited from that docblock. The figures below
+      // are therefore FLOORS, and the 45s row is this slice's own intermediate
+      // derivation — recorded in `campaigns/platform-866-store-read-cost-closeout.md`,
+      // and NOT the 45s store allowance 757a tried and reverted, which was a
+      // chosen number rather than a composition.
+      //
       // Worked case, with the venue leg owed and `elapsedMs` reading 8s so
-      // `8 + 242 = 250` admits:
+      // `8 + 242 = 250` admits. Read the rows as successive corrections of the
+      // same estimate, each a FLOOR:
       //
       //   under-count   year starts   year ends   vs the 300s ceiling
       //   15s           ~23s          ~265s       35s of margin
       //   45s           ~53s          ~295s       5s of margin
-      //   60s           ~68s          ~310s       BREACHED
+      //   60s           ~68s          ~310s       BREACHED, and 60s is a floor
       //
       // So the pre-fix behaviour was not margin erosion, which is what #861 and
       // its closeout both claimed: in the worst case it could run the function
@@ -495,7 +513,7 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
       //
       // The error does not compound: `elapsedMs` is captured inside the loop, so
       // each iteration picks up all prior elapsed time including earlier reads.
-      // It is one bounded read per admission decision, at most ~60s, once.
+      // It is one bounded read per admission decision, at least ~60s, once.
       //
       // RE-MEASURING IS SAFE WHERE INFLATING THE RESERVATION IS NOT, which is
       // the distinction the reverted fix in the note by `JOB_BUDGET_MS` missed. A

@@ -18,9 +18,9 @@ This is 757a's own closing-round finding, self-reported, and it gated installing
 ## The defect and the fix
 
 `src/app/api/cron/schedule-presentation/route.ts`'s per-year admission check reused an `elapsedMs`
-captured **before** `await venueRefreshDue()`. That read is bounded by PLATFORM-625 at roughly 60s
-rather than at zero, so under a degraded store the check could under-count elapsed by up to ~60s at
-exactly the moment it decides whether another year fits.
+captured **before** `await venueRefreshDue()`. That read costs **at least** roughly 60s under
+PLATFORM-625 rather than zero, so under a degraded store the check could under-count elapsed by 60s
+or more at exactly the moment it decides whether another year fits.
 
 **~60s, AND THIS SECTION SAID 15s — CORRECTED BY PLATFORM-866.** One `getAppState` on the database
 path composes FOUR sequential 15s bounds, not one: `getPool().connect()` at
@@ -29,6 +29,11 @@ path composes FOUR sequential 15s bounds, not one: `getPool().connect()` at
 sets it with `SET LOCAL`. The 15s figure was inherited from the `JOB_BUDGET_MS` docblock, which names
 two of those constants in one breath and composes neither.
 
+**And ~60s is a FLOOR, not a ceiling** — three of the four legs are server-side `statement_timeout`s,
+which `appStateStore` itself describes as *"DETECTION, not a tight bound"*, and a timed-out `commit`
+leaves the catch's `rollback` running unbounded. Review caught that second over-claim after the first
+correction had already shipped.
+
 Worked case: the capture reads 8s with the venue leg owed, `8 + 242 = 250` admits, and the year
 begins at ~68s and ends near **310s — past the 300s `maxDuration` ceiling.**
 
@@ -36,7 +41,7 @@ begins at ~68s and ends near **310s — past the 300s `maxDuration` ceiling.**
 | --- | --- | --- | --- |
 | 15s (as first recorded) | ~23s | ~265s | 35s of margin |
 | 45s (three bounds counted) | ~53s | ~295s | 5s of margin |
-| **60s (composed)** | **~68s** | **~310s** | **breached** |
+| **60s (composed)** | **~68s** | **~310s** | **breached, and 60s is a floor** |
 
 **So the pre-fix behaviour was not "bounded margin erosion", which is what this closeout and #861
 both originally claimed.** In the worst case it could run the function past its own ceiling and lose
@@ -46,7 +51,7 @@ correction to the RECORD, not a live defect.**
 
 **The error does not compound.** The capture is inside the loop, so each iteration re-reads the clock
 and picks up all prior elapsed time, including earlier venue reads. It is one bounded read per
-admission decision, at most ~60s, once.
+admission decision, at least ~60s, once.
 
 The fix is one line: a fresh `Date.now()` for the admission check only. The cheap pre-check keeps its
 pre-read value, because that check exists so a run which cannot afford a year under **any** answer
@@ -125,7 +130,8 @@ read and quietly stop testing the claim.
 
 ### The fixture's timing, and why it crosses
 
-The margin with both legs owed is **8s** (`250 − 242`). A bounded store read is worth up to **~60s**
+The margin with both legs owed is **8s** (`250 − 242`). A degraded store read is worth **~60s or
+more**
 (four composed 15s bounds; none of the four constants is exported, so the test restates the figure and
 says so). The defect's whole reachability argument is that **one read outweighs the margin**. Elapsed
 reaches the governed year's capture at 0, the read costs ~60s, and `60 + 242 = 302 > 250`.
@@ -255,6 +261,8 @@ that the gate can answer no, not only yes.
 
 - **Not deployed.** Merging is not promoting; auto-promotion is off. This closeout claims gates and
   review, not production behaviour.
+- **~60s is a floor, not a ceiling**, and the fixture models the cheapest degraded read rather than
+  the worst one. See #866.
 - **The ~60s figure is restated, not imported.** None of the four bounds
   (`connectionTimeoutMillis`, `APP_STATE_OPENER_TIMEOUT_MS`, `statement_timeout` and the `SET LOCAL`
   it rides on) is exported from `appStateStore`, so a change to any of them would not redden these
