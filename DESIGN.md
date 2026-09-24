@@ -318,8 +318,22 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   which is a NARROWER predicate than the rule it implements, and nothing recorded the reason — it was
   measured when Matchups showed one tag at phone width, and #725 later revealed a second on every
   state. So a `live` or `awaiting` row gets the same phone-width relief. **This is still not a general
-  licence to wrap:** above phone width the single-line contract is unchanged, because there the
-  neighbouring card is real.
+  licence to wrap:** above phone width the single-line contract is unchanged.
+- **THE EXEMPTION'S BOUNDARY IS WHERE THE OVERFLOW IS, NOT WHERE THE CARDS STOP STACKING — and the
+  bullet above used to say otherwise.** Corrected 2026-09-24, found by the #797 lane after four
+  reviewer passes had cleared the change without touching it. That bullet justified the exemption with
+  "there the neighbouring card is real", which is **false in a real band**. `max-sm:` is a VIEWPORT
+  media query at 640px; the grids collapse with `@max-[760.01px]:grid-cols-1`
+  (`OverviewPanel.tsx:133`, `GameWeekPanel.tsx:100`), a CONTAINER query. **Two different coordinate
+  systems, so they cannot coincide** — between them the cards stack single-column while the exemption
+  does not apply, and no neighbouring card is real there.
+  **The rule is still right; only its reason was wrong.** The exemption is scoped to `max-sm` because
+  that is where the header actually overflows — measured on the shipped component: broadcast clipped
+  by 26.6px at 360px, 14.1px at 390px, 4.1px at 414px, and **0px at 430px**. Above roughly 430px there
+  is nothing to relieve, so the stacked-but-unexempted band costs a member nothing.
+  **Why this matters beyond the wording:** a justification that names the wrong mechanism survives
+  every soundness review, because soundness asks "does the rule ever fire when it must not" and this
+  error is in the other direction — completeness. Four passes cleared it.
 - Rankings display inline with team names — "#4 Oregon vs #2 Indiana"
 - **Team names on scoreboard rows are the provider's full school name, and every surface uses the same
   field** — "Mississippi State", never "MSST". **Amended 2026-09-20 by owner decision on
