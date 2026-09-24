@@ -22,6 +22,8 @@ This is an editorial reconciliation of the supplied ledger, not a repository or 
 
 ### 01. Shared scoreboards and game-section presentation
 
+PLATFORM-797 merged in [PR #864](https://github.com/znpruitt/cfb-app/pull/864) (`37354e6d`, 2026-09-24), carrying #758. Tagged compact headers now wrap at phone width across game states, with full-width metadata and right-aligned tags. Browser evidence uses controlled reachable fixtures; desktop single-line behavior remains. Vertical-clipping observers and a mandatory template separator protect the layout proof. The owner corrected the design rationale without widening the breakpoint. Infrastructure follow-up #870 remains deferred; merge does not claim production promotion.
+
 Merged evolution through 2026-09-06. `CompactGameScoreboard` replaced separate Overview Live, Featured, Recent-finals, and Schedule/Postseason presentations. Fixed away-to-home order, right-aligned scores, and position-independent winner/leader emphasis replaced inconsistent summaries. Featured retained its selection contract and an optional context slot for future explanation. Schedule now keeps the scoreboard visible; only venue, odds, conference, and postseason-admin details sit behind an accessible More/Less disclosure.
 
 - The common contract supports mutually exclusive rank/FCS prefixes, neutral-site metadata, state-gated broadcast, and optional tier-2 content that reserves no empty space. Shared status treatment uses emerald live, neutral final, sky scheduled, and accessible unknown; Matchups retains its separate neutral live pulse where green already denotes a final win.
