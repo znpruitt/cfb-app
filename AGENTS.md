@@ -854,6 +854,22 @@ throws, capture observations in `finally`; an empty collection populated only af
 resolution proves nothing. Mutation-check the observer when practical, not only the production
 guard it observes.
 
+**A GUARD THAT GREPS TEXT IS DEFEATED BY ITS OWN EXPLANATORY COMMENT. KEY ON THE DECLARED SET, NOT ON
+A RENDERING OF IT.** Added 2026-09-24 by the #861 lane, which caught this in its own guard before any
+reviewer did. The branch added a check that every test name cited in a source comment actually
+resolves. **Version 1 searched the test file's TEXT — and the mutation that should have reddened it
+passed, because the guard's own comment quoted the dangling name in order to explain what it was
+guarding against.** Quoting the mistake reproduced it. The fix keys on the set of names `test(...)`
+DECLARES, plus a positive control asserting the extraction saw at least ten declarations.
+
+**This is the THIRD instance of one shape on this project**, and the other two are in `CLAUDE.md`: a
+PR body that named issues it said it did NOT close, and then the commit recording that rule, which
+quoted the offending sentence and fired the parser a second time. **A check, a parser and a linter all
+read text, and text that explains a mistake contains the mistake.** The general form: find the
+quantity the check is actually about — a declared set, a parsed structure, an exit code — and read
+that. A check keyed on a rendering decays whenever the rendering changes, and can be fooled by prose
+about itself.
+
 **An invariant over a space must be tested over the space, not over chosen representatives.** When an
 assertion says _all_ — every valid step, every plan shape, every hour, every state — generate the
 space and assert across it. A hand-picked fixture proves the fixture; it says nothing about the
