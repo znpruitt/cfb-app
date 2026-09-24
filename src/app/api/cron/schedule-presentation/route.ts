@@ -138,9 +138,20 @@ const VENUE_LEG_WORST_CASE_MS = 3 * CFBD_PEAK_LATENCY_TIMEOUT_MS + 1_000;
  * 121s figure counts CFBD time only. One year also makes roughly a dozen
  * SEQUENTIAL durable-store round trips — context read, two lease pairs, two
  * begin-attempt writes, two commit transactions, two status writes — and
- * PLATFORM-625 bounds each at 15s (`APP_STATE_STATEMENT_TIMEOUT_MS`,
- * `APP_STATE_OPENER_TIMEOUT_MS`), not at zero. Under a degraded Neon those terms
- * dominate.
+ * PLATFORM-625 bounds each at roughly 60s, not at zero. Under a degraded Neon
+ * those terms dominate.
+ *
+ * **60s, AND THIS LINE USED TO SAY 15s (PLATFORM-866).** It named
+ * `APP_STATE_STATEMENT_TIMEOUT_MS` and `APP_STATE_OPENER_TIMEOUT_MS` in one
+ * breath and never composed them. ONE round trip through `queryBounded`
+ * (`server/appStateStore.ts:656-692`) is FOUR sequential 15s bounds:
+ * `getPool().connect()` at `connectionTimeoutMillis`, `openBoundedTransaction`
+ * at `APP_STATE_OPENER_TIMEOUT_MS`, the statement at `statement_timeout`, and
+ * the `commit` — which carries the same bound, because
+ * `APP_STATE_BOUNDED_BEGIN` sets it with `SET LOCAL` and LOCAL holds to the end
+ * of the transaction. The 15s figure was inherited from here into #861's body,
+ * its prompt and its tests, and a number that comes from the repo reads as
+ * sourced.
  *
  * Reserving for that was tried and reverted — see the note below
  * {@link JOB_BUDGET_MS}'s neighbours. The residual is therefore stated rather
@@ -168,8 +179,9 @@ const JOB_BUDGET_MS = 250_000;
 // trying it proved it cannot exist at this ceiling.
 //
 // A year makes roughly a dozen sequential app-state round trips, each bounded by
-// PLATFORM-625 at 15s rather than at zero, so the CFBD-only figures below
-// understate a year under store degradation. The obvious fix is to fold a store
+// PLATFORM-625 at roughly 60s rather than at zero (four composed 15s bounds —
+// see the docblock above; this line also said 15s until PLATFORM-866), so the
+// CFBD-only figures below understate a year under store degradation. The obvious fix is to fold a store
 // term into the reservation. **It was implemented and reverted**: a 45s
 // allowance makes an owed venue leg reserve 287s, which exceeds the whole
 // budget, so no second year could ever start — the exact starvation round 2
@@ -177,7 +189,10 @@ const JOB_BUDGET_MS = 250_000;
 //
 // The arithmetic does not close: a year that owes both legs (242s) plus any
 // meaningful store term cannot be guaranteed under a 300s ceiling, whatever the
-// budget is set to. So the budget governs CFBD time, the store waits are bounded
+// budget is set to. PLATFORM-866 sharpened this rather than changing it: at ~60s
+// per round trip the reverted 45s allowance was smaller than a SINGLE round
+// trip's worst case, so it would not have been sufficient even at the cost of
+// the starvation it caused. So the budget governs CFBD time, the store waits are bounded
 // separately by #625, and the residual is DOCUMENTED rather than reserved for.
 // Stating it is the fix; pretending to reserve for it would have cost the job
 // its second year every week.
@@ -427,7 +442,8 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
       const governed = exec.years.length > 0;
       // CHEAPEST BOUND FIRST, so a run that cannot afford a year under ANY
       // answer does not spend a durable read discovering which answer it would
-      // have got. That read is bounded at 15s under contention and rebuilds
+      // have got. That read is bounded at roughly 60s under contention — four
+      // composed 15s bounds, see the docblock by `JOB_BUDGET_MS` — and rebuilds
       // every catalog row to reach one field. That the read is not even attempted
       // for a year which cannot fit under any answer is asserted by
       // 'PLATFORM-861: a year that cannot fit under ANY answer costs no durable
@@ -453,16 +469,33 @@ export async function GET(req: Request): Promise<NextResponse<PresentationCronRe
       // a blank comment line. A self-reference that the edit invalidates is the
       // same defect class as the `above`/`below` wrinkle fixed by `JOB_BUDGET_MS`.
       //
-      // That read is bounded by PLATFORM-625 at 15s, not at zero, so under a
-      // degraded store `elapsedMs` can under-count the elapsed time at which this
-      // year would actually START by up to 15s — at exactly the moment the job
-      // decides whether the year fits. Worked case: `elapsedMs` reads 8s with the
-      // venue leg owed, `8 + 242 = 250` admits, and the year begins at ~23s and
-      // ends near 265s against a 250s promise.
+      // That read is bounded by PLATFORM-625 at roughly 60s, not at zero, so
+      // under a degraded store `elapsedMs` can under-count the elapsed time at
+      // which this year would actually START by up to ~60s — at exactly the
+      // moment the job decides whether the year fits.
+      //
+      // ~60s, NOT 15s, AND THE DIFFERENCE CROSSES A THRESHOLD (PLATFORM-866).
+      // One `getAppState` composes FOUR sequential 15s bounds; the docblock by
+      // `JOB_BUDGET_MS` names them. #861 recorded 15s, inherited from that
+      // docblock, and a later pass derived 45s by counting three of the four.
+      // Worked case, with the venue leg owed and `elapsedMs` reading 8s so
+      // `8 + 242 = 250` admits:
+      //
+      //   under-count   year starts   year ends   vs the 300s ceiling
+      //   15s           ~23s          ~265s       35s of margin
+      //   45s           ~53s          ~295s       5s of margin
+      //   60s           ~68s          ~310s       BREACHED
+      //
+      // So the pre-fix behaviour was not margin erosion, which is what #861 and
+      // its closeout both claimed: in the worst case it could run the function
+      // past its own `maxDuration` and lose the receipt, which is #757's failure
+      // reproduced inside the job built to prevent it. **Re-measuring removes
+      // that** — elapsed reads ~68s, `68 + 242 > 250`, and the year is correctly
+      // skipped — so this comment corrects the RECORD, not a live defect.
       //
       // The error does not compound: `elapsedMs` is captured inside the loop, so
       // each iteration picks up all prior elapsed time including earlier reads.
-      // It is one bounded read per admission decision, at most 15s, once.
+      // It is one bounded read per admission decision, at most ~60s, once.
       //
       // RE-MEASURING IS SAFE WHERE INFLATING THE RESERVATION IS NOT, which is
       // the distinction the reverted fix in the note by `JOB_BUDGET_MS` missed. A

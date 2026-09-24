@@ -3,8 +3,12 @@
 Status: Implemented and gated; pre-merge closeout, not a deployment claim.
 Prompt: `PLATFORM-861-ELAPSED-CAPTURE-CLAUDE-v1`.
 Branch: `claude/861-elapsed-capture`.
-Base: `844b05b735ace4d9785ea57dcb308c61037f7f04` (also the merge-base at review time — `main` did
-not move while the branch held).
+Base: `844b05b735ace4d9785ea57dcb308c61037f7f04`, which was also the merge-base at review time.
+**CORRECTED by PLATFORM-866:** this line said `main` did not move while the branch held. It did —
+`cafaf948` landed at 00:33 on 2026-09-24 and was merged into the branch at `c77dd225` 01:15, and that
+merge is the second parent of the merge commit. The claim was true when written at 21:30 and stale by
+merge time, which is the condition-1b class: the pre-closeout `git pull` happened and the sentence it
+invalidated was not revisited.
 Implementation: `6f2c8f5a`, then `900165f9` (runbook §8i) and one remediation commit.
 
 This is 757a's own closing-round finding, self-reported, and it gated installing the §8i schedule.
@@ -14,16 +18,35 @@ This is 757a's own closing-round finding, self-reported, and it gated installing
 ## The defect and the fix
 
 `src/app/api/cron/schedule-presentation/route.ts`'s per-year admission check reused an `elapsedMs`
-captured **before** `await venueRefreshDue()`. That read is bounded by PLATFORM-625 at 15s rather
-than at zero, so under a degraded store the check could under-count elapsed by up to 15s at exactly
-the moment it decides whether another year fits.
+captured **before** `await venueRefreshDue()`. That read is bounded by PLATFORM-625 at roughly 60s
+rather than at zero, so under a degraded store the check could under-count elapsed by up to ~60s at
+exactly the moment it decides whether another year fits.
+
+**~60s, AND THIS SECTION SAID 15s — CORRECTED BY PLATFORM-866.** One `getAppState` on the database
+path composes FOUR sequential 15s bounds, not one: `getPool().connect()` at
+`connectionTimeoutMillis`, `openBoundedTransaction` at `APP_STATE_OPENER_TIMEOUT_MS`, the statement at
+`statement_timeout`, and the `commit`, which carries the same bound because `APP_STATE_BOUNDED_BEGIN`
+sets it with `SET LOCAL`. The 15s figure was inherited from the `JOB_BUDGET_MS` docblock, which names
+two of those constants in one breath and composes neither.
 
 Worked case: the capture reads 8s with the venue leg owed, `8 + 242 = 250` admits, and the year
-begins at ~23s and ends near 265s against a 250s promise.
+begins at ~68s and ends near **310s — past the 300s `maxDuration` ceiling.**
+
+| under-count | year starts | year ends | vs the 300s ceiling |
+| --- | --- | --- | --- |
+| 15s (as first recorded) | ~23s | ~265s | 35s of margin |
+| 45s (three bounds counted) | ~53s | ~295s | 5s of margin |
+| **60s (composed)** | **~68s** | **~310s** | **breached** |
+
+**So the pre-fix behaviour was not "bounded margin erosion", which is what this closeout and #861
+both originally claimed.** In the worst case it could run the function past its own ceiling and lose
+the receipt — #757's failure reproduced inside the job built to prevent it. The fix removes it:
+re-measuring makes elapsed read ~68s, `68 + 242 > 250`, and the year is correctly skipped. **This is a
+correction to the RECORD, not a live defect.**
 
 **The error does not compound.** The capture is inside the loop, so each iteration re-reads the clock
 and picks up all prior elapsed time, including earlier venue reads. It is one bounded read per
-admission decision, at most 15s, once. No traced case breaches the 300s ceiling.
+admission decision, at most ~60s, once.
 
 The fix is one line: a fresh `Date.now()` for the admission check only. The cheap pre-check keeps its
 pre-read value, because that check exists so a run which cannot afford a year under **any** answer
@@ -102,10 +125,12 @@ read and quietly stop testing the claim.
 
 ### The fixture's timing, and why it crosses
 
-The margin with both legs owed is **8s** (`250 − 242`). A bounded store read is worth up to **15s**
-(`APP_STATE_STATEMENT_TIMEOUT_MS`, which the store does not export, so the test restates it and says
-so). The defect's whole reachability argument is that **15 > 8**. Elapsed reaches the governed year's
-capture at 0, the read costs 15s, and `15 + 242 = 257 > 250`.
+The margin with both legs owed is **8s** (`250 − 242`). A bounded store read is worth up to **~60s**
+(four composed 15s bounds; none of the four constants is exported, so the test restates the figure and
+says so). The defect's whole reachability argument is that **one read outweighs the margin**. Elapsed
+reaches the governed year's capture at 0, the read costs ~60s, and `60 + 242 = 302 > 250`.
+PLATFORM-866 raised the fixture from 15s to 60s; both cross the 8s boundary, so the tests passed
+either way — which is exactly why the wrong figure survived review twice.
 
 `Date` is mocked and **anchored to real time** (`now: t0`) — the trap 757a recorded, where
 `mock.timers.enable` starting `Date` at 0 makes every stored `at` look astronomically far in the
@@ -230,8 +255,10 @@ that the gate can answer no, not only yes.
 
 - **Not deployed.** Merging is not promoting; auto-promotion is off. This closeout claims gates and
   review, not production behaviour.
-- **The 15s figure is restated, not imported.** `APP_STATE_STATEMENT_TIMEOUT_MS` is private to
-  `appStateStore`, so a change to it would not redden these tests. The fixture's comment says so.
+- **The ~60s figure is restated, not imported.** None of the four bounds
+  (`connectionTimeoutMillis`, `APP_STATE_OPENER_TIMEOUT_MS`, `statement_timeout` and the `SET LOCAL`
+  it rides on) is exported from `appStateStore`, so a change to any of them would not redden these
+  tests. The fixture's comment says so. This is the weakness that let 15s stand.
 - **The boundary pair pins the arithmetic, not the literals.** The three constants are unexported, so
   the tests fix `250 − 242 = 8` behaviourally; a change that preserved that difference would pass.
 - **The citation guard proves resolution, not correctness.** It cannot tell whether a cited test is

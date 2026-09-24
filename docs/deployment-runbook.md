@@ -571,23 +571,46 @@ because it is the obvious thing to reach for, and a reader who tries it conclude
 broken rather than that they used the wrong tool. Two steps, both verified:
 
 ```bash
+set -u
+
 # 1. What the ALIAS serves — authoritative, per §4. A target listing is NOT:
 #    with auto-promotion off, the newest READY production deployment may be unpromoted.
 dpl=$(vercel inspect turfwar.games 2>&1 | awk '$1=="id"{print $2}')
+[ -n "${dpl:-}" ] || { echo "CHECK BROKEN: no deployment id from vercel inspect"; return 2>/dev/null || exit 1; }
 
 # 2. That deployment's commit. `withGitRepoInfo=true` is what populates `meta`.
 tok=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser(
-  '~/Library/Application Support/com.vercel.cli/auth.json')))['token'])")
-sha=$(curl -s -H "Authorization: Bearer $tok" \
+  '~/Library/Application Support/com.vercel.cli/auth.json')))['token'])") \
+  || { echo "CHECK BROKEN: no Vercel CLI token — run 'vercel login'"; return 2>/dev/null || exit 1; }
+sha=$(curl -sf -H "Authorization: Bearer $tok" \
   "https://api.vercel.com/v13/deployments/$dpl?withGitRepoInfo=true" \
   | python3 -c "import json,sys;print(json.load(sys.stdin)['meta']['githubCommitSha'])")
+[ -n "${sha:-}" ] || { echo "CHECK BROKEN: no githubCommitSha for $dpl"; return 2>/dev/null || exit 1; }
 
-git merge-base --is-ancestor 6f2c8f5a "$sha" && echo "PROMOTED — upsert is safe"
+# 3. The ancestry test needs the commit to EXIST locally, or it exits non-zero
+#    for a reason that has nothing to do with promotion.
+git fetch -q origin
+git cat-file -e "$sha^{commit}" 2>/dev/null \
+  || { echo "CHECK BROKEN: $sha is not in this clone even after fetch"; return 2>/dev/null || exit 1; }
+
+if git merge-base --is-ancestor 6f2c8f5a "$sha"; then
+  echo "PROMOTED ($sha) — upsert is safe"
+else
+  echo "NOT PROMOTED ($sha) — gate holds, do not run the upsert"
+fi
 ```
 
 The `--is-ancestor` test is the whole gate: it answers "is the fix in what production is serving",
-which a SHA equality check would get wrong for every later promotion. After it passes, this step has
-no outstanding blocker.
+which a SHA equality check would get wrong for every later promotion. After it prints `PROMOTED`,
+this step has no outstanding blocker.
+
+**Every step above fails LOUDLY and distinctly, and that is the point (PLATFORM-866).** The first
+version of this block was `… --is-ancestor … && echo "PROMOTED"` with no else branch and no checks on
+the three values it derived — so a missing token, an API error, an `awk` that matched nothing, or a
+commit simply not fetched into the local clone all produced **silence, which is exactly what an
+honest "not promoted" produced.** A gate whose broken state is indistinguishable from its safe state
+is the shape `AGENTS.md` records: `CHECK BROKEN` and `NOT PROMOTED` must never be the same output,
+because one means "look at your tooling" and the other means "wait for the promotion".
 
 **Between promotion and that command, System Health will report this job's delivery as
 missing.** Registering it in `EXTERNAL_SCHEDULER_JOBS` gives it a fixed Tuesday 13:00 policy, so
