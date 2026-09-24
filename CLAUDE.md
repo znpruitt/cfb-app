@@ -78,6 +78,18 @@ first commit; if you are not where this table says you should be, stop and say s
      that changed mid-branch is exactly what a ledger written from the prompt gets wrong.
   2. **`git pull` immediately before merging**, and report any conflict resolved. Three writers share
      `main` — both implementation lanes and the planning session.
+     **CONDITION 2 CANNOT CLOSE THE RACE, AND THE TREE-HASH CHECK IS WHAT ACTUALLY GATES THE MERGE.**
+     Added 2026-09-24 after the #866 lane hit it and reported it instead of burying it. Its pull said
+     *"Already up to date"* at `40ab8485`; `dd69113f` landed seconds later from the planning session;
+     GitHub merged into THAT. **Condition 2 passed and was stale before the merge button resolved** —
+     the window is between your pull and GitHub's merge, and nothing a lane runs locally can shrink it
+     to zero. So `git pull` is necessary and is NOT the guarantee. **Compare the gated tree hash with
+     the merged tree hash every time; that comparison is the guarantee.**
+     **When they differ, the response is to RE-GATE, not to inspect.** Identify the delta precisely
+     (`git diff --stat <gated> origin/main` against the suspected commit's own stat — byte-identical
+     stats is the check), then reproduce `main`'s exact tree locally, confirm the tree hash now
+     matches `origin/main`, and re-run the gates against it. **"Benign by inspection" is not gated**,
+     and a docs-only delta is exactly the shape that makes inspection feel sufficient.
   3. **Never tolerate an unknown failure. THE KNOWN SET IS EMPTY** — Item 137 (#696) removed the last
      two on 2026-09-11 (PR #742, merged `a8593d9f`), so `npm test` on clean `main` exits 0 and the
      merge condition is simply zero failures. The rule is unchanged in substance: merge only when the

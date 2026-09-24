@@ -854,6 +854,27 @@ throws, capture observations in `finally`; an empty collection populated only af
 resolution proves nothing. Mutation-check the observer when practical, not only the production
 guard it observes.
 
+**COMPOSING ONE TERM AND NOT ITS SIBLINGS IS THE SAME ERROR AS NOT COMPOSING AT ALL — AND IT IS MORE
+CONVINCING, BECAUSE IT ARRIVES AS A CORRECTION.** Added 2026-09-24 by planning, about planning.
+PLATFORM-861 recorded a bounded store read as "15s", inherited from a docblock that named two 15s
+constants without composing them. The #866 lane caught it, derived three sequential bounds, and said
+45s. **Planning then "corrected the correction" to ~60s by finding a fourth bound — and escalated the
+severity to "the worst case runs past the 300s ceiling".** That escalation was refuted at review.
+
+**The reason is the lesson: I composed the store read's four terms and left the YEAR's 242s
+uncomposed.** 242s is CFBD-only; under the same store degradation the year's own dozen round trips
+are slow too, so the ceiling is reachable at EVERY figure — 15s, 45s, 60s. The number I corrected was
+a floor, not a ceiling, and the headline I derived from it was not a finding at all. **The true,
+narrower claim survives and is the one that matters: the budget admits a year it was designed to
+refuse.**
+
+**How to apply:** when correcting an under-composed figure, enumerate every term in the SAME
+expression and state which ones you composed and which you did not. A correction inherits the
+authority of the thing it corrects, so a half-composed correction is believed harder than the original
+error. See the never-invent-figures rule above — this is its quietest form: not a fabricated number,
+not even an inherited one, but a real number carried into an argument whose other terms were never
+given the same treatment.
+
 **A GUARD THAT GREPS TEXT IS DEFEATED BY ITS OWN EXPLANATORY COMMENT. KEY ON THE DECLARED SET, NOT ON
 A RENDERING OF IT.** Added 2026-09-24 by the #861 lane, which caught this in its own guard before any
 reviewer did. The branch added a check that every test name cited in a source comment actually
