@@ -854,6 +854,25 @@ throws, capture observations in `finally`; an empty collection populated only af
 resolution proves nothing. Mutation-check the observer when practical, not only the production
 guard it observes.
 
+**A GATE'S VERDICT IS ITS EXIT CODE, NEVER ITS SUMMARY LINE — AND `# fail 0` IS UNRELIABLE EXACTLY
+WHEN IT MATTERS.** Added 2026-09-24 by the #866 lane, about its own reporting. A whole test FILE died
+mid-run and the TAP summary printed **`# fail 0`**. The lane had been quoting those counts as evidence
+of green, and on the one run that genuinely failed, the count would have said everything was fine. The
+counts were only ever sound because an exit code sat beside them. **Read the exit code; quote the count
+only as colour.**
+
+**GATE RUNS MUST RETAIN OUTPUT.** `>/dev/null 2>&1` satisfies "each gate its own command and a real
+exit code" while destroying the diagnosis — a failure observed hours earlier then takes a full
+investigation to characterise, because nothing about it was kept. Redirect to a file if the volume is
+a problem; never to `/dev/null`.
+
+**THIS IS THE FOURTH INSTANCE OF ONE SHAPE, AND THE SHAPE IS NOW THE POINT.** The broken state renders
+identically to the safe state: a review of nothing wearing a clean report (`CLAUDE.md`), a text-grep
+guard defeated by its own comment (above), a §8i gate whose every failure mode exits like an honest
+"not promoted", and now a summary line that reads zero while a file is dying. **Each was found one
+level further out than the last fix.** When you build a check, ask what its OUTPUT looks like when the
+check itself is broken — if that is indistinguishable from success, the check is not yet a check.
+
 **COMPOSING ONE TERM AND NOT ITS SIBLINGS IS THE SAME ERROR AS NOT COMPOSING AT ALL — AND IT IS MORE
 CONVINCING, BECAUSE IT ARRIVES AS A CORRECTION.** Added 2026-09-24 by planning, about planning.
 PLATFORM-861 recorded a bounded store read as "15s", inherited from a docblock that named two 15s

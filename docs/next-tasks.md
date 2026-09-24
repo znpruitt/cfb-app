@@ -482,7 +482,24 @@ pairing — same file, same `NoClaim` root), Item 133a (below), 122, 121, 84, 86
 complete and merge-approved below. **Item 137 merged 2026-09-11** (#696, PR #742, `a8593d9f`); it is no
 longer a filler.
 
-> **Known-failure baseline: EMPTY as of 2026-09-11.** Item 137 (#696, PR #742, merged `a8593d9f`)
+> **KNOWN-FAILURE BASELINE: NO LONGER EMPTY AS OF 2026-09-24. ONE ENTRY, NAMED.**
+>
+> 1. **`stall.test.ts:236` `ACCEPTANCE 3`** — intermittent, **~2.5% of runs**, measured over 120+ by the
+>    #866 lane. A fixed tick count leaves the awaited work unsettled, the run stays pending, and the
+>    **whole FILE dies**. Tracked as [#872](https://github.com/znpruitt/cfb-app/issues/872).
+>
+> **Merge condition 3 still binds to the SET, not to a count** — this one, and one more or one
+> elsewhere means stop and report. **An intermittent entry is worse than a deterministic one**: a lane
+> that hits it will reasonably suspect its own change, which is why it is named here rather than left
+> for each lane to rediscover. **A clean run does not prove absence at 2.5%** — do not report "it
+> passed for me" as evidence the entry is gone.
+>
+> **And the run that found it printed `# fail 0` while the file was dying**, so the TAP summary cannot
+> be used to detect this. Read the exit code (`AGENTS.md` → verification).
+>
+> **Restore this line to EMPTY the moment #872 lands**, verified at high N rather than by one pass.
+>
+> **Previously: EMPTY as of 2026-09-11.** Item 137 (#696, PR #742, merged `a8593d9f`)
 > removed the last two — wall-clock time bombs in
 > `src/app/api/odds/__tests__/writer-convergence.test.ts`, not product defects. **`npm test` on clean
 > `main` exits 0.** `CLAUDE.md`'s merge condition 3 now binds to an EMPTY set, so any failure
