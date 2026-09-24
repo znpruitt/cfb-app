@@ -646,6 +646,16 @@ test('overflowing status rows keep equal structure and preserve the fixed tag ed
   assert.equal(metadata.querySelectorAll('.truncate').length, 2);
   assert.deepEqual(directScoreboardRows(renderScoreboard()), ['header', 'away', 'home']);
   assert.deepEqual(directScoreboardRows(html), ['header', 'away', 'home']);
+  const taggedLive = new JSDOM(
+    renderScoreboard({ state: 'live', tagSlot: <span>Upset watch</span> })
+  ).window.document;
+  assert.deepEqual(
+    ['[data-scoreboard-header-metadata]', '[data-scoreboard-tag-slot]'].map((selector) =>
+      taggedLive.querySelector(selector)?.classList.contains('max-sm:w-full')
+    ),
+    [true, true],
+    'tagged live metadata and tag spans both take full phone-width lines'
+  );
   const untaggedScheduled = renderScoreboard({ state: 'scheduled', statusLabel: 'SCH' });
   assert.doesNotMatch(untaggedScheduled, /max-sm:flex-wrap|max-sm:w-full/);
 });

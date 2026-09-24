@@ -78,8 +78,30 @@ expectations now admit phone wrapping, retaining scheduled-positive and untagged
 Restoring the original component made both updated tests fail: `a tagged live Schedule row shares
 the phone-width wrap exception` and `tagged live rows permit wrapping at phone width`.
 
-Both confirming reviews found no remaining issues at exact commit
-`0b7318cbc475464d599a003a9466cf32bdbf71e2`. No second remediation was taken.
+Round-1 confirming reviews reported no remaining issues at exact commit
+`0b7318cbc475464d599a003a9466cf32bdbf71e2`. That supports the production-change conclusion, not
+complete harness coverage: both reviewers missed the vertical-clipping blind spot already present
+there. The hidden-tag mutation above proved erasure detection, not clipping detection. Round 2
+examined that coverage at `4d064d7e`: a `max-sm:max-h-4` header still passed all nine browser tests
+while clipping away the tag line. The owner accepted that medium finding and the missing
+browser-independent live-span pin, and explicitly authorized this bounded second remediation on
+2026-09-24. Production code remains frozen.
+
+The correction adds `overflowY` and top/bottom bounds to both visibility loops, asserts that header
+height contains metadata + 4px gap + tag-slot height, and pins `max-sm:w-full` on both tagged-live
+child spans in JSDOM. No additional test cases or production behavior are added.
+
+New temporary mutations, all restored and each exiting 1:
+
+- `max-sm:max-h-4` on the header fails every state's `header contains both lines and their gap`
+  assertion and separately `scheduled: every supplied tag remains visible` (actual visible tags: []).
+- `max-h-[1px]` on broadcast fails both Schedule `broadcast text fits every clipping boundary`
+  assertions with 14px vertical overflow. This isolates the broadcast observer from tag visibility.
+- Re-scoping only the two child spans to scheduled fails `tagged live metadata and tag spans both
+  take full phone-width lines`, with `CHROME_PATH=/nonexistent/chrome`. The JSDOM pin needs no browser.
+
+The scoped corrected tests pass (42/42). Exact-commit gates and confirming reviews for this
+owner-authorized correction are recorded on PR #864; the round-1 passes below are historical.
 
 At that clean, unchanged commit: `npm test` exited 0 (5581 passed, zero failed/skipped),
 `npm run test:browser:required` exited 0 (16 passed, zero failed/skipped), `npx tsc --noEmit`
@@ -87,6 +109,6 @@ exited 0, and pre-push `npm run lint:all` exited 0. The final docs-only commit r
 run, recorded on [PR #864](https://github.com/znpruitt/cfb-app/pull/864), rather than inheriting these
 results.
 
-Implementation is reviewed and awaiting merge. Every commit is pushed to the feature branch and
+Implementation and the owner-authorized harness correction await merge. Every commit is pushed to the feature branch and
 `preview` under the owner's slice-scoped grant. Preview succeeded at `0b7318cb`; a docs-only push
 may skip a new deployment. No merge or production promotion is claimed.

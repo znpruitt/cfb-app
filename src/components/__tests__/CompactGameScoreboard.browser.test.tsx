@@ -216,6 +216,8 @@ async function measure(page: BrowserFixturePage, key: string): Promise<HeaderMea
         const style = getComputedStyle(parent), p = parent.getBoundingClientRect();
         if (['hidden', 'clip', 'auto', 'scroll'].includes(style.overflowX) &&
             (r.left < p.left - 0.5 || r.right > p.right + 0.5)) return false;
+        if (['hidden', 'clip', 'auto', 'scroll'].includes(style.overflowY) &&
+            (r.top < p.top - 0.5 || r.bottom > p.bottom + 0.5)) return false;
       }
       return r.width > 0 && r.height > 0;
     };
@@ -226,14 +228,18 @@ async function measure(page: BrowserFixturePage, key: string): Promise<HeaderMea
       range.selectNodeContents(broadcast);
       const text = range.getBoundingClientRect();
       let left = text.left, right = text.right;
+      let top = text.top, bottom = text.bottom;
       // Include broadcast's own truncate box AND every clipping ancestor.
       for (let element = broadcast; element; element = element.parentElement) {
         const style = getComputedStyle(element), r = element.getBoundingClientRect();
         if (['hidden', 'clip', 'auto', 'scroll'].includes(style.overflowX)) {
           left = Math.max(left, r.left); right = Math.min(right, r.right);
         }
+        if (['hidden', 'clip', 'auto', 'scroll'].includes(style.overflowY)) {
+          top = Math.max(top, r.top); bottom = Math.min(bottom, r.bottom);
+        }
       }
-      broadcastOverflow = Math.max(0, left - text.left, text.right - right);
+      broadcastOverflow = Math.max(0, left - text.left, text.right - right, top - text.top, text.bottom - bottom);
       if (!broadcast.checkVisibility({checkOpacity: true, checkVisibilityCSS: true})) broadcastOverflow = text.width || 1;
     }
     return {
@@ -259,6 +265,10 @@ for (const state of STATES) {
           assert.equal(m.metadata.width, m.header.width, `${label}: metadata takes a full line`);
           assert.equal(m.slot.width, m.header.width, `${label}: tag slot takes a full line`);
           assert.ok(m.slot.top >= m.metadata.bottom + 4, `${label}: tags occupy the second line`);
+          assert.ok(
+            m.header.height >= m.metadata.height + 4 + m.slot.height,
+            `${label}: header contains both lines and their gap`
+          );
           assert.ok(
             Math.abs(m.lastTag.right - m.header.right) < 0.5,
             `${label}: tags align to the right edge`
