@@ -4,17 +4,19 @@
 PROMPT_ID: PLATFORM-669-OVERVIEW-SHARED-ROW-CODEX-v1
 PURPOSE: Six row decisions were taken during the Schedule and Matchups work, recorded as Schedule
          decisions, and never applied back to Overview's watchlist — though every one is a property
-         of the SHARED row. The visible consequence: a tagged watchlist card renders THREE header
-         lines where the design has one.
+         of the SHARED row. The visible consequence: every watchlist card reserves a 22px band the
+         design does not have, and a tagged card renders TWO header bands where it has one.
 SCOPE:   src/components/OverviewPanel.tsx — `WatchlistScoreboardList` (`:909`) and its
          `contextSlot` (`:969-999`) — plus its tests and a browser measurement. DO NOT change
          `CompactGameScoreboard`, the tag selector, `EYEBROW_TAG_CLASSES`, any other Overview
          section, or DESIGN.md (planning owns it).
-CARRIES: **The `margin-left: auto` trap — CARRY row 25, and it bites HARDER here than anywhere it has
-         bitten before.** `item-87-followon-presentation-decisions.md` → *"Implementation note —
-         `margin-left: auto` is not sufficient"*. Some watchlist rows are **tag-only**, with no
-         metadata to hold the left group open, so a right-pin that relies on a sibling's width has
-         nothing to push against. Read that section before writing the layout.
+CARRIES: **The `margin-left: auto` trap — CARRY row 25.**
+         `item-87-followon-presentation-decisions.md` → *"Implementation note — `margin-left: auto` is
+         not sufficient"*. Read that section before writing the layout. **Its amplifier on THIS
+         surface is withdrawn:** planning claimed tag-only rows with no metadata to hold the left
+         group open, and the receipt established that kickoff formatting always returns text
+         (including `TBD`), so such a row is synthetic. Get the right-pin correct; do not build a
+         fixture for a row that cannot occur.
 
          Three standing obligations bind, from AGENTS.md:
          - A claim in a comment needs a test asserting the same behaviour.
@@ -24,6 +26,55 @@ CARRIES: **The `margin-left: auto` trap — CARRY row 25, and it bites HARDER he
 ```
 
 ---
+
+## RECEIPT ADJUDICATED 2026-09-25 — proceed, and the PAYOFF IS A DIFFERENT SHAPE THAN THIS PROMPT SAID
+
+**All six corrections accepted, verified by planning. Three change what this slice delivers.**
+
+### The headline symptom does not reproduce, and the real win is bigger than it
+
+**The tag-wrap misalignment is gone.** Measured across fifteen viewport widths: every card kept a 22px
+reason band and a 62px offset to its first team row, and at 260px the content **clipped rather than
+wrapping** — `OverviewPanel.tsx:971` carries `overflow-hidden`. The 2026-09-08 observation has been
+overtaken.
+
+**But the band is UNCONDITIONAL** (`:967-971`, and its comment says so deliberately): **an untagged
+card reserves the same 22px as a tagged one.** So moving the chips into `tagSlot` and removing the
+band does not "fix a misalignment" — **it takes 22px off EVERY watchlist card**, plus brings the
+surface onto the same structure as every other one. That is a denser, more honest payoff than the one
+this prompt described, and it is the one to report.
+
+**Two header bands, not three.** Team rows are not headers; this prompt miscounted by calling them
+that. The change is two bands → one.
+
+### Three claims in this prompt are withdrawn
+
+1. **"reason label plus two tags" is NOT an ordinary reachable shape.** The landed Close guard
+   (`fa0c6573`) rejects scheduled score packs, so `deriveGameHighlightTags` yields `top25` and `close`
+   and `close` cannot fire on a scheduled row. The widest ordinary watchlist slot is **a reason label
+   plus one tag — two pills**. Keep the three-pill case only as an **explicitly synthetic** stress
+   fixture, labelled as such.
+2. **The CARRY is relieved for this surface.** CARRY row 25's `margin-left: auto` trap is real, but
+   its amplifier here is not: **metadata-free watchlist rows are synthetic**, because kickoff
+   formatting always returns text, including `TBD`. The left group is always held open. **Planning
+   asserted the tag-only case without checking it.** Keep the right-pin correct; do not build a
+   fixture for a row that cannot occur.
+3. **"One header line" keeps the phone exception.** #797 is landed and applies to every tagged state
+   below 640px viewport. The single-line contract was already scoped, and this slice does not narrow
+   it.
+
+### Accepted as answered, and carried into acceptance
+
+- **All six decisions are unblocked; three are already satisfied** — one tag vocabulary/treatment
+  (`3e2385e6`, `0f2ec105`), team identity slot (Item 119's bars retired, 28px logos at `ec4bc95c`),
+  and the third-column tier (now 1341px container on Overview; **preserve it** — and note
+  [#873](https://github.com/znpruitt/cfb-app/issues/873) asks whether that number's premise survived,
+  which is planning's, not yours). **The three that remain are one change**: chips into the status
+  row, pinned right, sharing the header.
+- **The watchlist is the ONLY `contextSlot` consumer on Overview.** Removing the band once the chips
+  leave is approved as proposed, with a test. The odds-footer reservation stays.
+- **`tagSlot` is a 16px-high container and the existing wrapper is 22px.** New risk, not previously
+  named: **measure vertical clipping** before assuming the chips carry across.
 
 ## The framing to keep: ONE omission, not six divergences
 
@@ -41,15 +92,15 @@ stop-and-report, not a variation.
 `CompactGameScoreboard`'s **`contextSlot`** — a row of its own, above the header. It does not use
 **`tagSlot`**, which is the slot that sits inside the status row beside the metadata.
 
-So a tagged watchlist card renders **chips line → date/broadcast line → team lines**: three header
-lines where the mockup puts state, date, broadcast and the tag on **one**. An untagged card already
-reads correctly at one line, which is why the gap only shows on cards that carry a tag.
+So a tagged watchlist card renders **chips band → date/broadcast band → team rows**: two header
+bands where the mockup puts state, date, broadcast and the tag on **one**.
 
-**The grid misalignment in this issue's title text is the SMALLER symptom and its trigger is narrow.**
-Recorded 2026-09-08: it is invisible at desktop width, because a one-tag and a two-tag card both fit
-on one line; it appears only when a card's tags **wrap**, which is narrower than the two-column tier.
-**The line count is what is visible at every width.** Fix the slot and the alignment follows; chase
-the alignment alone and you will fix the narrow case and leave the broad one.
+**And the band is reserved even when empty**, so an untagged card pays the same 22px. **That is the
+measurable result of this slice and it applies to every card.**
+
+**The grid misalignment in this issue's title text DOES NOT REPRODUCE** — see the adjudication above.
+Fifteen viewport widths, every card level, content clipping rather than wrapping at 260px. Do not
+spend the slice chasing it.
 
 ### Moving the chips into `tagSlot` is a NEW interaction, and nothing has measured it
 
@@ -57,9 +108,9 @@ the alignment alone and you will fix the narrow case and leave the broad one.
 it.** The #726/#797 lane established this explicitly while measuring: *"Overview's scheduled Watchlist
 puts its tags in the context slot, so that particular header has no tag slot to wrap."*
 
-The moment the chips move, that card comes under the wrap rule for the first time — and the watchlist
-can carry a reason label **plus** two tags, which is a wider slot than the rows #797 measured.
-**Measure it at phone width. Do not assume #797's fix covers a case it was never shown.**
+The moment the chips move, that card comes under the wrap rule for the first time. **Measure it at
+phone width; do not assume #797's fix covers a case it was never shown.** The ordinary widest slot is
+a reason label plus ONE tag — the three-pill case is synthetic, per the adjudication.
 
 ### The `min-h-[22px]` reservation is deliberate and its comment says so
 
@@ -81,8 +132,10 @@ report whether relocation changes what either issue means.
 
 ## Acceptance
 
-1. **A tagged watchlist card renders ONE header line, not three**, pinned by a test that fails against
-   today's code. This is the acceptance the issue exists for.
+1. **A watchlist card renders ONE header band, not two**, pinned by a test that fails against today's
+   code. **And the 22px reservation is gone from EVERY card, tagged or not** — that is the measurable
+   result, since the band is unconditional today. Report the card height before and after, for both a
+   tagged and an untagged card.
 2. **The remaining five decisions are each applied or explicitly deferred with a reason**, enumerated
    from `presentation-decisions.md`. **Do not report a count** — name each decision and its
    disposition. A decision deferred because its enabling work has not shipped is a valid outcome and
