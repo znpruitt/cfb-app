@@ -964,15 +964,10 @@ function WatchlistScoreboardList({
                 : undefined
             }
             matchupLabel={formatGameMatchupLabel(game)}
-            // Keep this wrapper unconditional: min-h-[22px] deliberately reserves the reason-row
-            // band even when empty. Passing undefined would silently drop that 22px reservation.
-            contextSlot={
-              <div
-                className="flex min-h-[22px] min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap"
-                aria-hidden={hasReason ? undefined : true}
-                data-watchlist-reason-row
-              >
-                {/*
+            tagSlot={
+              hasReason ? (
+                <>
+                  {/*
                   Item 175 — ONE TREATMENT. This label sits INLINE BESIDE a tag
                   pill, so it is functioning as a tag and takes the tag's
                   treatment; `item-87-reference-game-row.md` §2 rejects the split
@@ -984,24 +979,25 @@ function WatchlistScoreboardList({
                   truncates: it is a pill like every other eyebrow on every surface,
                   which is what the cross-surface equality test pins.
                 */}
-                {prioritized.highlightLabel ? (
-                  <span
-                    className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
-                    data-watchlist-reason-label
-                  >
-                    {prioritized.highlightLabel}
-                  </span>
-                ) : null}
-                {highlightTags.map((tag) => (
-                  <span
-                    key={tag.id}
-                    className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
-                    data-eyebrow-tag
-                  >
-                    {tag.text}
-                  </span>
-                ))}
-              </div>
+                  {prioritized.highlightLabel ? (
+                    <span
+                      className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
+                      data-watchlist-reason-label
+                    >
+                      {prioritized.highlightLabel}
+                    </span>
+                  ) : null}
+                  {highlightTags.map((tag) => (
+                    <span
+                      key={tag.id}
+                      className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
+                      data-eyebrow-tag
+                    >
+                      {tag.text}
+                    </span>
+                  ))}
+                </>
+              ) : undefined
             }
             away={{
               teamName: game.csvAway,
