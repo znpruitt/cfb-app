@@ -26,6 +26,58 @@ CARRIES: From #681, folded here by planning 2026-09-11 — **picking Schedule's 
 
 ---
 
+## RECEIPT ADJUDICATED 2026-09-24 — proceed, with one measurement redone
+
+**Accepted in full, including both corrections to this prompt. One ruling changes the number you
+derive.**
+
+### THE POPULATION RULING — neither 276px nor 314px is measured over what renders
+
+Planning measured the rendered 2026 schedule from production `/api/schedule` (3,679 games, **716
+distinct teams**) against `src/data/team-abbreviations.json` (682 entries):
+
+- **`Limestone` DOES NOT RENDER IN 2026.** Its 9-character `LIMESTONE` drove the 314px figure. **That
+  is a clean measurement of a population the surface cannot show** — the artifact is what the app
+  INGESTS, not what it renders.
+- **The widest abbreviation that can actually render is `APPRE` (5 ch, Apprentice School)**, then a
+  band of 4-character ones. `WASH` is in that band, so the 276px basis is real.
+- **And the governing case is neither.** **50 of the 716 rendered teams cannot use the fallback at
+  all** — 47 have no artifact entry and 3 carry explicit nulls. The longest is **`Westgate Christian
+  University`, 29 characters**, which must render as a full name with no abbreviation to fall back to.
+
+**So the worst case under #821 is a team with NO abbreviation, not the longest abbreviation.** Derive
+against that set, or exclude it with a stated reason — do not let it be excluded by never having been
+enumerated. This prompt's own framing pointed you at abbreviation width and was wrong to.
+
+**The populations also differ BY SURFACE, which is a second reason the two numbers may differ.**
+Schedule renders the whole season, all 716. Matchups renders owner slates built from `rosterByTeam`,
+so its population is the drafted teams. **Derive each surface against its own rendered population**;
+"one shape, two surfaces" means one METHOD, not one number. Your padding finding (20px Schedule vs
+34px Matchups, records on one and not the other) points the same way and is accepted.
+
+### Corrections to this prompt, both yours, both right
+
+1. **Acceptance 2 called 219px a "published minimum". It is not, and `DESIGN.md` says so in the same
+   breath it gives the number** (`:426-428`): *"a boundary for that fixture, not a universal constant
+   or a code value"*, *"No supported minimum width is set"*. **Planning wrote that text and then
+   misquoted it one slice later.** Acceptance 2 is corrected below: the floor is context, not a
+   constraint to derive against.
+2. **Abbreviations are not 2-4 characters** — `LIMESTONE` is 9 in the artifact, `APPRE` is 5 in the
+   rendered set. Any reasoning that assumed a short fixed width is void.
+
+### Approved as proposed
+
+- **Matchups converts to container queries preserving its two-column transition at 976px**, not moved
+  to Schedule's 760.01px. It keeps current geometry, so acceptance 4 holds, and it puts the surface on
+  the same coordinate system as the other two. Your measurement (1023 viewport → 975 content,
+  1024 → 976) is the derivation; state it in the report.
+- **Item 1's full inventory is accepted.** Seven column rules, not three; the four beyond the game
+  grids are out of scope and stay untouched.
+- **Overview is stale in its DERIVATION and that is now filed** — see below. Your distinction is
+  exactly right and planning has adopted its wording: the old fit derivation no longer justifies
+  `403px` as NECESSARY; it does not follow that the layout is undesirable. Those are different
+  questions and only the first is settled.
+
 ## Two things the issue says that are no longer true, and one it does not say at all
 
 **#726 reads as "Overview has a tier, copy its shape to two surfaces that are otherwise alike."
@@ -102,9 +154,15 @@ the worst case under the post-#821 model rather than under the pre-#821 one?
 1. **Both surfaces gain a three-column tier**, on a breakpoint derived by measurement, with the
    measurement and its population reported. One shape, two surfaces — implementing one without the
    other recreates the divergence this issue exists to close.
-2. **The breakpoint is derived against the post-#821 model**: the abbreviation is the width fallback,
-   no name truncates, and `DESIGN.md`'s 219px floor is the published minimum. A derivation that sizes
-   the column to the longest renderable name is wrong even if its arithmetic is correct.
+2. **The breakpoint is derived against the post-#821 model AND the rendered population of its own
+   surface.** The abbreviation is the width fallback and no name truncates. **`DESIGN.md`'s 219px is
+   NOT a minimum to derive against** — it is a measured boundary for one fixture, explicitly *"not a
+   universal constant or a code value"*. **The governing case is the 50 rendered teams with no
+   abbreviation available**, longest `Westgate Christian University` at 29 characters; include them or
+   exclude them with a stated reason. A derivation that sizes the column to the longest renderable
+   full name under the OLD model is wrong even if its arithmetic is correct — and so is one that sizes
+   it to the longest abbreviation in the artifact, since that set includes teams the surface never
+   shows.
 3. **Matchups' coordinate system is decided explicitly, and the decision is stated.** Either it
    converts to container queries and matches Schedule and Overview, or it stays on `lg:` and the
    report says why a viewport query is right for that surface. **Do not leave it implicit** — a
