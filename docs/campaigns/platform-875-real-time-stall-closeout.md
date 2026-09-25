@@ -1,6 +1,8 @@
 # PLATFORM-875 — a test that ended by exhausting a budget rather than by asserting (closeout)
 
-Status: Implemented and gated; pre-merge closeout, not a deployment claim.
+Status: **Merged** — [PR #878](https://github.com/znpruitt/cfb-app/pull/878), `e2b3ac90`, 2026-09-25.
+The merged tree hash matched the gated one (`c75bb284`). Not a deployment claim: auto-promotion is
+off, and this branch is test-only in any case.
 Issue: [#875](https://github.com/znpruitt/cfb-app/issues/875).
 Prompt: `docs/prompts/platform-875-real-time-stall-claude-v1.md`
 (`PROMPT_ID: PLATFORM-875-REAL-TIME-STALL-CLAUDE-v1`).
