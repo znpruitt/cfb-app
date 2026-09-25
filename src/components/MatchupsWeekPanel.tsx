@@ -588,11 +588,17 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
     });
   }, [focusedOwner, focusedOwnerPair]);
 
+  // PLATFORM-726: preserve the 483px track measured at the first two-column
+  // container (976px): 3 * 483 + 2 * 10 = 1469px. The browser derivation and
+  // population fit are pinned in ThirdColumnTier.browser.test.tsx.
   return (
-    <div className="space-y-3">
+    <div className="@container space-y-3">
       <section className="space-y-2.5">
         {ownerSlates.length ? (
-          <div className="grid gap-2.5 lg:grid-cols-2">
+          <div
+            className="grid grid-cols-1 gap-2.5 @min-[976px]:grid-cols-2 @min-[1469px]:grid-cols-3"
+            data-matchups-scoreboard-grid
+          >
             {ownerSlates.map((slate) => (
               <OwnerCard
                 key={slate.owner}

@@ -121,6 +121,14 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-726-THIRD-COLUMN-TIER-CODEX-v1
+
+- Purpose: Add measured third-column tiers to Schedule and Matchups, carrying #681's non-reproducing Schedule arithmetic.
+- Scope: Two panel grid rules, browser proof and execution docs. Overview, shared scoreboard rendering, selectors and DESIGN.md unchanged.
+- Outcome: Schedule 1162px and Matchups 1469px container tiers; Matchups retains the approved 976px second tier. Actual row budgets are 340.65625px and 439px over 238 normalized Schedule names and 237 owner-slate participant names. The raw 716-name population and all 50 no-abbreviation exclusions are enumerated in the closeout.
+- Review / verification: Initial implementation `00ec4e99`, first remediation `0ce3f88d`, owner-authorized second/final proof-only round `68312b5a`. Production stayed frozen after the first remediation. Both independent reviewers targeted `68312b5a`; Codex found no actionable defects, `/code-review` findings were adjudicated with bounded claims and follow-ups. No credible current in-scope P0/P1/P2 remains. All four required gates passed at that clean commit: 5,597 tests and 26 browser checks, zero failures/skips. Final docs-commit gates and exact SHA are recorded on the PR. [Derivation, conditions, population, mutations and review disposition](campaigns/platform-726-third-column-tier-closeout.md). L1, L4 and L6 apply.
+- Status: Implementation and review complete in [PR #874](https://github.com/znpruitt/cfb-app/pull/874); pre-merge closeout. No production promotion claimed. Overview follow-up remains #873; proof-coverage follow-ups are retained in the closeout for planning.
+
 ### PLATFORM-797-HEADER-WRAP-CODEX-v1
 
 - Purpose: Extend compact-header phone wrapping to every state, carrying folded #758.

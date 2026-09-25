@@ -79,6 +79,9 @@ export default function GameWeekPanel({
     scrollFocusedGameIntoView({ gameId: focusedGameId, refsByGameId: gameCardRefs.current });
   }, [focusedGameId]);
 
+  // PLATFORM-726: the browser derivation preserves the 360.5px track measured at
+  // the first whole-pixel two-column container (761px): ceil(3 * 360.5 + 2 * 40).
+  // ThirdColumnTier.browser.test.tsx also checks the rendered population fits it.
   return (
     <>
       {viewModel.hasNoGames ? (
@@ -97,7 +100,7 @@ export default function GameWeekPanel({
             </div>
 
             <div
-              className="grid grid-cols-2 gap-x-10 gap-y-1.5 @max-[760.01px]:grid-cols-1 @max-[760.01px]:gap-y-2"
+              className="grid grid-cols-2 gap-x-10 gap-y-1.5 @min-[1162px]:grid-cols-3 @max-[760.01px]:grid-cols-1 @max-[760.01px]:gap-y-2"
               data-schedule-scoreboard-grid
             >
               {group.games.map((card) => {
