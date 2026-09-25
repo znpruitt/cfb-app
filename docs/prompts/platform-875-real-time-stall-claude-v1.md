@@ -2,10 +2,10 @@
 
 ```text
 PROMPT_ID: PLATFORM-875-REAL-TIME-STALL-CLAUDE-v1
-PURPOSE: `PLATFORM-861: the FIRST year runs even past the budget` mocks `Date` but not `setTimeout`,
-         so it spends ~750ms of REAL wall-clock in three venue attempts against real backoff sleeps,
-         against a 30s file budget. When the budget goes, the FILE DIES rather than an assertion
-         failing — and the TAP summary can print `# fail 0` while it happens.
+PURPOSE: TWO tests in this file mock `Date` but not `setTimeout`, so each spends ~750-900ms of REAL
+         wall-clock in venue backoff sleeps — together ~83% of the file's 1.9s against a 30s budget.
+         Fix the one that can take the fix (`:863`); record the other (`:743`) with its measured
+         reason. Convert "the bound expired" from a dying file into a named assertion.
 SCOPE:   src/app/api/cron/schedule-presentation/__tests__/stall.test.ts — the test at `:863` and any
          sibling in this suite with the same shape. DO NOT change src/, the route, the budget
          constants, or any assertion's MEANING.
@@ -21,6 +21,71 @@ CARRIES: NONE from the Item 87 campaign index, having checked — this is test-h
 ```
 
 ---
+
+## RECEIPT ADJUDICATED 2026-09-25 — three rulings, and this prompt's central trap was WRONG
+
+**All five corrections accepted. The slice is smaller than this prompt describes.**
+
+### RULING 1 — `:743` takes option (c): leave it, with the measured reason recorded
+
+**(b) is disqualified by your own analogy and it is the right one.** Making the venue failure
+non-retryable removes the sleeps while silently narrowing what the fixture exercises — *"CLAUDE.md's
+`--base` trap in test clothes"*. That is exactly the shape: it looks like it is doing the job while
+shrinking what is seen, and nothing downstream would show it.
+
+**(a) is correct but buys a guard that needs its own control**, which is the cost this slice exists to
+avoid paying twice.
+
+**So: fix `:863` (measured 713–883 ms → 9.07 ms, all four assertions intact), and leave `:743`
+documented** with its 714–904 ms against a 30 s budget and the reason it cannot take the same fix —
+its boundary is exactly 8 s and every pre-admission tick moves elapsed past it.
+
+### RULING 2 — YES, inherit the existing controls. Do not write a third
+
+`#872: the tick cap fails by ASSERTION, naming what hung` (`:437`) and `#872: the default cap is the
+one the loops run under` (`:898`) already feed `tickUntilSettled` an unsettling promise and assert the
+`AssertionError` carrying the work's name. Same function, same expiry path, real input. **A third
+near-duplicate proves nothing new. Name the providing tests in the closeout** — that is the
+"name its test" rule applied to a control.
+
+**And ship your (b) statement as written.** The harness killing the file has no constructible control,
+and no fix can build one, because Node cancels from outside the test's own code. **The fix converts
+(a) into a named assertion and cannot touch (b); it makes (b) less reachable, which is a probability
+reduction and not a guarantee.** That is the honest claim and it is worth more than a confident one.
+
+### RULING 3 — acceptance 5's high-N run is REPLACED by a deterministic check
+
+Your reasoning decides it: a green run at N=500 bounds a 1-in-350 event loosely, while **"zero real
+sleeps" is checkable exactly.** Assert the quantity the claim is about — that the fixed test consumes
+no real wall clock — and use a modest N only as corroboration. **This is the repo's own rule about
+measuring the claim rather than a proxy for it**, and the proxy here is expensive as well as weak.
+
+### This prompt's central trap was wrong, and your correction is sharper
+
+I wrote *"do not reach for `tickUntilSettled` — this one has no clock to drive."* **Acceptance 1
+CREATES that clock**, so the warning contradicted the instruction two sections below it, and you
+measured `:863` working through the helper.
+
+**The real trap is the inverse: ticking advances the mocked `Date`, which in this file IS the measured
+quantity the budget assertions read.** That is what kills `:743`, and it is a sharper statement than
+mine. **I was right about what must not happen and wrong about why** — which is the shape the repo
+already records for a removed guard, and it is worth noticing that a warning can be load-bearing and
+mis-mechanised at the same time.
+
+**Also accepted:**
+
+- **Two tests pay, not one**, and the unnamed one costs marginally more. PURPOSE and the `:863`
+  citation are corrected below.
+- **`Date`-only is necessary, not sufficient** — five of the seven run in 5–20 ms. The cost needs a
+  clock advance that expires the venue catalog.
+- **`# fail 0` is real but `npm run test:file` exits 1.** The shape is dangerous to a reader of the
+  summary, not to the pre-merge gate. That reduces what acceptance 2 buys and you were right to say so
+  before spending the slice.
+- **The 40 s abort timer is still pending during every backoff sleep** (`fetchUpstream.ts:466` runs
+  before the `continue` exits the try), so a tick step ≥ 40 s fires it. **The shared 45 s step is
+  load-bearing in both directions** — do not touch it.
+- **56 more `Date`-only `enable` calls in `src/app/api/cron/rankings/__tests__/`**, unmeasured and out
+  of scope. Record them in the closeout as unmeasured rather than swept.
 
 ## The mechanism
 
@@ -39,25 +104,38 @@ fail, it **cancelled the rest of the file**. That is #872's ending reached by a 
 #872 was a fixed tick count leaving work unsettled; this is real time accumulating until the harness
 gives up. Both produce a dead file, and `AGENTS.md` records that `# fail 0` can print while one dies.
 
-## THE TRAP — #872's fix does not transfer, and it is two files away
+## THE TRAP — CORRECTED BY MEASUREMENT; the original version of this section was wrong
 
-**Do not reach for `tickUntilSettled`.** #872's tests had a mocked clock to advance; **this one has no
-clock to drive.** Its cost is real wall-clock inside real sleeps, and there is nothing to tick.
+**It read:** *"Do not reach for `tickUntilSettled` — this one has no clock to drive."* **False, and it
+contradicted acceptance 1 two sections below, which instructs you to mock `setTimeout` and therefore
+CREATES the clock.** `:863` was measured working through that helper: 713-883 ms → 9.07 ms, all four
+assertions intact.
 
-**The fix has to BOUND the wait, not advance it.** That is a different shape from the one that just
-landed in the same file, which is exactly why it is worth saying before you start — the adjacent,
-recently-successful pattern is the wrong one here.
+**The real trap is the inverse and sharper: ticking advances the mocked `Date`, and in this file that
+IS the measured quantity the budget assertions read.** Every pre-admission tick moves elapsed past
+`:743`'s 8 s boundary, which is why that test cannot take the same fix and takes ruling 1's option (c)
+instead.
 
-## THE HARD PART — the positive control
+**And the shared tick step is load-bearing in BOTH directions.** ≥ 40 s is required by ACCEPTANCE 3
+and 9 to outlast the attempt deadline — the 40 s abort timer is still pending during every backoff
+sleep, because `fetchUpstream.ts:466` runs before the `continue` exits the try. ≥ 8 s is fatal to
+`:743`. **Do not change the step.**
 
-In #872 you could induce the failure by shrinking a macrotask budget. **Here you cannot.** The failure
-comes from starving the process, which a test cannot request.
+## THE POSITIVE CONTROL — SETTLED BY RULING 2; the answer is "inherit, and say which"
 
-**So do not accept a control that merely proves the harness runs.** `AGENTS.md`'s observer rule binds,
-and this is the case where satisfying it takes thought rather than a line. If you conclude a true
-positive control is not constructible, **say so explicitly and say what you substituted**, rather than
-shipping something that looks like one. A control that cannot fail is the defect this issue is about,
-reproduced in its own guard — and that has now happened four times on this project.
+The receipt separated two "cannot complete" events and only one is controllable.
+
+**The bound expiring IS controlled, by two tests that already exist** — `:437` and `:898` — and
+acceptance 2 is inherited when `:863` routes through `tickUntilSettled`. **Name them; do not write a
+third near-duplicate.**
+
+**The harness killing the file has NO constructible control**, because Node cancels from outside the
+test's own code, and **no fix can build one.** Report it exactly that way: the fix converts the first
+into a named assertion, cannot touch the second, and makes the second less reachable — a probability
+reduction, not a guarantee.
+
+**That honest split is the deliverable.** A control that cannot fail is the defect this issue is
+about, reproduced in its own guard, and that shape has now appeared four times on this project.
 
 ## Acceptance
 
@@ -72,8 +150,9 @@ reproduced in its own guard — and that has now happened four times on this pro
    original reason.
 4. **Swept.** Any other test in this suite that mocks `Date` without `setTimeout` gets the same
    treatment, or a stated, measured reason it is safe. Enumerate them — do not report a count.
-5. **Verified at high N with the count stated**, per #872's precedent. One occurrence in 350 runs
-   means a single green pass distinguishes nothing.
+5. **A DETERMINISTIC check replaces the high-N run.** Assert that the fixed test consumes no real
+   wall clock — the quantity the claim is about — rather than inferring it from a green run. A modest
+   N corroborates; it does not bound a 1-in-350 event, and N would have to greatly exceed 350 to try.
 
 ## Testing requirements
 
