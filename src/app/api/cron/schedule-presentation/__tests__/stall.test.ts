@@ -273,7 +273,9 @@ const MAX_STALL_TICKS = 60;
  *
  * A genuinely stuck job must still fail, and fail BY NAME. The cap ends the loop
  * and asserts, so the failure is attributable instead of a dead file. Pinned by
- * '#872: the tick cap fails by ASSERTION'.
+ * '#872: the tick cap fails by ASSERTION, naming what hung — it does not kill the file',
+ * and the default's value and wiring by
+ * '#872: the default cap is the one the loops run under, and it stays clear of measured demand'.
  */
 async function tickUntilSettled(
   t: { mock: { timers: { tick: (ms: number) => void } } },
@@ -893,7 +895,41 @@ test('PLATFORM-861: the FIRST year runs even past the budget, with a slow store 
   );
 });
 
-test('every PLATFORM-861 test name cited in route.ts resolves to a test in this file', async () => {
+test('#872: the default cap is the one the loops run under, and it stays clear of measured demand', async (t) => {
+  // ROUND 1 FINDING 2. Nothing observed `MAX_STALL_TICKS` or the
+  // `maxTicks = MAX_STALL_TICKS` default: ACCEPTANCE 3 and 9 never reach the cap
+  // on a healthy run, and the control above passes its own cap of 3. So the
+  // constant was load-bearing for the recorded evidence and unpinned by the code.
+  //
+  // THE GAP IS NOT THEORETICAL, and the edit that walks through it is specific.
+  // The docblock records a MEASURED distribution of 6-13, which reads as an
+  // invitation to size the cap to the data — and a cap near the top of that
+  // range reintroduces #872 as an intermittent named assertion, with the whole
+  // suite green on the commit that caused it. The measurement is there to
+  // justify the margin, not to set the value.
+  //
+  // Two assertions, because they fail to different edits. The first is the
+  // SAFETY MARGIN, which a tuning edit breaks. The second is the WIRING — that
+  // the omitted argument actually reaches the loop — which a signature change
+  // breaks while leaving the constant untouched.
+  assert.ok(
+    MAX_STALL_TICKS >= 30,
+    'the cap must stay clear of measured demand (worst last-fire index 13 over 200 runs); ' +
+      `${MAX_STALL_TICKS} is close enough to reintroduce #872`
+  );
+
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await assert.rejects(
+    () => tickUntilSettled(t, new Promise<never>(() => {}), 'the default-cap probe'),
+    (error: unknown) =>
+      error instanceof assert.AssertionError &&
+      error.message.includes(`after ${MAX_STALL_TICKS} ticks`),
+    'the omitted argument resolves to MAX_STALL_TICKS, and the message reports it'
+  );
+  t.mock.timers.reset();
+});
+
+test("every test name cited in route.ts or this file's comments resolves to a test in this file", async () => {
   // THE GUARD FOR THE DEFECT REVIEW FOUND ON THIS BRANCH. The first version of
   // the admission comment cited a test called 'PLATFORM-861: the admission
   // boundary is 8s of elapsed with both legs owed'. No such test was ever
@@ -927,12 +963,33 @@ test('every PLATFORM-861 test name cited in route.ts resolves to a test in this 
   // Comment continuations wrap across lines, so the leading `// ` of each line is
   // stripped before matching a quoted name that may span two or three of them.
   const flatten = (text: string): string => text.replace(/\n\s*\/\/ ?/g, ' ').replace(/\s+/g, ' ');
-  const cited = [...flatten(source).matchAll(/'(PLATFORM-861:[^']+)'/g)].map((m) => m[1]);
+  const citedInRoute = [...flatten(source).matchAll(/'(PLATFORM-861:[^']+)'/g)].map((m) => m[1]);
+  // #872 WIDENED THIS, BECAUSE ROUND 1 FOUND THE SAME DEFECT ONE FILE OVER AND
+  // THIS GUARD COULD NOT SEE IT. The `tickUntilSettled` docblock cites the
+  // controls that pin its cap, and its first version quoted a TRUNCATED form of
+  // a real test's name — which resolves to nothing exactly as an invented name
+  // does. The citation lived in this file's own comments rather than in
+  // `route.ts`, so a guard reading only `route.ts` passed it.
+  //
+  // The declared-name set is already read from this file, so the fix is to widen
+  // what is EXTRACTED, not what is checked against.
+  const citedHere = [...flatten(selfSource).matchAll(/'(#872:[^']+)'/g)].map((m) => m[1]);
   const declared = new Set(
     [...selfSource.matchAll(/^test\(\s*'([^']+)'/gm)].map((match) => match[1])
   );
 
-  assert.ok(cited.length >= 5, `expected route.ts to cite its tests, found ${cited.length}`);
+  assert.ok(
+    citedInRoute.length >= 5,
+    `expected route.ts to cite its tests, found ${citedInRoute.length}`
+  );
+  // The same positive control as `declared` below, for the added extraction: a
+  // regex that stops matching would report "every citation resolves" having read
+  // none of them.
+  assert.ok(
+    citedHere.length >= 2,
+    `the #872 citation extraction found ${citedHere.length} names, so it is not reading this file's comments`
+  );
+  const cited = [...citedInRoute, ...citedHere];
   // A positive control on the extraction itself: if the `test(...)` pattern ever
   // stops matching, `declared` goes empty and every citation would "fail" for the
   // wrong reason — a check that cannot see is not a check that found nothing.
@@ -943,7 +1000,7 @@ test('every PLATFORM-861 test name cited in route.ts resolves to a test in this 
   for (const name of cited) {
     assert.ok(
       declared.has(name),
-      `route.ts cites a test that does not exist in stall.test.ts: ${JSON.stringify(name)}`
+      `a comment cites a test that does not exist in stall.test.ts: ${JSON.stringify(name)}`
     );
   }
 });

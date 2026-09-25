@@ -16,8 +16,9 @@ Branch: `claude/872-tick-until-settled`, off `origin/main` at `1d66c742`.
 The two stall tests drove `t.mock.timers.tick` a fixed number of times — ten for `ACCEPTANCE 3`,
 twelve for `ACCEPTANCE 9`. Both now call one shared `tickUntilSettled`, which ticks **until the
 awaited run settles**, with a bounded cap whose expiry is an **assertion naming what did not settle**
-rather than a hang. A third test, `#872: the tick cap fails by ASSERTION`, is the cap's positive
-control.
+rather than a hang. Two added tests cover the cap itself: one that its expiry is a named assertion
+rather than a death, and one (added in round 1 remediation) that the default value and its wiring are
+what the loops actually run under.
 
 ## 1. The mechanism, corrected
 
@@ -113,8 +114,11 @@ harness deletes a run's log only when it exited 0.
 
 ## 5. Verification
 
-Each gate its own command and its own exit code, never behind a pipe. All against `380a8e52`, worktree
-clean.
+Each gate its own command and its own exit code, never behind a pipe. All against the tip recorded in
+§8, worktree clean. **Round 1 finding 4 corrected this**: it read "all against `380a8e52`" while the
+tip was `718c1edf`, which edits this very file — a file inside `lint:markdown`'s set — so the
+`lint:all` row did not reach the commit being merged. The gates had in fact run against the tip's
+content; the claim was the defect, not the coverage.
 
 | gate | exit | result |
 | --- | --- | --- |
@@ -153,7 +157,88 @@ it, not review. Both wrong instruments were keyed on something adjacent to the c
 asks the question the claim is about. Same shape as the `git diff` base check in `CLAUDE.md`, which
 was corrected three times for keying on a rendering detail rather than on the question.
 
-## 7. Scope held
+## 7. HANDOFF: the known-failure baseline must be retired by planning
+
+**Round 1 finding 3.** `docs/next-tasks.md` records one entry in `main`'s known-failure SET —
+`stall.test.ts:236 ACCEPTANCE 3`, ~2.5%, tracked as #872 — and it says to restore the line to EMPTY
+the moment #872 lands. That file belongs to the planning lane, so **this branch does not edit it**,
+and an implementation lane reports rather than files. Recording the instruction here so it survives
+the merge rather than living only in a chat message.
+
+**Why it is not cosmetic.** `CLAUDE.md` merge condition 3 binds to the SET: merge only when the
+failures are exactly the known set. A stale entry naming `ACCEPTANCE 3` therefore **licenses a future
+lane to merge over a real failure in that test** — the entry would tell them it is expected. The
+entry is load-bearing in the direction of permitting a merge, which is the direction that costs
+something.
+
+**Two specifics for whoever makes the edit:**
+
+- The recorded line number `:236` is already stale. After this branch, `stall.test.ts:236` lands
+  inside the `MAX_STALL_TICKS` docblock, not on the test.
+- Retire the entry to EMPTY rather than editing it, per the note's own instruction, and keep the
+  wording as a SET so a future second entry cannot hide behind a count.
+
+## 8. Review and remediation
+
+Both reviewers ran against `718c1edf`, gathered before any remediation.
+
+- **`/codex:review --base 1d66c742` — clean, no findings.** Verified as a real review rather than a
+  review of nothing, in the order `CLAUDE.md` sets: exit code 0 first; then the diff base, with all
+  four `git diff` invocations in the transcript carrying `1d66c742` and none carrying anything else;
+  then the body, which describes the actual change.
+- **`/code-review 718c1edf` — no correctness bug in the helper, four secondary findings, all
+  accepted.** It independently re-derived the load-bearing arguments instead of taking this
+  document's word for them, and added one this document had left implicit: because ticks are issued
+  only while the run is unsettled, in-run elapsed can only be **greater than or equal to** the old
+  fixed loop's, since the old loop's trailing ticks were post-settlement no-ops. That is what makes
+  §2's monotonicity argument safe for `ACCEPTANCE 9` rather than merely plausible.
+
+| finding | disposition |
+| --- | --- |
+| Dangling citation: the docblock quoted a TRUNCATED form of the control's real name | Fixed, and the guard WIDENED — see below |
+| `MAX_STALL_TICKS` and its default wiring were unobserved by any test | Fixed: a new test pins the safety margin and the wiring |
+| Known-failure baseline not retired | §7 above — planning's file, instruction recorded |
+| Gate table SHA under-covered the tip | Fixed in §5 |
+
+**The citation finding is the interesting one, because the guard that exists for exactly it could not
+see it.** `stall.test.ts` already carries a test asserting that every cited test name resolves to a
+declared test — written on the #861 branch after a comment cited a test that was never written. It
+read `route.ts` only. This branch's dangling citation lived in this file's own comments, so it passed.
+A truncated real name resolves to nothing exactly as an invented one does. The guard now extracts
+`'#872:…'` citations from this file too, with its own positive control on the added extraction.
+
+**Every remediated claim was mutation-tested, reading WHICH assertion fired:**
+
+| mutation | result |
+| --- | --- |
+| Truncate the docblock citation | Widened guard fails: `a comment cites a test that does not exist…` |
+| `MAX_STALL_TICKS` 60 → 14 (tuned toward the measured 6-13) | Margin assertion fails, naming the worst measured index |
+| Sever the default wiring, constant untouched | Wiring assertion fails — and `ACCEPTANCE 3`/`9` fail by NAMED ASSERTION rather than dying, which is the whole fix demonstrated a second time |
+
+## 9. One observation the verification turned up, NOT caused by this branch
+
+The post-remediation 200-run verification returned **5 failures**, where the same run had returned 0
+before remediation. Recorded with its resolution rather than quietly re-run, because "I re-ran it and
+it was fine" is the shape that hides a real regression.
+
+**All five were the same batch** — five concurrent processes, all timing out together — and all hung
+at `PLATFORM-861: the FIRST year runs even past the budget, with a slow store and the venue leg
+owed`. That test is **not touched by this branch**, and it is declared BEFORE both added tests, so
+neither can affect it; the two tests that do use `tickUntilSettled` passed in ~30 ms each in the same
+logs.
+
+**A/B under shared conditions settles it.** Running the pre-remediation and remediated files in
+alternating batches, so any load spike hits both arms: **150 runs each, 0 failures in both.** The
+batch-37 cluster was a machine-level stall, not a property of either version.
+
+**What it does leave on the record, for planning rather than for this branch:** that test spends
+~750 ms of REAL time (three venue attempts against real backoff sleeps — it mocks `Date` only, not
+`setTimeout`), against a 30 s per-process file budget. Under a severe enough stall it can exhaust
+that budget, and when it does the file dies rather than failing an assertion — the same shape #872
+just fixed, reached by a different route. Observed once, in one batch, in 350 post-remediation runs.
+Not filed here: an implementation lane reports new findings and planning numbers them.
+
+## 10. Scope held
 
 `t.mock.timers` appears in four other files. None carries a fixed-count loop driving a run to
 completion: `rankings/__tests__/{route,receipts,incidentEvidence}.test.ts` use
