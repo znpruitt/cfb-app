@@ -78,6 +78,17 @@ let deferrer: ReturnType<typeof installSchedulerReceiptDeferrer>;
 let mediaAttempts: Array<{ aborted: boolean }> = [];
 
 /**
+ * Attempts the VENUE leg made through {@link stubMediaOkVenuesDown}.
+ *
+ * PLATFORM-875 review finding 2. The retry count is load-bearing for two claims
+ * this file makes in prose — that the leg costs three attempts, and that making
+ * the failure non-retryable would "stay green" — and nothing observed it. An
+ * elapsed-time bound cannot: it is one-sided, so a fixture silently narrowed to a
+ * single attempt costs ~0 ms and passes it.
+ */
+let venueAttempts = 0;
+
+/**
  * A provider that completes its headers, emits a first byte, then stalls the
  * body until its signal aborts.
  *
@@ -228,11 +239,36 @@ async function settle(): Promise<void> {
  * The hang guard on {@link tickUntilSettled} — NOT a measurement of what a run
  * needs. The loop stops on the run itself, so a healthy run never approaches
  * this number, and it is sized well above observed demand rather than tuned
- * against it — about four times the worst index measured below.
+ * against it — about THREE times the worst index measured below.
  *
- * Measured 2026-09-24, instrumented over 200 runs at five-way contention: the
- * last timer fired at tick index 6-9 for ACCEPTANCE 3 and 6-13 for ACCEPTANCE 9.
- * `docs/campaigns/platform-872-tick-until-settled-closeout.md` has the full
+ * ## RE-MEASURED 2026-09-25 (PLATFORM-875), BECAUSE THE FIGURES BELOW HAD DECAYED
+ *
+ * This docblock recorded "6-9 for ACCEPTANCE 3 and 6-13 for ACCEPTANCE 9", from
+ * 200 runs at FIVE-way contention on 2026-09-24, and called the cap "about four
+ * times the worst index". PLATFORM-875 added a third caller and re-instrumented
+ * the loop. Settle index, n=64 per caller, eight-way contention:
+ *
+ * | caller                                  | min | max | p95 |
+ * | --------------------------------------- | --- | --- | --- |
+ * | 'the stalled schedule-presentation run' |   8 |  13 |  12 |
+ * | 'the budget-exhausted …' (ACCEPTANCE 9) |   9 |  21 |  13 |
+ * | 'the ungoverned first year' (new)       |  14 |  19 |  18 |
+ *
+ * **THE WORST INDEX IS NOT THE NEW CALLER'S.** ACCEPTANCE 9 reached 21 — outside
+ * the 6-13 this block recorded, and it did so on a caller PLATFORM-875 never
+ * touched. So the range was already stale at eight-way contention before this
+ * slice; the new caller raised the FLOOR (14, against 8 and 9) and the p95, not
+ * the maximum. Recording that distinction matters because the obvious reading —
+ * "the new test is the expensive one, size the cap to it" — is wrong twice over,
+ * and sizing to any of these numbers is the error the paragraph above warns about.
+ *
+ * At 60 the cap is ~2.9x the worst observed 21. The floor that protects it is
+ * asserted by '#872: the default cap is the one the loops run under, and it stays
+ * clear of measured demand', which PLATFORM-875 raised from 30 to 45 for the same
+ * reason this block was rewritten: 30 was justified by a worst index of 13 and
+ * would leave only 1.4x over 21.
+ *
+ * `docs/campaigns/platform-872-tick-until-settled-closeout.md` has the original
  * distribution and the method.
  */
 const MAX_STALL_TICKS = 60;
@@ -314,6 +350,7 @@ test.beforeEach(async () => {
   __resetSchedulePresentationMemoForTests();
   __resetUpstreamPacingForTests();
   mediaAttempts = [];
+  venueAttempts = 0;
   MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
   MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
   deferrer = installSchedulerReceiptDeferrer();
@@ -661,10 +698,16 @@ function installReadClock(
 }
 
 /** Media succeeds instantly; the venue leg fails, so an owed catalog STAYS owed
- * and the next year is still judged on both legs. */
+ * and the next year is still judged on both legs.
+ *
+ * `venueAttempts` counts the failing leg's attempts, so a test can pin that the
+ * retry loop really ran three times — see the assertion in
+ * 'PLATFORM-861: the FIRST year runs even past the budget, with a slow store and the venue leg owed'
+ * and the note there for why an upper bound on elapsed time cannot do that job. */
 function stubMediaOkVenuesDown(): void {
   globalThis.fetch = (async (input: URL | string | Request) => {
     const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (!href.includes('/games/media')) venueAttempts += 1;
     if (href.includes('/games/media')) {
       return new Response(JSON.stringify([{ id: 101, mediaType: 'tv', outlet: 'ESPN' }]), {
         status: 200,
@@ -1041,6 +1084,19 @@ test('PLATFORM-861: the FIRST year runs even past the budget, with a slow store 
       `${MIN_REAL_BACKOFF_MS} ms floor of two CFBD backoff sleeps — the venue retries ` +
       'are waiting on the real clock again, so this test is back on the file budget'
   );
+  // AND THE ATTEMPT COUNT, WHICH THE BOUND ABOVE CANNOT SEE. `realMs` is an UPPER
+  // bound, so it is satisfied by a fixture that stopped retrying altogether — and
+  // the sweep record above rejects one of the rejected alternatives precisely
+  // BECAUSE nothing here asserted attempt count. Lowering `maxAttempts`, or a
+  // classification change that makes a thrown `Error` non-retryable, would narrow
+  // this fixture to one attempt with the whole file green and the comment above
+  // still calling it three.
+  assert.equal(
+    venueAttempts,
+    3,
+    'the venue leg really ran its three bounded attempts — a narrower fixture would ' +
+      'satisfy the elapsed-time bound above by costing nothing at all'
+  );
   assert.ok(stalenessReads.reads >= 1, 'the clock really was driven, before the loop');
   assert.equal(
     body.years.length,
@@ -1072,10 +1128,16 @@ test('#872: the default cap is the one the loops run under, and it stays clear o
   // SAFETY MARGIN, which a tuning edit breaks. The second is the WIRING — that
   // the omitted argument actually reaches the loop — which a signature change
   // breaks while leaving the constant untouched.
+  // RAISED 30 → 45 BY PLATFORM-875, AND THE REASON IS THAT 30 WAS STILL CITING A
+  // DEAD NUMBER. Its message named a worst last-fire index of 13; re-measuring at
+  // eight-way contention put ACCEPTANCE 9 at 21 — on a caller PLATFORM-875 did not
+  // touch, so the justification had already expired. A floor of 30 over a worst of
+  // 21 is 1.4x, which is inside the envelope that produced #872. See the
+  // {@link MAX_STALL_TICKS} docblock for the full re-measured distribution.
   assert.ok(
-    MAX_STALL_TICKS >= 30,
-    'the cap must stay clear of measured demand (worst last-fire index 13 over 200 runs); ' +
-      `${MAX_STALL_TICKS} is close enough to reintroduce #872`
+    MAX_STALL_TICKS >= 45,
+    'the cap must stay clear of measured demand (worst last-fire index 21, n=64 per caller ' +
+      `at eight-way contention, 2026-09-25); ${MAX_STALL_TICKS} is close enough to reintroduce #872`
   );
 
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -1132,7 +1194,23 @@ test("every test name cited in route.ts or this file's comments resolves to a te
   const selfSource = await fs.readFile(new URL('./stall.test.ts', import.meta.url), 'utf8');
   // Comment continuations wrap across lines, so the leading `// ` of each line is
   // stripped before matching a quoted name that may span two or three of them.
-  const flatten = (text: string): string => text.replace(/\n\s*\/\/ ?/g, ' ').replace(/\s+/g, ' ');
+  // BLOCK comments count too, and PLATFORM-875 found that out by breaking it. The
+  // re-measured `MAX_STALL_TICKS` docblock cites the default-cap test, and a
+  // `/** */` continuation carries ` * ` rather than `// ` — so the extracted name
+  // came out with a literal `*` embedded in it and the guard correctly refused it.
+  // Stripping only the line-comment marker silently restricted this check to
+  // citations that happen to live in `//` comments.
+  //
+  // This arm needs no separate control: it is exercised by exactly the thing that
+  // makes it necessary. A wrapped block-comment citation reddens the guard if the
+  // stripping stops working, and if no such citation exists the arm is unneeded —
+  // necessity and exercise are the same condition here, which is what the dead
+  // `PLATFORM-875` alternation above did NOT have.
+  const flatten = (text: string): string =>
+    text
+      .replace(/\n\s*\/\/ ?/g, ' ')
+      .replace(/\n\s*\* ?/g, ' ')
+      .replace(/\s+/g, ' ');
   const citedInRoute = [...flatten(source).matchAll(/'(PLATFORM-861:[^']+)'/g)].map((m) => m[1]);
   // #872 WIDENED THIS, BECAUSE ROUND 1 FOUND THE SAME DEFECT ONE FILE OVER AND
   // THIS GUARD COULD NOT SEE IT. The `tickUntilSettled` docblock cites the
@@ -1152,6 +1230,14 @@ test("every test name cited in route.ts or this file's comments resolves to a te
   // rejects, and the family a name happens to start with is not a reason to trust
   // it.
   //
+  // THE ALTERNATION LISTS ONLY FAMILIES THAT EXIST (review finding 4). A first
+  // version also carried `PLATFORM-875`, which matched nothing — no test is named
+  // that — while the witness below is satisfied by the live `PLATFORM-861:`
+  // citation, so the dead arm could be deleted or mistyped with the guard still
+  // green. A speculative arm is coverage that reads as present and checks nothing,
+  // which is the failure the comment above it argues against, one level down. Add
+  // a family here when a citation in that family exists, not before.
+  //
   // THE DECLARATIONS ARE STRIPPED FIRST, AND THAT IS NOT TIDYING. `#872:` names
   // appear only in prose, so the old pattern could not match a `test(...)` line
   // by accident; `PLATFORM-861:` names are the names of tests IN this file, so the
@@ -1160,10 +1246,16 @@ test("every test name cited in route.ts or this file's comments resolves to a te
   // would be satisfied by declarations alone, and would no longer witness that any
   // COMMENT was read. That is the vacuous-guard shape this test already carries one
   // scar from.
-  const prose = flatten(selfSource).replace(/test\(\s*'[^']+'/g, 'test(');
-  const citedHere = [...prose.matchAll(/'((?:#872|PLATFORM-861|PLATFORM-875):[^']+)'/g)].map(
-    (m) => m[1]
-  );
+  //
+  // THE REPLACEMENT MUST NOT CONTAIN `test` + `(` (review finding 3). It was
+  // written as that literal, and on the flattened text the pattern then matched its
+  // OWN replacement string — deleting the span from there to the next quote, which
+  // is a region of this guard's own source. Harmless while only code sits there,
+  // and invisible the day a citation-bearing comment does: the guard would report
+  // that every citation resolves having never read it. A checker whose search space
+  // can include its own text is the defect this whole test exists to catch.
+  const prose = flatten(selfSource).replace(/test\(\s*'[^']+'/g, '<declaration>');
+  const citedHere = [...prose.matchAll(/'((?:#872|PLATFORM-861):[^']+)'/g)].map((m) => m[1]);
   const declared = new Set(
     [...selfSource.matchAll(/^test\(\s*'([^']+)'/gm)].map((match) => match[1])
   );
