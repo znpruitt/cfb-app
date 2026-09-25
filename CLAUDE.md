@@ -461,6 +461,24 @@ clobbers whichever implementation branch was there, leaving the owner nothing to
 error to notice. `preview` belongs to the implementation lane that currently holds it. If it needs
 restoring, push that lane's branch to it explicitly, never `HEAD`.
 
+**A BRANCH WITH NO RENDERED CHANGE MUST NOT TAKE `preview`. SKIP IT, DO NOT CLAIM IT.** Added
+2026-09-24 after the #872 lane — a test-only branch, zero user-visible change — force-pushed over
+the #726 branch that the owner was mid-review on. **It followed the "push preview with every branch
+commit" rule mechanically, and the rule as written told it to.** The purpose clause two paragraphs up
+is the discriminator: `preview` exists **so the owner can click through whatever the branch currently
+is**, and a branch with nothing to click through has nothing to offer that surface. Tests, comments,
+ledgers and tooling do not earn it.
+
+**And the "check before you take it" instinct cannot close the race.** That lane DID check, found
+preview at an ancestor of `main`, and reasonably read it as stale — the other lane took it between
+that check and the push. **The check cannot see a claim that lands in the window**, exactly as merge
+condition 2's `git pull` cannot see a commit landing before GitHub's merge. **So the defence is not
+checking harder; it is not competing for the branch when you have nothing to show.**
+
+**Restoring it is the HOLDING lane's job, not the clobbering lane's and never planning's.** A
+restore push from the wrong worktree is refused (`Modify Shared Resources`), which is the guard
+working. Relay it; do not route around it.
+
 **Only one lane can hold `preview` at a time.** Two implementation worktrees run concurrently; the
 branch on `preview` is whichever the owner is currently reviewing. Say which one it is when it
 changes.
