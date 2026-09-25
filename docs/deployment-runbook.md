@@ -546,9 +546,22 @@ Contract: `turfwar-schedule-presentation-weekly`, GET `/api/cron/schedule-presen
 `0 13 * * 2` (Tuesday 13:00 UTC), retries 0.
 
 ```bash
-npm run manage:schedule-presentation-schedule            # READ-ONLY inspect
-npm run manage:schedule-presentation-schedule upsert --apply
+npm run manage:schedule-presentation-schedule -- inspect        # READ-ONLY
+npm run manage:schedule-presentation-schedule -- upsert --apply
 ```
+
+**PROVISIONED IN PRODUCTION 2026-09-24.** `upsert --apply` confirmed by the owner, and `inspect`
+verified the structure against the fixed contract: destination `https://turfwar.games/api/cron/schedule-presentation`,
+cron `0 13 * * 2`, `retries` 0, `isPaused` false, `authorization` ok, one forwarded header.
+**The #861 promotion gate below was satisfied first** — production served `37354e6d`, which carries
+`6f2c8f5a`. **Route authentication is NOT proven by that inspect and the tool says so**; it is proven
+by the delivery observations below. **First scheduled delivery: Tuesday 2026-09-29, 13:00 UTC.**
+
+**THE `--` IS LOAD-BEARING.** Without it npm consumes `--apply` as its own config flag and never
+passes it to the script, which then refuses with *"re-run with --apply"* — **naming the flag you just
+typed.** Measured 2026-09-24 when the owner ran the form this block used to document. The refusal is
+correct and the instruction was wrong; every other manager block in this runbook already uses `--`
+(§6, §8k, §9), and only this one omitted it.
 
 **Installing this in production is an OWNER step.** The merge ships the route and the CLI; it
 installs no schedule and changes no behaviour, because auto-promotion is off and the route is
