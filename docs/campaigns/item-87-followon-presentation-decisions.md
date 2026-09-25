@@ -100,6 +100,14 @@ historical comparison no longer describes the current ordering. Schedule's own n
 > **1300**. No number is chosen here; Item 152 picks one and corrects the two statements that disagree with it.
 > The Matchups figure (1372px) does reproduce from its inputs and lives only in the mockup (`:218-220`, the `.owner-grid` container query).
 
+**Superseded by PLATFORM-726 (2026-09-25, [PR #874](https://github.com/znpruitt/cfb-app/pull/874)).**
+Schedule's third tier is **1162px of container width**; Matchups' is **1469px**, with its approved
+second tier at **976px of container width**. The measured tracks, gaps, rendered populations,
+no-abbreviation exclusions, and explicit 16px/zero-gutter test conditions are in the
+[measurement closeout](platform-726-third-column-tier-closeout.md). The historical
+**DOES NOT REPRODUCE** note above is retained; none of its competing arithmetics is adopted.
+Overview's separate derivation remains [#873](https://github.com/znpruitt/cfb-app/issues/873).
+
 ### Block layouts need margin, not gap
 
 At single column the grids become `display: block`, and **block layout ignores grid `gap`** — blocks stack with no separation at all. Adjacent-sibling margins are required: `.grow + .grow` on Schedule, `.owner-card + .owner-card` on Matchups. This was a real defect in the mockup and would be an easy one to ship.
