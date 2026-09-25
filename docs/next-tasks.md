@@ -482,24 +482,29 @@ pairing — same file, same `NoClaim` root), Item 133a (below), 122, 121, 84, 86
 complete and merge-approved below. **Item 137 merged 2026-09-11** (#696, PR #742, `a8593d9f`); it is no
 longer a filler.
 
-> **KNOWN-FAILURE BASELINE: NO LONGER EMPTY AS OF 2026-09-24. ONE ENTRY, NAMED.**
+> **Known-failure baseline: EMPTY again as of 2026-09-25.** It was non-empty for one day.
 >
-> 1. **`stall.test.ts:236` `ACCEPTANCE 3`** — intermittent, **~2.5% of runs**, measured over 120+ by the
->    #866 lane. A fixed tick count leaves the awaited work unsettled, the run stays pending, and the
->    **whole FILE dies**. Tracked as [#872](https://github.com/znpruitt/cfb-app/issues/872).
+> **`stall.test.ts` `ACCEPTANCE 3` is FIXED** — [#872](https://github.com/znpruitt/cfb-app/issues/872),
+> merged `a22ed9c1`, tree hash verified identical to the gated commit. The fixed tick count that left
+> work unsettled and killed the whole file on ~2.5% of runs is replaced by settling on a condition with
+> a bounded cap. **Verified at 350 runs post-remediation, not by one green pass** — at 2.5% a single
+> pass has a 97.5% chance of looking fixed either way.
 >
-> **Merge condition 3 still binds to the SET, not to a count** — this one, and one more or one
-> elsewhere means stop and report. **An intermittent entry is worse than a deterministic one**: a lane
-> that hits it will reasonably suspect its own change, which is why it is named here rather than left
-> for each lane to rediscover. **A clean run does not prove absence at 2.5%** — do not report "it
-> passed for me" as evidence the entry is gone.
+> **Merge condition 3 binds to an empty set again, so ANY failure stops a merge.** If one is ever
+> accepted onto `main` again it is recorded HERE and named individually; a count would hide the second.
 >
-> **And the run that found it printed `# fail 0` while the file was dying**, so the TAP summary cannot
-> be used to detect this. Read the exit code (`AGENTS.md` → verification).
+> **Two things worth keeping from the day it was non-empty.** The run that found it printed **`# fail 0`
+> while a whole file was dying**, so the TAP summary cannot detect this class — read the exit code
+> (`AGENTS.md` → verification). And **attribution to #861 was never established**: 3/120 against
+> 0/120, Fisher p ≈ 0.12, with no mechanism found after looking. The fix did not confirm the
+> suspicion and nothing here should be read as though it did.
 >
-> **Restore this line to EMPTY the moment #872 lands**, verified at high N rather than by one pass.
+> **The same shape survives elsewhere, filed as [#875](https://github.com/znpruitt/cfb-app/issues/875)**
+> — a test that mocks `Date` but not `setTimeout`, burning ~750 ms of real time against a 30 s file
+> budget, ending by exhausting it rather than by asserting. Observed once in 350 runs. Not a known
+> failure; a fragility with the same ending.
 >
-> **Previously: EMPTY as of 2026-09-11.** Item 137 (#696, PR #742, merged `a8593d9f`)
+> **Previously: EMPTY as of 2026-09-11; non-empty 2026-09-24 to 2026-09-25.** Item 137 (#696, PR #742, merged `a8593d9f`)
 > removed the last two — wall-clock time bombs in
 > `src/app/api/odds/__tests__/writer-convergence.test.ts`, not product defects. **`npm test` on clean
 > `main` exits 0.** `CLAUDE.md`'s merge condition 3 now binds to an EMPTY set, so any failure
