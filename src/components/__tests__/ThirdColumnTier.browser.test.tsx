@@ -61,6 +61,8 @@ function markup(): Promise<string> {
         "@import 'tailwindcss' source(none);"
       ) +
       `
+      /* Reproduce the measured 16px root / zero scrollbar-gutter coordinate system. */
+      html { font-size: 16px; scrollbar-width: none; }
       @source '../components/CFBScheduleApp.tsx';
       @source '../components/GameWeekPanel.tsx';
       @source '../components/MatchupsWeekPanel.tsx';
@@ -209,7 +211,7 @@ for (const surface of ['schedule', 'matchups'] as const) {
     );
   });
 }
-test('Matchups conversion preserves the measured 16px overlay-scrollbar shell boundary and responds to its own container', async (t) => {
+test('Matchups conversion preserves the measured 16px zero-gutter shell boundary and responds to its own container', async (t) => {
   await withBrowserFixture(
     t,
     { directoryPrefix: 'cfb-matchups-coordinate-', markup },
@@ -220,6 +222,34 @@ test('Matchups conversion preserves the measured 16px overlay-scrollbar shell bo
         [1024, 976, 2],
       ] as const) {
         await page.setViewport(viewport, 800);
+        const conditions = await page.evaluate<{
+          rootFont: string;
+          gutter: number;
+          scrollbarPolicy: string;
+          legacyLg: boolean;
+          font: string;
+          browser: string;
+        }>(`({
+          rootFont: getComputedStyle(document.documentElement).fontSize,
+          gutter: innerWidth - document.documentElement.clientWidth,
+          scrollbarPolicy: getComputedStyle(document.documentElement).scrollbarWidth,
+          legacyLg: matchMedia('(min-width: 64rem)').matches,
+          font: getComputedStyle(document.querySelector('[data-scoreboard-team-visible]')).font,
+          browser: navigator.userAgent
+        })`);
+        assert.equal(conditions.rootFont, '16px', 'boundary measurement uses a 16px root font');
+        assert.equal(
+          conditions.scrollbarPolicy,
+          'none',
+          'boundary measurement disables scrollbar gutters on every host'
+        );
+        assert.equal(conditions.gutter, 0, 'boundary measurement reserves zero scrollbar width');
+        assert.equal(
+          conditions.legacyLg,
+          viewport >= 1024,
+          'legacy media-query rem uses the measured 16px browser default'
+        );
+        t.diagnostic(JSON.stringify({ viewport, ...conditions }));
         const m = await geometry(page, 'matchups', null);
         assert.equal(m.container, width, `Matchups container at ${viewport}px viewport`);
         assert.equal(m.columns, columns, `Matchups preserved transition at ${viewport}px viewport`);
@@ -248,6 +278,7 @@ test('both populations fit their measured tier rows and exercise the abbreviatio
         const report = await page.evaluate<
           Array<{
             width: number;
+            rowWidths: number[];
             count: number;
             failures: string[];
             abbreviated: number;
@@ -261,10 +292,11 @@ test('both populations fit their measured tier rows and exercise the abbreviatio
           for (const width of [${actual.row}, ${surface === 'schedule' ? 230 : 280}]) {
             container.style.width = width + 'px';
             await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-            let widest='', required=0, abbreviated=0; const failures=[];
+            let widest='', required=0, abbreviated=0; const failures=[], rowWidths=[];
             const teams=[...container.querySelectorAll('[data-population-team]')];
             for(const team of teams) {
               const row=team.querySelector('[data-scoreboard-side="away"]');
+              rowWidths.push(row.getBoundingClientRect().width);
               const name=row.querySelector('[data-scoreboard-team-label]');
               const visible=row.querySelector('[data-scoreboard-team-visible]');
               const ab=row.querySelector('[data-scoreboard-team-abbreviation]');
@@ -279,16 +311,15 @@ test('both populations fit their measured tier rows and exercise the abbreviatio
               const intrinsic=row.getBoundingClientRect().width-name.getBoundingClientRect().width+ab.getBoundingClientRect().width;
               if(intrinsic>required){required=intrinsic;widest=team.dataset.populationTeam;}
             }
-            report.push({width,count:teams.length,failures,abbreviated,widest,required});
+            report.push({width,rowWidths,count:teams.length,failures,abbreviated,widest,required});
           }
           return report;
         })()`);
-        assert.equal(
-          report[0].width,
-          actual.row,
-          `${surface} population uses the rendered third-tier row`
-        );
         for (const sample of report) {
+          assert.ok(
+            sample.rowWidths.every((width) => Math.abs(width - sample.width) <= 0.02),
+            `${surface} every rendered population row matches its assigned budget of ${sample.width}px (observed ${Math.min(...sample.rowWidths)}–${Math.max(...sample.rowWidths)}px)`
+          );
           assert.equal(
             sample.count,
             surface === 'schedule' ? 238 : 237,
@@ -305,7 +336,7 @@ test('both populations fit their measured tier rows and exercise the abbreviatio
           `${surface} narrow control actually renders abbreviations`
         );
         t.diagnostic(
-          `${surface}: ${report[0].count} participants; ${report[0].widest} requires ${report[0].required}px; actual tier row ${actual.row}px; narrow control abbreviates ${report[1].abbreviated} rows`
+          `${surface}: ${report[0].count} participants; ${report[0].widest} requires ${report[0].required}px; actual tier row ${actual.row}px; rendered population rows ${Math.min(...report[0].rowWidths)}–${Math.max(...report[0].rowWidths)}px; narrow control abbreviates ${report[1].abbreviated} rows`
         );
       });
     }

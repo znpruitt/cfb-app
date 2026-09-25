@@ -5,7 +5,8 @@ export default {
     '2026-09-24 public /api/schedule, buildScheduleFromApi; both stored 2026 owners CSVs through deriveOwnerWeekSlates',
   apiGames: 3679,
   normalizedGames: 888,
-  matchupsGames: 884,
+  // Union of both rosters: individual slates contain 771 and 884 games.
+  matchupsGames: 887,
   matchupsExcluded: ['North Carolina A&T'],
   teams: [
     ['Abilene Christian', 'fcs', false],
