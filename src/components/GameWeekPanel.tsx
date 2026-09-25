@@ -17,10 +17,6 @@ import type { AppGame } from '../lib/schedule';
 import { EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID, type ScoreboardTeamLogosById } from '../lib/teamLogos';
 import CompactGameScoreboard from './CompactGameScoreboard';
 
-// PLATFORM-726: the browser derivation preserves the 360.5px track measured at
-// the first whole-pixel two-column container (761px): ceil(3 * 360.5 + 2 * 40).
-// ThirdColumnTier.browser.test.tsx also checks the rendered population fits it.
-
 type Game = AppGame;
 
 type GameWeekPanelProps = {
@@ -83,6 +79,9 @@ export default function GameWeekPanel({
     scrollFocusedGameIntoView({ gameId: focusedGameId, refsByGameId: gameCardRefs.current });
   }, [focusedGameId]);
 
+  // PLATFORM-726: the browser derivation preserves the 360.5px track measured at
+  // the first whole-pixel two-column container (761px): ceil(3 * 360.5 + 2 * 40).
+  // ThirdColumnTier.browser.test.tsx also checks the rendered population fits it.
   return (
     <>
       {viewModel.hasNoGames ? (

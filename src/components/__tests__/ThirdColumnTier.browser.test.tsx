@@ -28,6 +28,29 @@ type Geometry = {
   missingName: string | null;
   missingWraps: boolean;
 };
+// Measure visible glyph rectangles against every clipping ancestor, including the
+// suffix that can clip a shrink-0 record. Hidden fit probes are not visible content.
+const visibleTextFits = `(element, row) => {
+  if (!element) return false;
+  const style = getComputedStyle(element);
+  if (style.visibility !== 'visible' || style.display === 'none') return false;
+  const box = element.getBoundingClientRect();
+  let left = box.left, right = box.right, top = box.top, bottom = box.bottom;
+  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    const rect = ancestor.getBoundingClientRect(), css = getComputedStyle(ancestor);
+    if (ancestor === row || ['hidden', 'clip', 'auto', 'scroll'].includes(css.overflowX)) {
+      left = Math.max(left, rect.left); right = Math.min(right, rect.right);
+    }
+    if (ancestor === row || ['hidden', 'clip', 'auto', 'scroll'].includes(css.overflowY)) {
+      top = Math.max(top, rect.top); bottom = Math.min(bottom, rect.bottom);
+    }
+    if (ancestor === row) break;
+  }
+  const range = document.createRange(); range.selectNodeContents(element);
+  const glyphs = [...range.getClientRects()].filter(rect => rect.width > 0);
+  return glyphs.length > 0 && glyphs.every(rect => rect.left >= left - 0.5 &&
+    rect.right <= right + 0.5 && rect.top >= top - 0.5 && rect.bottom <= bottom + 0.5);
+}`;
 let markupPromise: Promise<string> | undefined;
 function markup(): Promise<string> {
   return (markupPromise ??= (async () => {
@@ -38,6 +61,7 @@ function markup(): Promise<string> {
         "@import 'tailwindcss' source(none);"
       ) +
       `
+      @source '../components/CFBScheduleApp.tsx';
       @source '../components/GameWeekPanel.tsx';
       @source '../components/MatchupsWeekPanel.tsx';
       @source '../components/CompactGameScoreboard.tsx';
@@ -45,6 +69,9 @@ function markup(): Promise<string> {
       @source '../components/__tests__/fixtures/ThirdColumnTierFixture.tsx';
       @source '../lib/teamLogos.ts';`;
     const css = await postcss([tailwindcss()]).process(source, { from });
+    const appSource = await readFile(new URL('../CFBScheduleApp.tsx', import.meta.url), 'utf8');
+    const shell = appSource.match(/return\s*\(\s*<div className="([^"]+)"\s*>\s*<header/);
+    assert.ok(shell, 'fixture must source the production app-root classes');
     const bundle = await build({
       entryPoints: [
         fileURLToPath(new URL('./fixtures/ThirdColumnTierFixture.tsx', import.meta.url)),
@@ -53,7 +80,7 @@ function markup(): Promise<string> {
       write: false,
       format: 'iife',
       platform: 'browser',
-      define: { 'process.env.NODE_ENV': '"test"' },
+      define: { 'process.env.NODE_ENV': '"test"', __CFB_SHELL_CLASS__: JSON.stringify(shell[1]) },
       plugins: [
         {
           name: 'image-stub',
@@ -88,14 +115,14 @@ async function geometry(
     const parent=document.querySelector('[data-surface="${surface}"]');
     parent.style.width=${width === null ? "''" : JSON.stringify(`${width}px`)};
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-    const grid=${surface === 'schedule' ? "parent.querySelector('[data-schedule-scoreboard-grid]')" : "parent.querySelector('[data-owner-card]').parentElement"};
+    const grid=${surface === 'schedule' ? "parent.querySelector('[data-schedule-scoreboard-grid]')" : "(parent.querySelector('[data-matchups-scoreboard-grid]') ?? parent.querySelector('[data-owner-card]').parentElement)"};
     const style=getComputedStyle(grid), card=grid.children[0];
     const row=card.querySelector('[data-scoreboard-side]');
     const rows=[...grid.querySelectorAll('[data-scoreboard-side]')];
     const missing=rows.find(r=>r.textContent.includes('Westgate Christian University'))?.querySelector('[data-scoreboard-team]');
     const range=document.createRange();if(missing)range.selectNodeContents(missing);
     return {container:parent.getBoundingClientRect().width,columns:style.gridTemplateColumns.split(' ').length,track:card.getBoundingClientRect().width,gap:parseFloat(style.columnGap),row:row.getBoundingClientRect().width,padding:card.getBoundingClientRect().width-row.getBoundingClientRect().width,
-      namesFit:rows.every(r=>{const n=r.querySelector('[data-scoreboard-team]');return n.scrollWidth<=n.clientWidth+1 && n.scrollHeight<=n.clientHeight+1}),
+      namesFit:rows.every(r=>(${visibleTextFits})(r.querySelector('[data-scoreboard-team-visible]') ?? r.querySelector('[data-scoreboard-team]'),r)),
       scoreInside:rows.every(r=>{const v=r.querySelector('[data-scoreboard-value]');return !v || v.getBoundingClientRect().right<=r.getBoundingClientRect().right+0.1}),
       missingName:missing?.textContent??null,missingWraps:missing?range.getClientRects().length>1:false};
   })()`);
@@ -138,16 +165,16 @@ for (const surface of ['schedule', 'matchups'] as const) {
           );
         }
         const atTier = await geometry(page, surface, breakpoints[surface]);
-        if (surface === 'schedule') {
+        {
           assert.equal(
             atTier.missingName,
             'Westgate Christian University',
-            'Schedule retains the no-abbreviation control'
+            `${surface} retains the no-abbreviation control`
           );
           assert.equal(
             atTier.missingWraps,
             false,
-            'Schedule no-abbreviation control fits one line at the third tier'
+            `${surface} no-abbreviation control fits one line at the third tier`
           );
         }
       }
@@ -182,7 +209,7 @@ for (const surface of ['schedule', 'matchups'] as const) {
     );
   });
 }
-test('Matchups conversion preserves the app-shell viewport boundary and responds to its own container', async (t) => {
+test('Matchups conversion preserves the measured 16px overlay-scrollbar shell boundary and responds to its own container', async (t) => {
   await withBrowserFixture(
     t,
     { directoryPrefix: 'cfb-matchups-coordinate-', markup },
@@ -206,59 +233,113 @@ test('Matchups conversion preserves the app-shell viewport boundary and responds
     }
   );
 });
-for (const surface of ['schedule', 'matchups'] as const) {
-  test(`${surface}: rendered population fits abbreviation, record and full owner at its third-tier row width`, async (t) => {
-    assert.equal(population.teams.length, 238, 'Schedule normalized population is enumerated');
-    assert.equal(
-      population.teams.filter(([name]) => !getTeamAbbreviation(String(name))).length,
-      0,
-      'normalized 2026 participants all have a fallback'
-    );
-    await withBrowserFixture(
-      t,
-      { directoryPrefix: 'cfb-tier-population-', markup },
-      async (page) => {
-        await ready(page);
+test('both populations fit their measured tier rows and exercise the abbreviation fallback', async (t) => {
+  assert.equal(population.teams.length, 238, 'Schedule normalized population is enumerated');
+  assert.equal(
+    population.teams.filter(([name]) => !getTeamAbbreviation(name)).length,
+    0,
+    'normalized 2026 participants all have a fallback'
+  );
+  await withBrowserFixture(t, { directoryPrefix: 'cfb-tier-population-', markup }, async (page) => {
+    await ready(page);
+    for (const surface of ['schedule', 'matchups'] as const) {
+      await t.test(`${surface} visible population`, async () => {
+        const actual = await geometry(page, surface, breakpoints[surface]);
         const report = await page.evaluate<
           Array<{
-            surface: string;
+            width: number;
             count: number;
             failures: string[];
+            abbreviated: number;
             widest: string;
             required: number;
           }>
-        >(`(()=>{
-      return [...document.querySelectorAll('[data-population]')].map(container=>{
-        let widest='',required=0;const failures=[];
-        const teams=[...container.querySelectorAll('[data-population-team]')];
-        for(const team of teams){const row=team.querySelector('[data-scoreboard-side="away"]'),name=row.querySelector('[data-scoreboard-team-label]'),ab=row.querySelector('[data-scoreboard-team-abbreviation]'),owner=row.querySelector('[data-scoreboard-owner]'),record=row.querySelector('[data-scoreboard-record]'),score=row.querySelector('[data-scoreboard-value]');
-          if(!ab || !name || name.scrollWidth>name.clientWidth+1 || (owner && owner.scrollWidth>owner.clientWidth+1) || (record && record.scrollWidth>record.clientWidth+1)) failures.push(team.dataset.populationTeam);
-          const intrinsic=row.getBoundingClientRect().width-name.getBoundingClientRect().width+ab.getBoundingClientRect().width;
-          if(intrinsic>required){required=intrinsic;widest=team.dataset.populationTeam;}
-          if(score.getBoundingClientRect().right>row.getBoundingClientRect().right+0.1)failures.push(team.dataset.populationTeam+' score');
-        }
-        return {surface:container.dataset.population,count:teams.length,failures,widest,required};
-      });
-    })()`);
-        assert.deepEqual(
-          report.map((x) => x.count),
-          [238, 237],
-          'Schedule and owner-slate opponent populations are both measured'
+        >(`(async()=>{
+          const container = document.querySelector('[data-population="${surface}"]');
+          const fits = ${visibleTextFits};
+          const report = [];
+          for (const width of [${actual.row}, ${surface === 'schedule' ? 230 : 280}]) {
+            container.style.width = width + 'px';
+            await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+            let widest='', required=0, abbreviated=0; const failures=[];
+            const teams=[...container.querySelectorAll('[data-population-team]')];
+            for(const team of teams) {
+              const row=team.querySelector('[data-scoreboard-side="away"]');
+              const name=row.querySelector('[data-scoreboard-team-label]');
+              const visible=row.querySelector('[data-scoreboard-team-visible]');
+              const ab=row.querySelector('[data-scoreboard-team-abbreviation]');
+              const owner=row.querySelector('[data-scoreboard-owner]');
+              const record=row.querySelector('[data-scoreboard-record]');
+              const score=row.querySelector('[data-scoreboard-value]');
+              if (!fits(visible,row)) failures.push(team.dataset.populationTeam+' name');
+              if (owner && !fits(owner,row)) failures.push(team.dataset.populationTeam+' owner');
+              if (record && !fits(record,row)) failures.push(team.dataset.populationTeam+' record');
+              if (!fits(score,row)) failures.push(team.dataset.populationTeam+' score');
+              if (name.dataset.scoreboardTeamDisplay === 'abbreviation') abbreviated++;
+              const intrinsic=row.getBoundingClientRect().width-name.getBoundingClientRect().width+ab.getBoundingClientRect().width;
+              if(intrinsic>required){required=intrinsic;widest=team.dataset.populationTeam;}
+            }
+            report.push({width,count:teams.length,failures,abbreviated,widest,required});
+          }
+          return report;
+        })()`);
+        assert.equal(
+          report[0].width,
+          actual.row,
+          `${surface} population uses the rendered third-tier row`
         );
-        for (const r of report.filter((r) => r.surface === surface)) {
-          assert.deepEqual(
-            r.failures,
-            [],
-            `${r.surface} fallback, record, full owner and score fit`
+        for (const sample of report) {
+          assert.equal(
+            sample.count,
+            surface === 'schedule' ? 238 : 237,
+            `${surface} complete participant population`
           );
-          t.diagnostic(
-            `${r.surface}: ${r.count} participant names; governing final stress row ${r.widest}, ${r.required}px intrinsic; rank #25 on owned rows, record 12–0 only on Matchups, owner Shambaugh, score 100`
+          assert.deepEqual(
+            sample.failures,
+            [],
+            `${surface} visible name, full owner, record and score fit at ${sample.width}px`
           );
         }
-      }
+        assert.ok(
+          report[1].abbreviated > 0,
+          `${surface} narrow control actually renders abbreviations`
+        );
+        t.diagnostic(
+          `${surface}: ${report[0].count} participants; ${report[0].widest} requires ${report[0].required}px; actual tier row ${actual.row}px; narrow control abbreviates ${report[1].abbreviated} rows`
+        );
+      });
+    }
+  });
+});
+test('visible-name and record-clipping observers reject their own poisoned controls', async (t) => {
+  await withBrowserFixture(t, { directoryPrefix: 'cfb-tier-observers-', markup }, async (page) => {
+    await ready(page);
+    const report = await page.evaluate<{
+      nameBefore: boolean;
+      nameAfter: boolean;
+      recordBefore: boolean;
+      recordAfter: boolean;
+    }>(`(()=>{
+      const row=document.querySelector('[data-population="matchups"] [data-scoreboard-side="away"]');
+      const fits=${visibleTextFits};
+      const name=row.querySelector('[data-scoreboard-team-visible]');
+      const record=row.querySelector('[data-scoreboard-record]');
+      const suffix=row.querySelector('[data-scoreboard-suffix]');
+      const nameBefore=fits(name,row), recordBefore=fits(record,row);
+      name.style.width='1px'; name.style.height='1px'; name.style.overflow='hidden';
+      suffix.style.maxWidth='1px';
+      return {nameBefore,nameAfter:fits(name,row),recordBefore,recordAfter:fits(record,row)};
+    })()`);
+    assert.equal(report.nameBefore, true, 'visible-name positive control');
+    assert.equal(report.nameAfter, false, 'visible-name observer detects clipped visible glyphs');
+    assert.equal(report.recordBefore, true, 'record positive control');
+    assert.equal(
+      report.recordAfter,
+      false,
+      'record observer detects suffix clipping without an owner'
     );
   });
-}
+});
 test('the current eligibility gate excludes Westgate, while its missing abbreviation stays explicit', () => {
   assert.equal(getTeamAbbreviation('Westgate Christian University'), null);
   const built = buildScheduleFromApi({

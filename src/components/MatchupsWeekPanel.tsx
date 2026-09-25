@@ -46,10 +46,6 @@ import {
 import CompactGameScoreboard from './CompactGameScoreboard';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 
-// PLATFORM-726: preserve the 483px track measured at the first two-column
-// container (976px): 3 * 483 + 2 * 10 = 1469px. The browser derivation and
-// population fit are pinned in ThirdColumnTier.browser.test.tsx.
-
 type MatchupsWeekPanelProps = {
   games: AppGame[];
   oddsByKey: Record<string, CombinedOdds>;
@@ -592,6 +588,9 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
     });
   }, [focusedOwner, focusedOwnerPair]);
 
+  // PLATFORM-726: preserve the 483px track measured at the first two-column
+  // container (976px): 3 * 483 + 2 * 10 = 1469px. The browser derivation and
+  // population fit are pinned in ThirdColumnTier.browser.test.tsx.
   return (
     <div className="@container space-y-3">
       <section className="space-y-2.5">

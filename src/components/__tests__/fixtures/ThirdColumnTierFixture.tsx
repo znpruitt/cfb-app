@@ -10,6 +10,8 @@ import type { ProviderClassification } from '../../../lib/conferenceSubdivision'
 import type { TeamRankingEnrichment } from '../../../lib/rankings';
 import population from './thirdColumnPopulation';
 
+declare const __CFB_SHELL_CLASS__: string;
+
 const games = buildScheduleFromApi({
   season: 2026,
   teams: [],
@@ -76,7 +78,7 @@ export function ThirdColumnTierFixture(): React.ReactElement {
   }, []);
   return (
     <>
-      <div className="p-4 sm:p-6" data-app-shell>
+      <div className={__CFB_SHELL_CLASS__} data-app-shell>
         <div data-surface="schedule">
           <GameWeekPanel
             games={games}
@@ -104,11 +106,7 @@ export function ThirdColumnTierFixture(): React.ReactElement {
         </div>
       </div>
       {(['schedule', 'matchups'] as const).map((surface) => (
-        <div
-          key={surface}
-          data-population={surface}
-          style={{ width: surface === 'schedule' ? 340.5 : 439 }}
-        >
+        <div key={surface} data-population={surface} style={{ width: 600 }}>
           {population.teams
             .filter(
               ([name]) =>
