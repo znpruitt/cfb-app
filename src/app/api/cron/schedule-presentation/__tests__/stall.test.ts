@@ -206,6 +206,108 @@ async function seed(extraYear?: number, venueAgeMs = 0): Promise<void> {
   });
 }
 
+/**
+ * Yield MACROTASKS, not just a microtask drain.
+ *
+ * The durable store's reads are real filesystem I/O, and an
+ * `await Promise.resolve()` loop cannot advance an fs promise — it drains the
+ * microtask queue and hands control straight back, so the run never reaches the
+ * provider call. `setImmediate` is not among the mocked APIs, so it still turns
+ * the loop.
+ *
+ * Twenty turns is a BUDGET, not a guarantee that the run has reached its next
+ * `await`. Nothing here can make it one — the run's progress depends on how fast
+ * the filesystem answers, which is load. {@link tickUntilSettled} is built to
+ * absorb that rather than to out-guess it.
+ */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+/**
+ * The hang guard on {@link tickUntilSettled} — NOT a measurement of what a run
+ * needs. The loop stops on the run itself, so a healthy run never approaches
+ * this number, and it is sized well above observed demand rather than tuned
+ * against it — about four times the worst index measured below.
+ *
+ * Measured 2026-09-24, instrumented over 200 runs at five-way contention: the
+ * last timer fired at tick index 6-9 for ACCEPTANCE 3 and 6-13 for ACCEPTANCE 9.
+ * `docs/campaigns/platform-872-tick-until-settled-closeout.md` has the full
+ * distribution and the method.
+ */
+const MAX_STALL_TICKS = 60;
+
+/**
+ * Drive the mocked clock until `running` SETTLES, with a bounded cap.
+ *
+ * ## Why not a fixed count — #872
+ *
+ * These loops used to tick a fixed ten and twelve times, on the reasoning that
+ * three attempts need five ticks — one per attempt deadline, two for the backoff
+ * sleeps between them — so the remaining five were "deliberate headroom" and
+ * "extra ticks are free".
+ *
+ * **The timer count was right and the headroom was not.** A tick only fires a
+ * timer that has already been SCHEDULED. `settle` returns after a fixed number
+ * of macrotask turns, not when the run reaches its next `await`, so a tick
+ * issued while the run is still inside a durable read fires nothing and is
+ * SPENT. The demand is five timers — measured, in all 700 instrumented
+ * executions — but reaching the fifth costs SEVEN TO NINE ticks, because the
+ * spent ones sit in between. The old allowance of ten was therefore about one
+ * tick from the edge, not five, and the tail crosses it: ACCEPTANCE 9's own
+ * allowance of twelve was exceeded once in 200 measured runs (index 13).
+ *
+ * That failed ~2.5% of runs (#872, measured over 120+ by the #866 lane), and it
+ * failed in the worst available way: `running` stayed pending forever, so the
+ * test died with "Promise resolution is still pending but the event loop has
+ * already resolved" — a BROKEN-SUITE signature rather than an assertion naming a
+ * broken job — and took every later test in the file down with it, under a TAP
+ * summary still reading `# fail 0`.
+ *
+ * Ticking on the condition removes the class outright: a spent tick costs one
+ * more iteration instead of one of a handful of lives. Proven by mutation rather
+ * than asserted — shrinking `settle`'s budget to 5 turns kills the fixed-count
+ * loops 5/5 and leaves this one green; see the closeout named above.
+ *
+ * ## What the cap is for
+ *
+ * A genuinely stuck job must still fail, and fail BY NAME. The cap ends the loop
+ * and asserts, so the failure is attributable instead of a dead file. Pinned by
+ * '#872: the tick cap fails by ASSERTION, naming what hung — it does not kill the file',
+ * and the default's value and wiring by
+ * '#872: the default cap is the one the loops run under, and it stays clear of measured demand'.
+ */
+async function tickUntilSettled(
+  t: { mock: { timers: { tick: (ms: number) => void } } },
+  running: Promise<unknown>,
+  what: string,
+  maxTicks = MAX_STALL_TICKS
+): Promise<void> {
+  // Observe settlement without consuming it — the caller still awaits `running`
+  // for its value. The rejection arm is not error handling: it marks a rejected
+  // run as settled, because the loop must stop either way, and it keeps this
+  // observation from surfacing as an unhandled rejection before the caller
+  // reaches its own `await`.
+  let settled = false;
+  const mark = (): void => {
+    settled = true;
+  };
+  void running.then(mark, mark);
+
+  let ticks = 0;
+  for (; ticks < maxTicks; ticks += 1) {
+    await settle();
+    if (settled) return;
+    t.mock.timers.tick(CFBD_PEAK_LATENCY_TIMEOUT_MS + 5_000);
+  }
+  await settle();
+  assert.ok(
+    settled,
+    `${what} did not settle after ${ticks} ticks of ${CFBD_PEAK_LATENCY_TIMEOUT_MS + 5_000} ms — ` +
+      'it is waiting on something the mocked clock does not drive'
+  );
+}
+
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
@@ -246,29 +348,9 @@ test('ACCEPTANCE 3: the receipt is written even when the provider stalls MID-BOD
 
   // Advance past each attempt's deadline in turn, letting the promise chain
   // settle between ticks. Generous margins: the point is to outlast the bound,
-  // not to measure it.
-  //
-  // The settle step yields a MACROTASK (`setImmediate`), not just a microtask
-  // drain. The durable store's reads are real filesystem I/O, and an
-  // `await Promise.resolve()` loop cannot advance an fs promise — it drains the
-  // microtask queue and hands control straight back, so the run never reaches
-  // the provider call and the whole file dies with "Promise resolution is still
-  // pending but the event loop has already resolved". `setImmediate` is not
-  // among the mocked APIs, so it still turns the loop.
-  const settle = async (): Promise<void> => {
-    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
-  };
-  // Three attempts need at least five ticks — one per attempt deadline and one
-  // per backoff sleep — plus the shared CFBD pacing waits between them. Ten is
-  // deliberate headroom: too few ticks leaves the run pending and the whole
-  // FILE dies with "Promise resolution is still pending but the event loop has
-  // already resolved" rather than failing an assertion, so a marginal count
-  // would read as a broken suite instead of a broken job. Extra ticks are free.
-  for (let i = 0; i < 10; i += 1) {
-    await settle();
-    t.mock.timers.tick(CFBD_PEAK_LATENCY_TIMEOUT_MS + 5_000);
-  }
-  await settle();
+  // not to measure it. The loop stops when the RUN does — see
+  // `tickUntilSettled` for why a fixed count was #872.
+  await tickUntilSettled(t, running, 'the stalled schedule-presentation run');
 
   const res = await running;
   t.mock.timers.reset();
@@ -311,9 +393,17 @@ test('ACCEPTANCE 9: a year that eats the clock stops the NEXT year from starting
   //
   // The venue catalog is fresh, so the leg is NOT owed and each year reserves
   // one media leg (121s). Year 2026 sorts first (no media entry at all) and its
-  // media stalls through all three attempts, burning ~123s. 2027 then needs
-  // 123 + 121 = 244s... which still fits under 250s, so the tick count below
-  // deliberately carries it past the line.
+  // media stalls through all three attempts, and the ticks that outlast those
+  // attempts are what carry elapsed past the line.
+  //
+  // THE VERDICT DOES NOT DEPEND ON HOW MANY TICKS THAT TAKES, which is what
+  // makes the condition-driven loop below safe here even though `Date` is mocked
+  // and every tick advances the clock the route reads. 2027 reserves 121s
+  // against a 250s budget (`JOB_BUDGET_MS`), so it is admitted only while
+  // elapsed ≤ 129s — and three stalled attempts cannot complete in fewer than
+  // three ticks of 45s, which is already 135s. Every ADDITIONAL tick moves
+  // elapsed further past the line, never back toward it, so the floor is the
+  // only bound that has to hold.
   await seed(2027);
   stubStallingBody();
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
@@ -323,14 +413,7 @@ test('ACCEPTANCE 9: a year that eats the clock stops the NEXT year from starting
       headers: { authorization: `Bearer ${CRON_SECRET}` },
     })
   );
-  const settle = async (): Promise<void> => {
-    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
-  };
-  for (let i = 0; i < 12; i += 1) {
-    await settle();
-    t.mock.timers.tick(CFBD_PEAK_LATENCY_TIMEOUT_MS + 5_000);
-  }
-  await settle();
+  await tickUntilSettled(t, running, 'the budget-exhausted schedule-presentation run');
   const res = await running;
   t.mock.timers.reset();
 
@@ -349,6 +432,32 @@ test('ACCEPTANCE 9: a year that eats the clock stops the NEXT year from starting
     1,
     'and the skipped year reaches it'
   );
+});
+
+test('#872: the tick cap fails by ASSERTION, naming what hung — it does not kill the file', async (t) => {
+  // The positive control for the loop the two tests above rely on. Without it,
+  // "the cap asserts rather than dying" is an unwritten claim about the very
+  // mechanism whose previous unwritten claim WAS #872 — and the failure it
+  // guards against is the one that prints `# fail 0` while the file dies, so the
+  // difference between the two outcomes is exactly what nobody can see by
+  // reading a summary.
+  //
+  // A promise that never settles is the genuinely-stuck job. The cap is passed
+  // explicitly so this costs three ticks rather than MAX_STALL_TICKS; that the
+  // default is wired to the same parameter is visible at the call site.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const neverSettles = new Promise<never>(() => {});
+
+  await assert.rejects(
+    () => tickUntilSettled(t, neverSettles, 'the never-settling probe', 3),
+    (error: unknown) =>
+      error instanceof assert.AssertionError &&
+      error.message.includes('the never-settling probe') &&
+      error.message.includes('after 3 ticks'),
+    'the cap expiry names the pending work and fails as an assertion'
+  );
+
+  t.mock.timers.reset();
 });
 
 test('ROUND 3 #1: a comfortably fresh catalog owes nothing, so a later year is judged on ONE leg', async (t) => {
@@ -786,7 +895,41 @@ test('PLATFORM-861: the FIRST year runs even past the budget, with a slow store 
   );
 });
 
-test('every PLATFORM-861 test name cited in route.ts resolves to a test in this file', async () => {
+test('#872: the default cap is the one the loops run under, and it stays clear of measured demand', async (t) => {
+  // ROUND 1 FINDING 2. Nothing observed `MAX_STALL_TICKS` or the
+  // `maxTicks = MAX_STALL_TICKS` default: ACCEPTANCE 3 and 9 never reach the cap
+  // on a healthy run, and the control above passes its own cap of 3. So the
+  // constant was load-bearing for the recorded evidence and unpinned by the code.
+  //
+  // THE GAP IS NOT THEORETICAL, and the edit that walks through it is specific.
+  // The docblock records a MEASURED distribution of 6-13, which reads as an
+  // invitation to size the cap to the data — and a cap near the top of that
+  // range reintroduces #872 as an intermittent named assertion, with the whole
+  // suite green on the commit that caused it. The measurement is there to
+  // justify the margin, not to set the value.
+  //
+  // Two assertions, because they fail to different edits. The first is the
+  // SAFETY MARGIN, which a tuning edit breaks. The second is the WIRING — that
+  // the omitted argument actually reaches the loop — which a signature change
+  // breaks while leaving the constant untouched.
+  assert.ok(
+    MAX_STALL_TICKS >= 30,
+    'the cap must stay clear of measured demand (worst last-fire index 13 over 200 runs); ' +
+      `${MAX_STALL_TICKS} is close enough to reintroduce #872`
+  );
+
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await assert.rejects(
+    () => tickUntilSettled(t, new Promise<never>(() => {}), 'the default-cap probe'),
+    (error: unknown) =>
+      error instanceof assert.AssertionError &&
+      error.message.includes(`after ${MAX_STALL_TICKS} ticks`),
+    'the omitted argument resolves to MAX_STALL_TICKS, and the message reports it'
+  );
+  t.mock.timers.reset();
+});
+
+test("every test name cited in route.ts or this file's comments resolves to a test in this file", async () => {
   // THE GUARD FOR THE DEFECT REVIEW FOUND ON THIS BRANCH. The first version of
   // the admission comment cited a test called 'PLATFORM-861: the admission
   // boundary is 8s of elapsed with both legs owed'. No such test was ever
@@ -820,12 +963,33 @@ test('every PLATFORM-861 test name cited in route.ts resolves to a test in this 
   // Comment continuations wrap across lines, so the leading `// ` of each line is
   // stripped before matching a quoted name that may span two or three of them.
   const flatten = (text: string): string => text.replace(/\n\s*\/\/ ?/g, ' ').replace(/\s+/g, ' ');
-  const cited = [...flatten(source).matchAll(/'(PLATFORM-861:[^']+)'/g)].map((m) => m[1]);
+  const citedInRoute = [...flatten(source).matchAll(/'(PLATFORM-861:[^']+)'/g)].map((m) => m[1]);
+  // #872 WIDENED THIS, BECAUSE ROUND 1 FOUND THE SAME DEFECT ONE FILE OVER AND
+  // THIS GUARD COULD NOT SEE IT. The `tickUntilSettled` docblock cites the
+  // controls that pin its cap, and its first version quoted a TRUNCATED form of
+  // a real test's name — which resolves to nothing exactly as an invented name
+  // does. The citation lived in this file's own comments rather than in
+  // `route.ts`, so a guard reading only `route.ts` passed it.
+  //
+  // The declared-name set is already read from this file, so the fix is to widen
+  // what is EXTRACTED, not what is checked against.
+  const citedHere = [...flatten(selfSource).matchAll(/'(#872:[^']+)'/g)].map((m) => m[1]);
   const declared = new Set(
     [...selfSource.matchAll(/^test\(\s*'([^']+)'/gm)].map((match) => match[1])
   );
 
-  assert.ok(cited.length >= 5, `expected route.ts to cite its tests, found ${cited.length}`);
+  assert.ok(
+    citedInRoute.length >= 5,
+    `expected route.ts to cite its tests, found ${citedInRoute.length}`
+  );
+  // The same positive control as `declared` below, for the added extraction: a
+  // regex that stops matching would report "every citation resolves" having read
+  // none of them.
+  assert.ok(
+    citedHere.length >= 2,
+    `the #872 citation extraction found ${citedHere.length} names, so it is not reading this file's comments`
+  );
+  const cited = [...citedInRoute, ...citedHere];
   // A positive control on the extraction itself: if the `test(...)` pattern ever
   // stops matching, `declared` goes empty and every citation would "fail" for the
   // wrong reason — a check that cannot see is not a check that found nothing.
@@ -836,7 +1000,7 @@ test('every PLATFORM-861 test name cited in route.ts resolves to a test in this 
   for (const name of cited) {
     assert.ok(
       declared.has(name),
-      `route.ts cites a test that does not exist in stall.test.ts: ${JSON.stringify(name)}`
+      `a comment cites a test that does not exist in stall.test.ts: ${JSON.stringify(name)}`
     );
   }
 });
