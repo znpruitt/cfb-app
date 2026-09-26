@@ -596,11 +596,19 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
  * The two owners being DISTINCT is load-bearing rather than incidental:
  * `gameOfSlate` filters to games with two different owners, which is why the
  * both-ranked card also draws the `Game of the Week` reason label while the
- * one-ranked card's reason row is genuinely empty — the tagged/untagged pair the
- * `min-h-[22px]` assertion below is about.
+ * one-ranked card draws none — the tagged/untagged pair that the
+ * `'tagged and untagged cards remove the reason band and preserve the odds band'`
+ * subtest below iterates over.
+ *
+ * That subtest replaced a minimum-height assertion on the reason band, which this
+ * docblock used to name by its Tailwind class: PLATFORM-669 removed the band, so
+ * the reservation is now asserted as an ABSENCE (`no context band remains`, `the
+ * 22px reason wrapper is removed`) rather than as a height. No component applies
+ * that class any more, so a reader following the old name found nothing — which
+ * is why this paragraph describes it instead of quoting it.
  *
  * The both-ranked card is the POSITIVE CONTROL: it proves this harness can see an
- * eyebrow tag in the watchlist reason row, so the absences asserted on the
+ * eyebrow tag in the watchlist header, so the absences asserted on the
  * one-ranked card are the retirements rather than a row that renders nothing.
  */
 test('overview watchlist renders no tag for one ranked team and none for a leader-owned game', async (t) => {
