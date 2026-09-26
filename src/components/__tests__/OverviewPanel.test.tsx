@@ -559,8 +559,7 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
     '<section class="@container">',
     'the watchlist section itself must establish the scoreboard container query'
   );
-  assert.match(scoreboard, /data-watchlist-reason-row/);
-  assert.match(scoreboard, /<div(?=[^>]*data-watchlist-reason-row)(?=[^>]*min-h-\[22px\])[^>]*>/);
+  assert.doesNotMatch(scoreboard, /data-scoreboard-context-slot|data-watchlist-reason-row/);
   assert.match(scoreboard, /Game of the Week/);
   // Item 162 retired `Contender Watch`. `Game of the Week` above is the positive
   // control: the reason row on THIS card still renders content, so the absence
@@ -597,14 +596,22 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
  * The two owners being DISTINCT is load-bearing rather than incidental:
  * `gameOfSlate` filters to games with two different owners, which is why the
  * both-ranked card also draws the `Game of the Week` reason label while the
- * one-ranked card's reason row is genuinely empty — the tagged/untagged pair the
- * `min-h-[22px]` assertion below is about.
+ * one-ranked card draws none — the tagged/untagged pair that the
+ * `'tagged and untagged cards remove the reason band and preserve the odds band'`
+ * subtest below iterates over.
+ *
+ * That subtest replaced a minimum-height assertion on the reason band, which this
+ * docblock used to name by its Tailwind class: PLATFORM-669 removed the band, so
+ * the reservation is now asserted as an ABSENCE (`no context band remains`, `the
+ * 22px reason wrapper is removed`) rather than as a height. No component applies
+ * that class any more, so a reader following the old name found nothing — which
+ * is why this paragraph describes it instead of quoting it.
  *
  * The both-ranked card is the POSITIVE CONTROL: it proves this harness can see an
- * eyebrow tag in the watchlist reason row, so the absences asserted on the
+ * eyebrow tag in the watchlist header, so the absences asserted on the
  * one-ranked card are the retirements rather than a row that renders nothing.
  */
-test('overview watchlist renders no tag for one ranked team and none for a leader-owned game', () => {
+test('overview watchlist renders no tag for one ranked team and none for a leader-owned game', async (t) => {
   const participants = (awayId: string, homeId: string) =>
     ({
       away: {
@@ -679,16 +686,53 @@ test('overview watchlist renders no tag for one ranked team and none for a leade
   assert.doesNotMatch(html, /Contender Watch/);
   assert.doesNotMatch(html, /Ranked Team/);
 
-  // RULING 2: the reason-row reservation stays. One card carries a tag and one does
-  // not, which is exactly the case the reserved band keeps level across the grid.
-  assert.match(
-    oneRankedCard,
-    /<div(?=[^>]*data-watchlist-reason-row)(?=[^>]*min-h-\[22px\])[^>]*>/
+  await t.test(
+    'tagged and untagged cards remove the reason band and preserve the odds band',
+    () => {
+      for (const [name, card] of [
+        ['untagged', oneRankedCard],
+        ['tagged', bothRankedCard],
+      ]) {
+        const doc = new JSDOM(card).window.document;
+        assert.equal(
+          doc.querySelectorAll('[data-scoreboard-context-slot]').length,
+          0,
+          `${name}: no context band remains`
+        );
+        assert.equal(
+          doc.querySelectorAll('[data-watchlist-reason-row]').length,
+          0,
+          `${name}: the 22px reason wrapper is removed`
+        );
+        assert.equal(
+          doc.querySelectorAll('[data-scoreboard-odds-footer]').length,
+          1,
+          `${name}: the odds footer remains reserved`
+        );
+      }
+    }
   );
-  assert.match(
-    bothRankedCard,
-    /<div(?=[^>]*data-watchlist-reason-row)(?=[^>]*min-h-\[22px\])[^>]*>/
-  );
+  await t.test('reason and highlight share the metadata header tag slot', () => {
+    const tagged = new JSDOM(bothRankedCard).window.document;
+    const header = tagged.querySelector('[data-scoreboard-header]');
+    assert.ok(header);
+    assert.equal(
+      header.querySelectorAll('[data-scoreboard-tag-slot] [data-watchlist-reason-label]').length,
+      1,
+      'the reason label is inside the metadata header tag slot'
+    );
+    assert.equal(
+      header.querySelectorAll('[data-scoreboard-tag-slot] [data-eyebrow-tag]').length,
+      1,
+      'the highlight tag is inside the metadata header tag slot'
+    );
+    assert.equal(
+      new JSDOM(oneRankedCard).window.document.querySelectorAll('[data-scoreboard-tag-slot]')
+        .length,
+      0,
+      'an untagged card does not request an empty tag line'
+    );
+  });
 });
 
 test('overview watchlist leaves record anchors blank when record enrichment is absent', () => {
@@ -1488,6 +1532,48 @@ test('overview panel renders league highlights and standings without matrix tabl
   assert.doesNotMatch(html, /Head-to-head matrix/);
   assert.doesNotMatch(html, /<table/);
   assert.doesNotMatch(html, /League snapshot/);
+});
+
+test('watchlist relocation preserves the populated FBS poll column', () => {
+  const week = {
+    season: 2026,
+    week: 1,
+    seasonType: 'regular',
+    primarySource: 'ap' as const,
+    teams: [],
+    polls: {
+      ap: [{ teamId: 'georgia', teamName: 'Georgia', rank: 1, rankSource: 'ap' as const }],
+      cfp: [],
+      coaches: [],
+    },
+  };
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[item(game({ key: 'poll-peer' }))]}
+      rankings={{
+        weeks: [week],
+        latestWeek: week,
+        meta: { source: 'cfbd', cache: 'hit', generatedAt: '2026-09-01T12:00:00Z' },
+      }}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+  const document = new JSDOM(html).window.document;
+  const title = [...document.querySelectorAll('p')].find((node) => node.textContent === 'AP Poll');
+  assert.ok(title, 'the populated AP poll column remains beside the watchlist');
+  const column = title.parentElement?.parentElement;
+  assert.ok(column);
+  assert.match(column.textContent ?? '', /1Georgia/);
+  assert.equal(column.querySelector('a')?.getAttribute('href'), '/standings');
+  assert.ok(
+    document.querySelector('[data-watchlist-scoreboard-grid]'),
+    'the same render contains the changed watchlist'
+  );
 });
 
 test('overview standings emphasize leader row and use the pending badge as the only live signal', () => {
