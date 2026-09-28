@@ -127,7 +127,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Scope: Watchlist presentation, browser/component tests, required-browser registration, shared-component selector comments and execution records. No selector, pill-treatment or grid-tier changes.
 - Outcome: Pills use `tagSlot`; constrained reason-label headers wrap with a right-pin, including multi-column layouts. Single-line cards measure 133px versus 161px before; wrapped cards measure 153px, with existing peer-box stretch. The owner accepted the 20px team-row offset and retained the narrow exception in `82538993`.
 - Review / verification: Both reviewers targeted `014e7a62`; findings dispositioned in `09acdb38`. Codex did not run browser tests; Claude ran Chrome gates and verified the variants in production CSS. Reported `09acdb38` gates: TypeScript/lint/tests/browser all exit 0, 5,607 tests and 31 browser checks, zero skips. Gate-removal and observer-poison mutations fail by name. The supported radio path has effectively no headroom; provider-drift detection is #880, not a fixture guarantee. [Chronology, measurements, review limits and controls](campaigns/platform-669-overview-shared-row-closeout.md). L1, L4 and L6 apply.
-- Status: Implemented; owner approved closeout and merge in [PR #877](https://github.com/znpruitt/cfb-app/pull/877). Pre-merge record; no production promotion claimed.
+- Status: Merged [PR #877](https://github.com/znpruitt/cfb-app/pull/877), `21fd6d9c`, 2026-09-28; #669 closed. Final gates passed on `197818b7`, whose tree matches the merge. No production promotion claimed.
 
 ### PLATFORM-875-REAL-TIME-STALL-CLAUDE-v1
 

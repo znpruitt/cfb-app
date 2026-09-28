@@ -1,6 +1,7 @@
 # PLATFORM-669 — Overview watchlist shared header (closeout)
 
-Status: Implemented, reviews adjudicated and owner approved closeout/merge; pre-merge record.
+Status: Merged in PR #877 as `21fd6d9caa5dbf97e3720ce7ea0e2ca4f9a62edb`, 2026-09-28.
+The merged tree matches gated closeout commit `197818b7`; no production promotion claimed.
 Issue: [#669](https://github.com/znpruitt/cfb-app/issues/669).
 PR: [#877](https://github.com/znpruitt/cfb-app/pull/877).
 Prompt: [PLATFORM-669-OVERVIEW-SHARED-ROW-CODEX-v1](../prompts/platform-669-overview-shared-row-codex-v1.md).
@@ -131,8 +132,9 @@ in the branch. Later controls address the mechanisms earlier green runs missed:
 Reported gates on `09acdb38`: TypeScript, full lint, full tests (5,607 passed), and required-browser
 checks (31 passed, zero skipped), each exit 0. The watchlist file is now explicitly included in
 `test:browser:required`. The earlier production-build observation belongs to `014e7a62`.
-Final closeout-commit gate results and exact SHA are recorded on PR #877; no result is silently
-carried across a changed commit.
+Final gates also passed on clean, unchanged closeout commit `197818b7`: TypeScript, full lint,
+5,607 tests and 31 required-browser checks, all exit 0 with zero skips. Its tree hash matches the
+merge commit. Detailed command results are recorded on PR #877.
 
 Preview was not advanced for the later test/comment-only commits and is not evidence for the final
 layout. No production promotion is claimed. Only #669 is closed by this PR: #673's reason-inclusive
