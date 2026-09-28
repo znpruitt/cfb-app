@@ -334,6 +334,29 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   **Why this matters beyond the wording:** a justification that names the wrong mechanism survives
   every soundness review, because soundness asks "does the rule ever fire when it must not" and this
   error is in the other direction — completeness. Four passes cleared it.
+- **A WATCHLIST CARD WHOSE HEADER CANNOT FIT ON ONE LINE WRAPS TO A SECOND LINE, EVEN IN MULTI-COLUMN
+  — accepting that its team rows sit ~20px below its neighbour's.** Owner decision 2026-09-28 on
+  [#669](https://github.com/znpruitt/cfb-app/issues/669). **This is a bounded exception to the
+  single-line contract above, not a softening of it.**
+  **The alternative was worse and that is the whole argument.** Overview's watchlist puts a reason
+  label (`Game of the Week`) inline beside its tags, which no other surface does — Featured's reason
+  sits on its own line. Measured on the shipped component: that label plus one tag plus long metadata
+  (`Sat, Sep 5 · Time TBD` + `ACC Network`) **never fits at any card width the grid produces**, losing
+  63.4px of kickoff and 38.6px of broadcast at 809px and still 26.2/16.0px at 1389px, where cards reach
+  their widest 420.33px. So the member loses **when and where to watch** — on the one card the surface
+  exists to promote.
+  **Scope, measured rather than estimated:** at most one card per slate. `Upset watch` cannot reach
+  this surface at all, because its selector requires an in-progress game and watchlist candidates
+  exclude those; two category tags cannot co-occur on a scheduled row. **Every other combination fits**
+  — a card with no reason label is clear at every width, with long metadata and a tag.
+  **The contract's reason is preserved, which is why this is an exception and not a repeal.** The
+  single-line rule protects team-row alignment ACROSS a grid row, and that cost is being paid
+  deliberately here, once per slate, to keep two facts a member acts on.
+  **The durable fix is CSS subgrid** — the cards' internal rows joining the outer grid, so the header
+  row sizes to the tallest header in that row and every card's team rows align automatically, at no
+  cost on rows where nothing wrapped. Filed separately; it restructures a component shared by three
+  surfaces and is not this exception's price. Tracked as
+  [#879](https://github.com/znpruitt/cfb-app/issues/879), which retires this exception when it lands.
 - Rankings display inline with team names — "#4 Oregon vs #2 Indiana"
 - **Team names on scoreboard rows are the provider's full school name, and every surface uses the same
   field** — "Mississippi State", never "MSST". **Amended 2026-09-20 by owner decision on
