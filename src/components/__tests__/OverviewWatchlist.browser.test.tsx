@@ -248,8 +248,8 @@ for (const metadata of ['short', 'long'] as const) {
             const label = `${viewport}px ${row.name}`;
             assert.equal(row.contextCount, 0, `${label}: no context band remains`);
             assert.equal(row.footer.height, 16, `${label}: empty odds footer remains reserved`);
-            const hasReason = row === reason;
-            const wrapped =
+            const hasReason: boolean = row === reason;
+            const wrapped: boolean =
               (viewport < 640 && row.tags.length > 0) ||
               (hasReason && viewport >= 640 && reasonNeedsWrap);
             assert.equal(row.text.length, 2, `${label}: both kickoff and broadcast are measured`);
