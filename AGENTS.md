@@ -854,6 +854,18 @@ throws, capture observations in `finally`; an empty collection populated only af
 resolution proves nothing. Mutation-check the observer when practical, not only the production
 guard it observes.
 
+**A DATED MEASUREMENT WRITTEN IN THE PRESENT TENSE BECOMES A STRUCTURAL CLAIM ON THE NEXT READ.**
+Added 2026-09-29 by the #669 lane, about its own comment. It wrote that the `Radio` prefix **"never reaches
+this surface"** — true as a measurement of today's games, false as a claim about what can render, and
+`gameCardPresentation.ts` and `DESIGN.md` both say in terms that the radio guard must not be retired
+as unreachable. **It committed that error three days after the same branch corrected the identical
+one in `DESIGN.md`'s `max-sm` premise — inside a comment criticising that premise.**
+
+**The tense is the tell.** "Zero radio-only games today" is a measurement and decays honestly.
+"Never reaches this surface" is a structural claim and a reader will act on it. **Write the first;
+a claim about what CAN happen needs the code path, not the row count.** See the never-invent-figures
+and note-decay rules above — this is their form for a claim about reachability.
+
 **A GATE'S VERDICT IS ITS EXIT CODE, NEVER ITS SUMMARY LINE — AND `# fail 0` IS UNRELIABLE EXACTLY
 WHEN IT MATTERS.** Added 2026-09-24 by the #866 lane, about its own reporting. A whole test FILE died
 mid-run and the TAP summary printed **`# fail 0`**. The lane had been quoting those counts as evidence

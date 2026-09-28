@@ -347,8 +347,21 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   exists to promote.
   **Scope, measured rather than estimated:** at most one card per slate. `Upset watch` cannot reach
   this surface at all, because its selector requires an in-progress game and watchlist candidates
-  exclude those; two category tags cannot co-occur on a scheduled row. **Every other combination fits**
-  — a card with no reason label is clear at every width, with long metadata and a tag.
+  exclude those; two category tags cannot co-occur on a scheduled row.
+  **CORRECTED 2026-09-29 — this bullet said "every other combination fits, clear at every width", and
+  that was measured over one outlet without naming the population.** A tags-only card at 809px with
+  the longest kickoff form (`startTimeTBD`, two-digit day) and the radio outlet measures **244.33px
+  natural against a 243.875px box: −0.45px.** Sub-pixel, so integer `scrollWidth` never exceeds
+  `clientWidth` and nothing visibly ellipsizes — **but the budget is spent, on a card with no reason
+  label.** The tv path keeps +9.9px. **The exception is NOT widened** (owner decision 2026-09-29):
+  widening it to any pill trades a certain, broad cost — many more cards wrapping, misalignment across
+  the surface, the density win eroded — against an unobserved sub-pixel case. Measured on the
+  read-only replica the same day: **zero radio-only games of any classification**, and the six FBS
+  games carrying a radio row all render a higher-priority outlet instead.
+  **The residual risk is provider DRIFT, not today's data, and the right answer to it is a detector
+  rather than a layout change.** The bound is a constant, not a store read; a longer outlet string
+  would clip silently. Tracked as
+  [#880](https://github.com/znpruitt/cfb-app/issues/880).
   **The contract's reason is preserved, which is why this is an exception and not a repeal.** The
   single-line rule protects team-row alignment ACROSS a grid row, and that cost is being paid
   deliberately here, once per slate, to keep two facts a member acts on.
