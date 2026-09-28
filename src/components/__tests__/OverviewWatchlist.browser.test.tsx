@@ -15,7 +15,37 @@ import OverviewPanel from '../OverviewPanel';
 
 type MetadataFixture = 'short' | 'long';
 
-function fixtureItem(key: string, day: number, metadata: MetadataFixture): OverviewGameItem {
+/**
+ * The longest broadcast label the watchlist can actually render, and the bound the #669 DESIGN.md
+ * exception's scope claim depends on.
+ *
+ * MEASURED 2026-09-28 on the read-only replica, `schedule-media/2026-all` joined to
+ * `schedule/2026-all-all`: of 888 games with an FBS participant, 509 carry media, and applying
+ * `formatPrimaryBroadcastLabel`'s one-per-game `tv → web → ppv → mobile → radio` priority yields
+ * **21 distinct rendered labels whose longest is 11 characters** — `SEC Network` and `ACC Network`.
+ *
+ * The store is NOT the population: it holds 95 (mediaType, outlet) pairs reaching 30 characters
+ * (`Rock Athletics Digital Network`), but those sit on non-FBS games that no league surface renders.
+ * CFBD supplies `CBSSN`, not `CBS Sports Network`, and `BTN`, not `Big Ten Network`. No radio label
+ * renders on an FBS game at all — the sole radio outlet is on games that also carry TV — so the
+ * `Radio · ` prefix from `gameCardPresentation.ts:145` never reaches this surface.
+ *
+ * This is a DATED claim about a PROVIDER's strings, so it decays: if CFBD ever stops abbreviating,
+ * `SYNTHETIC_OUTLET_BEYOND_BOUND` below is what that looks like.
+ */
+const LONGEST_RENDERED_OUTLET = 'SEC Network';
+/**
+ * Explicitly NOT in the rendered population — 18 characters, the unabbreviated form of a label CFBD
+ * actually emits as `CBSSN`. It exists to hold two boundaries that nothing else in this file holds.
+ */
+const SYNTHETIC_OUTLET_BEYOND_BOUND = 'CBS Sports Network';
+
+function fixtureItem(
+  key: string,
+  day: number,
+  metadata: MetadataFixture,
+  outlet?: string
+): OverviewGameItem {
   const game: AppGame = {
     key,
     eventId: key,
@@ -61,7 +91,13 @@ function fixtureItem(key: string, day: number, metadata: MetadataFixture): Overv
         rawName: `${key} Home`,
       },
     },
-    media: [{ gameId: key, mediaType: 'tv', outlet: metadata === 'long' ? 'ACC Network' : 'ESPN' }],
+    media: [
+      {
+        gameId: key,
+        mediaType: 'tv',
+        outlet: outlet ?? (metadata === 'long' ? 'ACC Network' : 'ESPN'),
+      },
+    ],
   };
   return {
     bucket: {
@@ -76,11 +112,11 @@ function fixtureItem(key: string, day: number, metadata: MetadataFixture): Overv
   };
 }
 
-async function fixtureMarkup(metadata: MetadataFixture): Promise<string> {
+async function fixtureMarkup(metadata: MetadataFixture, outlet?: string): Promise<string> {
   const items = [
-    fixtureItem('reason-tag', 5, metadata),
-    fixtureItem('tag', 6, metadata),
-    fixtureItem('untagged', 7, metadata),
+    fixtureItem('reason-tag', 5, metadata, outlet),
+    fixtureItem('tag', 6, metadata, outlet),
+    fixtureItem('untagged', 7, metadata, outlet),
   ];
   const html = renderToStaticMarkup(
     <OverviewPanel
@@ -231,9 +267,16 @@ for (const metadata of ['short', 'long'] as const) {
           assert.ok(reason && tag && untagged);
           assert.ok(reason.slot);
           // Use actual glyph widths, not a breakpoint inferred from one host's font stack.
+          //
+          // The epsilon matters and is not decoration. This predicate feeds a strict
+          // `assert.equal` on header height, so it must agree with Chrome's OWN line-packing
+          // decision; `WIDTHS` deliberately probes adjacent values (901/902/903, 909-915), which
+          // puts the sum within a fraction of a pixel of `header.width` on some font stacks. At
+          // exact equality the content still FITS, so the comparison has to be strictly-greater by
+          // more than float noise — matching the `+ 0.02` and `< 0.5` tolerances used below.
           const reasonNeedsWrap =
             reason.metadataNaturalWidth + reason.slot.width + reason.headerGap >
-            reason.header.width;
+            reason.header.width + 0.02;
           assert.deepEqual(
             reason.tags.map((pill) => pill.text),
             ['Game of the Week', 'Top 25 Matchup'],
@@ -400,3 +443,96 @@ for (const metadata of ['short', 'long'] as const) {
     );
   });
 }
+
+/**
+ * THE GATE'S OWN BOUNDARY, which nothing else in this file holds.
+ *
+ * `OVERVIEW_WATCHLIST_HEADER_CLASSES` scopes the wrap to
+ * `:has([data-watchlist-reason-label])`. That `:has()` is what makes #669 a bounded EXCEPTION to
+ * DESIGN.md's single-line contract rather than a repeal of it — and removing it left the whole
+ * suite green, because the tests above only ever exercise cards that fit on one line anyway. A
+ * tags-only card with headroom does not wrap whether the gate is there or not, so it cannot
+ * witness the gate.
+ *
+ * This test builds the card that CAN: tags-only (no reason label) and deliberately wider than the
+ * line. Strip the `:has()` and the header wraps to 36px and the first assertion reddens by name.
+ *
+ * It also records the bound from finding 1 of the `46ef835c` review. The reviewer measured a
+ * tags-only card truncating with `CBS Sports Network`, `Big Ten Network` and `Radio · ESPN Radio`
+ * — all real-sounding and none of them reachable, because CFBD emits `CBSSN` and `BTN` and no
+ * radio label survives the per-game priority on an FBS game. See `LONGEST_RENDERED_OUTLET`. The
+ * mechanism was real; only the population was wrong. So both facts are pinned here: at the real
+ * bound nothing truncates, and one step beyond it the metadata — not the pills — pays.
+ */
+test('a tags-only watchlist header never wraps, and the rendered outlet bound is where the measurement says', async (t) => {
+  for (const [label, outlet, expectTruncation] of [
+    ['at the rendered bound', LONGEST_RENDERED_OUTLET, false],
+    ['beyond it, synthetically', SYNTHETIC_OUTLET_BEYOND_BOUND, true],
+  ] as const) {
+    await withBrowserFixture(
+      t,
+      {
+        directoryPrefix: 'cfb-watchlist-tag-only-',
+        markup: () => fixtureMarkup('long', outlet),
+      },
+      async (page) => {
+        let sawTruncation = false;
+        for (const viewport of WIDTHS) {
+          await page.setViewport(viewport, 900);
+          const tagOnly = (await measure(page)).find((row) => row.name === 'tag Away at tag Home')!;
+          assert.ok(tagOnly.slot, `${label} ${viewport}px: the tags-only card has a tag slot`);
+          assert.deepEqual(
+            tagOnly.tags.map((pill) => pill.text),
+            ['Top 25 Matchup'],
+            `${label} ${viewport}px: exactly one pill and no reason label`
+          );
+
+          // THE GATE. Below 640px `max-sm:flex-wrap` on the shared component applies to every
+          // tagged card, reason or not, and that is the pre-existing phone exemption rather than
+          // #669's. Above it, only a reason header may wrap — so this card must stay one line at
+          // every width, even when its metadata cannot fit.
+          if (viewport >= 640) {
+            assert.equal(
+              tagOnly.header.height,
+              16,
+              `${label} ${viewport}px: a tags-only header stays on one line above phone width`
+            );
+            assert.equal(
+              tagOnly.slot.top,
+              tagOnly.metadata!.top,
+              `${label} ${viewport}px: its pill sits beside the metadata, not below it`
+            );
+          }
+
+          // The pills never pay, at either end of the bound: they are `shrink-0` by Item 175 and
+          // the metadata absorbs the whole deficit. That asymmetry is the reason the bound matters.
+          for (const pill of tagOnly.tags) {
+            assert.equal(
+              pill.clipped,
+              0,
+              `${label} ${viewport}px: ${pill.text} is never the thing that gets clipped`
+            );
+          }
+
+          for (const span of tagOnly.text) {
+            if (span.scroll > span.client) sawTruncation = true;
+            if (!expectTruncation) {
+              assert.ok(
+                span.scroll <= span.client,
+                `${label} ${viewport}px: ${span.text} is whole at the rendered bound`
+              );
+            }
+          }
+          t.diagnostic(JSON.stringify({ label, outlet, viewport, tagOnly }));
+        }
+        assert.equal(
+          sawTruncation,
+          expectTruncation,
+          expectTruncation
+            ? `${label}: an 18-character outlet must still truncate somewhere, or this control proves nothing`
+            : `${label}: the real population must not truncate anywhere`
+        );
+      }
+    );
+  }
+});

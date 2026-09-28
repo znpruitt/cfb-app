@@ -253,6 +253,17 @@ export default function CompactGameScoreboard({
           {contextSlot}
         </div>
       ) : null}
+      {/*
+      `data-scoreboard-header`, `-header-metadata` and `-tag-slot` are NOT presentation hooks any
+      more. `OVERVIEW_WATCHLIST_HEADER_CLASSES` (`OverviewPanel.tsx:137`) targets all three from
+      OUTSIDE this file, as a Tailwind arbitrary-variant selector, to grant DESIGN.md's #669
+      wrap exception to watchlist cards carrying a reason label. Renaming one, or restructuring
+      this markup, disables that exception with NO compile error — a CSS selector cannot be
+      type-checked. `OverviewWatchlist.browser.test.tsx` is the only thing that reddens, which is
+      why it is enumerated in `test:browser:required`.
+      This matters soon rather than hypothetically: #879 (CSS subgrid) retires the exception by
+      restructuring exactly this markup across the three surfaces that render it.
+      */}
       <div
         className={`mb-1.5 flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs dark:text-zinc-400 ${
           hasTagSlot ? 'max-sm:flex-wrap max-sm:gap-y-1' : ''
