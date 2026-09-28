@@ -78,6 +78,17 @@ let deferrer: ReturnType<typeof installSchedulerReceiptDeferrer>;
 let mediaAttempts: Array<{ aborted: boolean }> = [];
 
 /**
+ * Attempts the VENUE leg made through {@link stubMediaOkVenuesDown}.
+ *
+ * PLATFORM-875 review finding 2. The retry count is load-bearing for two claims
+ * this file makes in prose — that the leg costs three attempts, and that making
+ * the failure non-retryable would "stay green" — and nothing observed it. An
+ * elapsed-time bound cannot: it is one-sided, so a fixture silently narrowed to a
+ * single attempt costs ~0 ms and passes it.
+ */
+let venueAttempts = 0;
+
+/**
  * A provider that completes its headers, emits a first byte, then stalls the
  * body until its signal aborts.
  *
@@ -228,11 +239,36 @@ async function settle(): Promise<void> {
  * The hang guard on {@link tickUntilSettled} — NOT a measurement of what a run
  * needs. The loop stops on the run itself, so a healthy run never approaches
  * this number, and it is sized well above observed demand rather than tuned
- * against it — about four times the worst index measured below.
+ * against it — about THREE times the worst index measured below.
  *
- * Measured 2026-09-24, instrumented over 200 runs at five-way contention: the
- * last timer fired at tick index 6-9 for ACCEPTANCE 3 and 6-13 for ACCEPTANCE 9.
- * `docs/campaigns/platform-872-tick-until-settled-closeout.md` has the full
+ * ## RE-MEASURED 2026-09-25 (PLATFORM-875), BECAUSE THE FIGURES BELOW HAD DECAYED
+ *
+ * This docblock recorded "6-9 for ACCEPTANCE 3 and 6-13 for ACCEPTANCE 9", from
+ * 200 runs at FIVE-way contention on 2026-09-24, and called the cap "about four
+ * times the worst index". PLATFORM-875 added a third caller and re-instrumented
+ * the loop. Settle index, n=64 per caller, eight-way contention:
+ *
+ * | caller                                  | min | max | p95 |
+ * | --------------------------------------- | --- | --- | --- |
+ * | 'the stalled schedule-presentation run' |   8 |  13 |  12 |
+ * | 'the budget-exhausted …' (ACCEPTANCE 9) |   9 |  21 |  13 |
+ * | 'the ungoverned first year' (new)       |  14 |  19 |  18 |
+ *
+ * **THE WORST INDEX IS NOT THE NEW CALLER'S.** ACCEPTANCE 9 reached 21 — outside
+ * the 6-13 this block recorded, and it did so on a caller PLATFORM-875 never
+ * touched. So the range was already stale at eight-way contention before this
+ * slice; the new caller raised the FLOOR (14, against 8 and 9) and the p95, not
+ * the maximum. Recording that distinction matters because the obvious reading —
+ * "the new test is the expensive one, size the cap to it" — is wrong twice over,
+ * and sizing to any of these numbers is the error the paragraph above warns about.
+ *
+ * At 60 the cap is ~2.9x the worst observed 21. The floor that protects it is
+ * asserted by '#872: the default cap is the one the loops run under, and it stays
+ * clear of measured demand', which PLATFORM-875 raised from 30 to 45 for the same
+ * reason this block was rewritten: 30 was justified by a worst index of 13 and
+ * would leave only 1.4x over 21.
+ *
+ * `docs/campaigns/platform-872-tick-until-settled-closeout.md` has the original
  * distribution and the method.
  */
 const MAX_STALL_TICKS = 60;
@@ -314,6 +350,7 @@ test.beforeEach(async () => {
   __resetSchedulePresentationMemoForTests();
   __resetUpstreamPacingForTests();
   mediaAttempts = [];
+  venueAttempts = 0;
   MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
   MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
   deferrer = installSchedulerReceiptDeferrer();
@@ -661,10 +698,16 @@ function installReadClock(
 }
 
 /** Media succeeds instantly; the venue leg fails, so an owed catalog STAYS owed
- * and the next year is still judged on both legs. */
+ * and the next year is still judged on both legs.
+ *
+ * `venueAttempts` counts the failing leg's attempts, so a test can pin that the
+ * retry loop really ran three times — see the assertion in
+ * 'PLATFORM-861: the FIRST year runs even past the budget, with a slow store and the venue leg owed'
+ * and the note there for why an upper bound on elapsed time cannot do that job. */
 function stubMediaOkVenuesDown(): void {
   globalThis.fetch = (async (input: URL | string | Request) => {
     const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (!href.includes('/games/media')) venueAttempts += 1;
     if (href.includes('/games/media')) {
       return new Response(JSON.stringify([{ id: 101, mediaType: 'tv', outlet: 'ESPN' }]), {
         status: 200,
@@ -675,23 +718,76 @@ function stubMediaOkVenuesDown(): void {
   }) as typeof fetch;
 }
 
-async function runCron(): Promise<{
+type CronBody = {
   years: Array<{ year: number; venues: string }>;
   yearsSkippedForBudget: number;
   reason: string;
-}> {
-  return (await (
-    await GET(
-      new Request('https://turfwar.games/api/cron/schedule-presentation', {
-        headers: { authorization: `Bearer ${CRON_SECRET}` },
-      })
-    )
-  ).json()) as {
-    years: Array<{ year: number; venues: string }>;
-    yearsSkippedForBudget: number;
-    reason: string;
-  };
+};
+
+/**
+ * Start the run and hand back the PENDING promise, so a caller that mocks
+ * `setTimeout` can drive the clock while it is in flight.
+ *
+ * {@link runCron} is the awaiting form every test that does NOT mock `setTimeout`
+ * uses; splitting them keeps the request construction in one place rather than
+ * giving the one driven test a second, divergent copy of it.
+ */
+function startCron(): ReturnType<typeof GET> {
+  return GET(
+    new Request('https://turfwar.games/api/cron/schedule-presentation', {
+      headers: { authorization: `Bearer ${CRON_SECRET}` },
+    })
+  );
 }
+
+async function runCron(): Promise<CronBody> {
+  return (await (await startCron()).json()) as CronBody;
+}
+
+/**
+ * PLATFORM-875 — the REAL clock, for a test that has frozen the fake one.
+ *
+ * `mock.timers` mocks `Date`, `setTimeout`, `setInterval` and `setImmediate`. It
+ * does NOT mock `process.hrtime`, so this still reads true wall clock from inside
+ * a test whose `Date.now()` is pinned — which is the whole reason it is used here
+ * rather than the obvious `Date.now()` difference, which would measure the MOCKED
+ * advance and read ~416s for a test that takes nine milliseconds.
+ */
+function realElapsedMsSince(startNs: bigint): number {
+  return Number(process.hrtime.bigint() - startNs) / 1e6;
+}
+
+/**
+ * The CHEAPEST real-time cost of the backoff sleeps PLATFORM-875 removed, and the
+ * bound the deterministic check below is written against.
+ *
+ * ## Why a floor of the DEFECT and not a ceiling of health
+ *
+ * A threshold tuned just above a measured healthy run is a time bomb: it fails
+ * when the machine is busy, which is exactly when this file is already under
+ * pressure, and a check that fails for the wrong reason gets raised until it
+ * stops checking. This number is derived instead from the thing whose ABSENCE is
+ * being asserted, so the assertion has one failure mode — a real backoff sleep
+ * happened.
+ *
+ * `CFBD_RETRY_POLICY` (`src/lib/schedule/schedulePresentationRefresh.ts`) is
+ * `maxAttempts: 3`, `baseDelayMs: 250`, `jitterRatio: 0.2`. Three attempts means
+ * TWO sleeps, and `computeBackoffMs` doubles the base each time and subtracts at
+ * most the jitter ratio: `250 - 50 = 200` and `500 - 100 = 400`. So a run that
+ * still waits on the real clock cannot come in under 600 ms.
+ *
+ * MEASURED, 2026-09-25, five solo runs: the test costs 713-883 ms before the fix
+ * and 9.07 ms after, so the bound sits ~66x above the fixed cost and at the
+ * absolute floor of the broken one. Breaching it from slowness alone would take a
+ * 66x stall, by which point the file's own 30s ceiling is long gone and this
+ * assertion is not the thing that failed.
+ *
+ * NOT IMPORTED, BECAUSE `CFBD_RETRY_POLICY` IS NOT EXPORTED. A change to the
+ * retry policy will not redden this constant — the same weakness
+ * {@link STORE_READ_WORST_CASE_MS} names about itself, and naming it is again the
+ * only honest mitigation available from a test file.
+ */
+const MIN_REAL_BACKOFF_MS = 600;
 
 test.afterEach(() => {
   while (readClockRestores.length > 0) readClockRestores.pop()?.();
@@ -740,6 +836,56 @@ test('PLATFORM-861: a slow venue read is charged to the admission check, not to 
   assert.equal(body.reason, 'budget-exhausted');
 });
 
+/**
+ * PLATFORM-875 SWEEP RECORD — every test in this file that mocks `Date` without
+ * `setTimeout`, and what each one actually costs.
+ *
+ * Measured 2026-09-25 from TAP `duration_ms` over five solo runs, with provider
+ * calls counted by an instrumented copy of this file.
+ *
+ * | test                                                          | wall clock  |
+ * | ------------------------------------------------------------ | ----------- |
+ * | ROUND 3 #1: a comfortably fresh catalog owes nothing …        | 8.6-9.0 ms  |
+ * | ROUND 3 #3: a catalog that expires mid-run …                  | 5.0-5.3 ms  |
+ * | PLATFORM-861: a slow venue read is charged to the admission … | 10.3-10.6ms |
+ * | PLATFORM-861: a year IS admitted at exactly the both-legs …   | 714-904 ms  |
+ * | PLATFORM-861: one millisecond past the boundary …             | 9.7-20.3 ms |
+ * | PLATFORM-861: a year that cannot fit under ANY answer …       | 10.0-13.6ms |
+ * | PLATFORM-861: the FIRST year runs even past the budget …      | 713-883 ms  |
+ *
+ * **`Date`-only is NECESSARY, NOT SUFFICIENT.** Five of the seven cost under
+ * 21 ms because they never reach the venue retry loop at all: `mock.timers.enable`
+ * anchors `t0` BEFORE `seed` writes the catalog at `realNow() - TTL`, so the
+ * authority's own freshness check reads `TTL - delta` and short-circuits. Only a
+ * fixture that then ADVANCES the mocked clock past the TTL — 8s here, 400s in the
+ * test PLATFORM-875 fixed — expires the catalog and pays three real attempts.
+ *
+ * **THIS TEST IS THE EXPENSIVE ONE AND IT KEEPS ITS COST. Owner ruling, 2026-09-25.**
+ * Mocking `setTimeout` here does not work, and the failure is not subtle:
+ * `tickUntilSettled` ticks from the START of the run, so mocked time lands BEFORE
+ * year 2027's admission capture, and this test's whole subject is that the capture
+ * reads exactly {@link BOTH_LEGS_ADMISSION_BOUNDARY_MS}. Measured: the assertion
+ * 'exactly 250s of promise is still a promise the job can keep' fires, 1 !== 2.
+ *
+ * Two fixes were available and both were rejected, for reasons worth keeping:
+ * - Gating the tick loop on the venue fetch having been entered works, but buys a
+ *   second condition that needs its own positive control — the cost this slice
+ *   exists to avoid paying twice.
+ * - Making the venue failure non-retryable removes the sleeps outright, and this
+ *   test asserts nothing about attempt count so it would stay green. **That is the
+ *   trap.** It silently narrows what the fixture exercises, and nothing downstream
+ *   would show the loss — the same shape as reviewing a branch against a narrower
+ *   base than its merge-base because the narrower one also avoids a false finding.
+ *
+ * So the cost stands, documented: 714-904 ms of a 30s per-FILE budget, ~3%.
+ *
+ * **UNMEASURED, NOT SWEPT.** `src/app/api/cron/rankings/__tests__/` carries 56
+ * further `apis: ['Date']` enables across `route.test.ts`, `receipts.test.ts` and
+ * `incidentEvidence.test.ts`. They are outside this slice's scope and **no claim is
+ * made about them either way** — they have not been timed, and the reason the five
+ * cheap tests above are cheap is a property of THIS file's fixtures, so it does not
+ * carry.
+ */
 test('PLATFORM-861: a year IS admitted at exactly the both-legs boundary', async (t) => {
   // The lower half of the constants pin, and the reason the fix cannot starve a
   // later year: re-measuring makes the decision honest, not stricter. At exactly
@@ -872,15 +1018,85 @@ test('PLATFORM-861: the FIRST year runs even past the budget, with a slow store 
   // charged to the staleness read that orders the years — and the year must still
   // run. A weaker fixture (a few seconds of elapsed) would pass against a
   // governed first year too, and prove nothing.
+  //
+  // ## PLATFORM-875 — WHY `setTimeout` IS MOCKED HERE, AND WHY THAT IS SAFE
+  //
+  // It was `apis: ['Date']` alone, so the venue leg's three attempts waited out
+  // their REAL backoff sleeps: 713-883 ms measured over five solo runs, against a
+  // file whose ENTIRE budget is 30s. The cost is not in this fixture — the stub
+  // below throws synchronously — it is `fetchUpstream`'s retry loop sleeping on
+  // the real clock between attempts.
+  //
+  // THE BUDGET IS PER FILE, NOT PER TEST. Measured: `--test-timeout=30000`
+  // (`scripts/run-tests.mjs`) is applied by Node to the file-level subtest as well
+  // as to each test, so a file whose tests SUM past 30s is cancelled mid-flight
+  // and every later test never runs — reported as `not ok <file>` with
+  // `# fail 0` in the summary. (The runner still exits 1. The summary is what
+  // lies, not the gate.) This test and `PLATFORM-861: a year IS admitted at
+  // exactly the both-legs boundary` were together ~83% of this file's wall clock.
+  //
+  // MOCKING `setTimeout` IS SAFE *HERE*, AND THE REASON IS THIS TEST'S SUBJECT.
+  // Driving the clock advances the mocked `Date`, and in this file `Date` is the
+  // measured quantity the budget assertions read — so a tick can move a year
+  // across an admission boundary. THIS test has no admission boundary to cross:
+  // its single year is the UNGOVERNED first one, which is precisely what it
+  // exists to pin, so no amount of ticked elapsed can change its verdict. That is
+  // not a general licence: the PLATFORM-875 SWEEP RECORD above
+  // 'PLATFORM-861: a year IS admitted at exactly the both-legs boundary' covers
+  // the rest of this file, including the one test that costs MORE than this one
+  // and still cannot take this fix.
+  //
+  // ACCEPTANCE 2 IS INHERITED, NOT RESTATED. If the run ever stops settling, the
+  // cap in `tickUntilSettled` ends the loop with a NAMED assertion rather than
+  // letting the file die — and that property is already controlled by
+  // '#872: the tick cap fails by ASSERTION, naming what hung — it does not kill the file'
+  // and '#872: the default cap is the one the loops run under, and it stays clear of measured demand',
+  // which feed the same function a genuinely unsettling promise. A third
+  // near-duplicate here would prove nothing those two do not.
+  //
+  // WHAT THIS DOES NOT FIX, STATED PLAINLY: the harness killing the file has no
+  // constructible control and cannot get one, because Node cancels the file-level
+  // subtest from OUTSIDE this code and nothing asserted here runs first. Removing
+  // the real sleeps makes that outcome less reachable. It is a probability
+  // reduction, not a guarantee.
   const t0 = Date.now();
   await seed(undefined, VENUE_CATALOG_TTL_MS);
-  t.mock.timers.enable({ apis: ['Date'], now: t0 });
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: t0 });
   stubMediaOkVenuesDown();
   const stalenessReads = installReadClock(t, STALENESS_READ_FRAME, 400_000);
 
-  const body = await runCron();
+  const startedNs = process.hrtime.bigint();
+  const running = startCron();
+  await tickUntilSettled(t, running, 'the ungoverned first year');
+  const body = (await (await running).json()) as CronBody;
+  const realMs = realElapsedMsSince(startedNs);
   t.mock.timers.reset();
 
+  // ACCEPTANCE 1, CHECKED RATHER THAN INFERRED. A green run proves the test
+  // passed, not that it stopped waiting on the real clock — those render
+  // identically, which is the whole shape PLATFORM-875 is about. This asserts the
+  // quantity the claim is ABOUT. One-sided by construction: see
+  // `MIN_REAL_BACKOFF_MS` for why the bound is the defect's floor and not a tuned
+  // ceiling.
+  assert.ok(
+    realMs < MIN_REAL_BACKOFF_MS,
+    `the run spent ${realMs.toFixed(1)} ms of REAL wall clock, at or above the ` +
+      `${MIN_REAL_BACKOFF_MS} ms floor of two CFBD backoff sleeps — the venue retries ` +
+      'are waiting on the real clock again, so this test is back on the file budget'
+  );
+  // AND THE ATTEMPT COUNT, WHICH THE BOUND ABOVE CANNOT SEE. `realMs` is an UPPER
+  // bound, so it is satisfied by a fixture that stopped retrying altogether — and
+  // the sweep record above rejects one of the rejected alternatives precisely
+  // BECAUSE nothing here asserted attempt count. Lowering `maxAttempts`, or a
+  // classification change that makes a thrown `Error` non-retryable, would narrow
+  // this fixture to one attempt with the whole file green and the comment above
+  // still calling it three.
+  assert.equal(
+    venueAttempts,
+    3,
+    'the venue leg really ran its three bounded attempts — a narrower fixture would ' +
+      'satisfy the elapsed-time bound above by costing nothing at all'
+  );
   assert.ok(stalenessReads.reads >= 1, 'the clock really was driven, before the loop');
   assert.equal(
     body.years.length,
@@ -912,10 +1128,16 @@ test('#872: the default cap is the one the loops run under, and it stays clear o
   // SAFETY MARGIN, which a tuning edit breaks. The second is the WIRING — that
   // the omitted argument actually reaches the loop — which a signature change
   // breaks while leaving the constant untouched.
+  // RAISED 30 → 45 BY PLATFORM-875, AND THE REASON IS THAT 30 WAS STILL CITING A
+  // DEAD NUMBER. Its message named a worst last-fire index of 13; re-measuring at
+  // eight-way contention put ACCEPTANCE 9 at 21 — on a caller PLATFORM-875 did not
+  // touch, so the justification had already expired. A floor of 30 over a worst of
+  // 21 is 1.4x, which is inside the envelope that produced #872. See the
+  // {@link MAX_STALL_TICKS} docblock for the full re-measured distribution.
   assert.ok(
-    MAX_STALL_TICKS >= 30,
-    'the cap must stay clear of measured demand (worst last-fire index 13 over 200 runs); ' +
-      `${MAX_STALL_TICKS} is close enough to reintroduce #872`
+    MAX_STALL_TICKS >= 45,
+    'the cap must stay clear of measured demand (worst last-fire index 21, n=64 per caller ' +
+      `at eight-way contention, 2026-09-25); ${MAX_STALL_TICKS} is close enough to reintroduce #872`
   );
 
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -931,9 +1153,19 @@ test('#872: the default cap is the one the loops run under, and it stays clear o
 
 test("every test name cited in route.ts or this file's comments resolves to a test in this file", async () => {
   // THE GUARD FOR THE DEFECT REVIEW FOUND ON THIS BRANCH. The first version of
-  // the admission comment cited a test called 'PLATFORM-861: the admission
-  // boundary is 8s of elapsed with both legs owed'. No such test was ever
+  // the admission comment cited a test called `PLATFORM-861` + `: the admission
+  // boundary is 8s of elapsed with both legs owed`. No such test was ever
   // written — the string existed only in the comment.
+  //
+  // THAT NAME IS DELIBERATELY BROKEN ACROSS A CONCATENATION, and PLATFORM-875 is
+  // why. The extraction below now reads `PLATFORM-861:` citations out of THIS
+  // file as well as out of `route.ts`, so a quoted dangling name sitting in the
+  // guard's own documentation would be extracted as a citation and fail the guard
+  // on its own prose. Writing it unquoted is the same remedy `CLAUDE.md` records
+  // for quoting a closing keyword: when a checker's search space includes its own
+  // explanation, break the example so the parser cannot match it — do not widen
+  // the parser to carve out an exception, which is one more rendering detail to
+  // maintain.
   //
   // A DANGLING CITATION IS WORSE THAN NO CITATION. The binding rule is that a
   // comment asserting runtime behaviour names the test asserting the same thing,
@@ -962,7 +1194,23 @@ test("every test name cited in route.ts or this file's comments resolves to a te
   const selfSource = await fs.readFile(new URL('./stall.test.ts', import.meta.url), 'utf8');
   // Comment continuations wrap across lines, so the leading `// ` of each line is
   // stripped before matching a quoted name that may span two or three of them.
-  const flatten = (text: string): string => text.replace(/\n\s*\/\/ ?/g, ' ').replace(/\s+/g, ' ');
+  // BLOCK comments count too, and PLATFORM-875 found that out by breaking it. The
+  // re-measured `MAX_STALL_TICKS` docblock cites the default-cap test, and a
+  // `/** */` continuation carries ` * ` rather than `// ` — so the extracted name
+  // came out with a literal `*` embedded in it and the guard correctly refused it.
+  // Stripping only the line-comment marker silently restricted this check to
+  // citations that happen to live in `//` comments.
+  //
+  // This arm needs no separate control: it is exercised by exactly the thing that
+  // makes it necessary. A wrapped block-comment citation reddens the guard if the
+  // stripping stops working, and if no such citation exists the arm is unneeded —
+  // necessity and exercise are the same condition here, which is what the dead
+  // `PLATFORM-875` alternation above did NOT have.
+  const flatten = (text: string): string =>
+    text
+      .replace(/\n\s*\/\/ ?/g, ' ')
+      .replace(/\n\s*\* ?/g, ' ')
+      .replace(/\s+/g, ' ');
   const citedInRoute = [...flatten(source).matchAll(/'(PLATFORM-861:[^']+)'/g)].map((m) => m[1]);
   // #872 WIDENED THIS, BECAUSE ROUND 1 FOUND THE SAME DEFECT ONE FILE OVER AND
   // THIS GUARD COULD NOT SEE IT. The `tickUntilSettled` docblock cites the
@@ -973,7 +1221,41 @@ test("every test name cited in route.ts or this file's comments resolves to a te
   //
   // The declared-name set is already read from this file, so the fix is to widen
   // what is EXTRACTED, not what is checked against.
-  const citedHere = [...flatten(selfSource).matchAll(/'(#872:[^']+)'/g)].map((m) => m[1]);
+  //
+  // PLATFORM-875 WIDENED IT AGAIN, FOR THE SAME REASON ONE CAMPAIGN OVER. The
+  // `setTimeout` note on the FIRST-year test cites the boundary test by name, to
+  // record why the fix does not transfer to it — a `PLATFORM-861:` citation living
+  // in this file's comments, which the `#872:`-only pattern could not see. A
+  // citation the guard cannot read is exactly as dangling as one it reads and
+  // rejects, and the family a name happens to start with is not a reason to trust
+  // it.
+  //
+  // THE ALTERNATION LISTS ONLY FAMILIES THAT EXIST (review finding 4). A first
+  // version also carried `PLATFORM-875`, which matched nothing — no test is named
+  // that — while the witness below is satisfied by the live `PLATFORM-861:`
+  // citation, so the dead arm could be deleted or mistyped with the guard still
+  // green. A speculative arm is coverage that reads as present and checks nothing,
+  // which is the failure the comment above it argues against, one level down. Add
+  // a family here when a citation in that family exists, not before.
+  //
+  // THE DECLARATIONS ARE STRIPPED FIRST, AND THAT IS NOT TIDYING. `#872:` names
+  // appear only in prose, so the old pattern could not match a `test(...)` line
+  // by accident; `PLATFORM-861:` names are the names of tests IN this file, so the
+  // widened pattern would match all five declarations. The check would still pass
+  // — a declaration trivially resolves to itself — but its positive control below
+  // would be satisfied by declarations alone, and would no longer witness that any
+  // COMMENT was read. That is the vacuous-guard shape this test already carries one
+  // scar from.
+  //
+  // THE REPLACEMENT MUST NOT CONTAIN `test` + `(` (review finding 3). It was
+  // written as that literal, and on the flattened text the pattern then matched its
+  // OWN replacement string — deleting the span from there to the next quote, which
+  // is a region of this guard's own source. Harmless while only code sits there,
+  // and invisible the day a citation-bearing comment does: the guard would report
+  // that every citation resolves having never read it. A checker whose search space
+  // can include its own text is the defect this whole test exists to catch.
+  const prose = flatten(selfSource).replace(/test\(\s*'[^']+'/g, '<declaration>');
+  const citedHere = [...prose.matchAll(/'((?:#872|PLATFORM-861):[^']+)'/g)].map((m) => m[1]);
   const declared = new Set(
     [...selfSource.matchAll(/^test\(\s*'([^']+)'/gm)].map((match) => match[1])
   );
@@ -986,8 +1268,16 @@ test("every test name cited in route.ts or this file's comments resolves to a te
   // regex that stops matching would report "every citation resolves" having read
   // none of them.
   assert.ok(
-    citedHere.length >= 2,
-    `the #872 citation extraction found ${citedHere.length} names, so it is not reading this file's comments`
+    citedHere.length >= 3,
+    `the in-file citation extraction found ${citedHere.length} names, so it is not reading this file's comments`
+  );
+  // AND THE WIDENED ARM NEEDS ITS OWN WITNESS. `citedHere.length` is satisfied by
+  // the two `#872:` citations that predate PLATFORM-875, so it cannot tell a
+  // working `PLATFORM-*` arm from one that matches nothing — the alternation would
+  // read as covered while silently checking only the old family.
+  assert.ok(
+    citedHere.some((name) => name.startsWith('PLATFORM-')),
+    'the widened extraction found no PLATFORM-* citation in this file, so that arm is blind'
   );
   const cited = [...citedInRoute, ...citedHere];
   // A positive control on the extraction itself: if the `test(...)` pattern ever
