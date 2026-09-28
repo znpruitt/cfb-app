@@ -9,6 +9,7 @@ import OverviewPanelImpl, {
   OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS,
   OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX,
   OVERVIEW_SCOREBOARD_GRID_CLASSES,
+  OVERVIEW_WATCHLIST_HEADER_CLASSES,
   OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX,
   OVERVIEW_SCOREBOARD_GRID_MAX_TRACK_PX,
   OVERVIEW_SCOREBOARD_GRID_STYLE,
@@ -547,7 +548,10 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
   const document = new JSDOM(html).window.document;
   const watchlistGrid = document.querySelector('[data-watchlist-scoreboard-grid]');
   assert.ok(watchlistGrid, 'the watchlist scoreboard grid must render');
-  assert.equal(watchlistGrid.className, OVERVIEW_SCOREBOARD_GRID_CLASSES);
+  assert.equal(
+    watchlistGrid.className,
+    `${OVERVIEW_SCOREBOARD_GRID_CLASSES} ${OVERVIEW_WATCHLIST_HEADER_CLASSES}`
+  );
   const watchlistHeadingIndex = html.indexOf('Upcoming watchlist');
   assert.notEqual(watchlistHeadingIndex, -1, 'the watchlist heading must render');
   const watchlistSectionIndex = html.lastIndexOf('<section', watchlistHeadingIndex);

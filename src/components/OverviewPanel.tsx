@@ -131,6 +131,14 @@ const OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_CAP_CLASS =
 const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_CAP_CLASS =
   '@min-[1341px]:max-w-[var(--overview-scoreboard-three-column-max-width)]' as const;
 export const OVERVIEW_SCOREBOARD_GRID_CLASSES = `grid w-full grid-cols-2 ${OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS} @max-[760.01px]:grid-cols-1 ${OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_CAP_CLASS} ${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_CAP_CLASS} ${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_CLASS}`;
+// DESIGN.md #669: only a watchlist header with an editorial reason may wrap beyond
+// phone width. Flex line packing uses the metadata's natural width, moving pills
+// down only when needed; the auto margin pins them right on either line.
+export const OVERVIEW_WATCHLIST_HEADER_CLASSES = [
+  '[&_[data-scoreboard-header]:has([data-watchlist-reason-label])]:flex-wrap',
+  '[&_[data-scoreboard-header]:has([data-watchlist-reason-label])]:gap-y-1',
+  '[&_[data-scoreboard-header]:has([data-watchlist-reason-label])_[data-scoreboard-tag-slot]]:ml-auto',
+].join(' ');
 // One-column grids keep filling the section. Once a multi-column grid has room for
 // its measured tracks, cap that grid alone: cards continue to fill equal tracks,
 // 40px gaps stay fixed, and the section header/divider remain full width.
@@ -929,7 +937,7 @@ function WatchlistScoreboardList({
 
   return (
     <div
-      className={OVERVIEW_SCOREBOARD_GRID_CLASSES}
+      className={`${OVERVIEW_SCOREBOARD_GRID_CLASSES} ${OVERVIEW_WATCHLIST_HEADER_CLASSES}`}
       style={OVERVIEW_SCOREBOARD_GRID_STYLE}
       data-watchlist-scoreboard-grid
     >
