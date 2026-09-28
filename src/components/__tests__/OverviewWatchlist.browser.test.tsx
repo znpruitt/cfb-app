@@ -26,12 +26,33 @@ type MetadataFixture = 'short' | 'long';
  *
  * The store is NOT the population: it holds 95 (mediaType, outlet) pairs reaching 30 characters
  * (`Rock Athletics Digital Network`), but those sit on non-FBS games that no league surface renders.
- * CFBD supplies `CBSSN`, not `CBS Sports Network`, and `BTN`, not `Big Ten Network`. No radio label
- * renders on an FBS game at all — the sole radio outlet is on games that also carry TV — so the
- * `Radio · ` prefix from `gameCardPresentation.ts:145` never reaches this surface.
+ * CFBD supplies `CBSSN`, not `CBS Sports Network`, and `BTN`, not `Big Ten Network`.
  *
- * This is a DATED claim about a PROVIDER's strings, so it decays: if CFBD ever stops abbreviating,
- * `SYNTHETIC_OUTLET_BEYOND_BOUND` below is what that looks like.
+ * THE RADIO PATH IS NOT COVERED BY THAT BOUND, AND AN EARLIER VERSION OF THIS COMMENT WRONGLY SAID
+ * IT COULD NOT OCCUR. It claimed `Radio · ` "never reaches this surface" on the strength of the same
+ * day's measurement — but `gameCardPresentation.ts:139-144` and `DESIGN.md:219-223` both state that
+ * the prefix "is a guard against a radio-only game, not a live label; do not retire it as
+ * unreachable." A measurement that radio renders on zero games TODAY is not a licence to treat a
+ * radio-only game as impossible, and that is exactly the reasoning this branch already corrected
+ * once, in DESIGN.md's `max-sm` boundary.
+ *
+ * Measured the same day, radio-only games: ZERO, of any classification; six FBS games carry a radio
+ * row and every one also carries higher-priority media. The sole radio outlet is `ERADM`, so a
+ * radio-only game would render `Radio · ERADM`. Measured at 809px, the narrowest two-column width
+ * and the tightest budget, with a tags-only card whose metadata box is 244px:
+ *
+ *   `Wed, Sep 16 · Time TBD` + `SEC Network`    → 234.0px natural, **+10px slack**
+ *   `Wed, Sep 16 · Time TBD` + `Radio · ERADM`  → 244.3px natural, **−0.3px — no margin at all**
+ *
+ * The radio row sits ON the boundary: sub-pixel, so integer `scrollWidth` never exceeds
+ * `clientWidth` and nothing visibly ellipsizes, but the budget is spent. The kickoff half of that
+ * pair is the longest form the surface renders — `startTimeTBD` on a two-digit day.
+ *
+ * NOTHING HERE DETECTS PROVIDER DRIFT, and no fixture can: the bound is a constant, not a store
+ * read, so a longer radio outlet or a dropped abbreviation changes the rendered population without
+ * reddening a test. What the assertions below DO hold is that a code change narrowing the metadata
+ * budget reddens — on both paths, including the tighter one. Treating the constant as a guarantee
+ * rather than a dated observation is the failure mode to watch for.
  */
 const LONGEST_RENDERED_OUTLET = 'SEC Network';
 /**
@@ -44,7 +65,8 @@ function fixtureItem(
   key: string,
   day: number,
   metadata: MetadataFixture,
-  outlet?: string
+  outlet?: string,
+  mediaType: 'tv' | 'radio' = 'tv'
 ): OverviewGameItem {
   const game: AppGame = {
     key,
@@ -54,7 +76,7 @@ function fixtureItem(
     week: 1,
     providerWeek: 1,
     canonicalWeek: 1,
-    date: `2026-09-0${day}T19:30:00Z`,
+    date: `2026-09-${String(day).padStart(2, '0')}T19:30:00Z`,
     status: 'scheduled',
     startTimeTBD: metadata === 'long',
     stage: 'regular',
@@ -94,7 +116,7 @@ function fixtureItem(
     media: [
       {
         gameId: key,
-        mediaType: 'tv',
+        mediaType,
         outlet: outlet ?? (metadata === 'long' ? 'ACC Network' : 'ESPN'),
       },
     ],
@@ -112,11 +134,17 @@ function fixtureItem(
   };
 }
 
-async function fixtureMarkup(metadata: MetadataFixture, outlet?: string): Promise<string> {
+async function fixtureMarkup(
+  metadata: MetadataFixture,
+  outlet?: string,
+  mediaType: 'tv' | 'radio' = 'tv',
+  /** Two-digit days render the LONGEST kickoff form; the default keeps the original fixture. */
+  days: [number, number, number] = [5, 6, 7]
+): Promise<string> {
   const items = [
-    fixtureItem('reason-tag', 5, metadata, outlet),
-    fixtureItem('tag', 6, metadata, outlet),
-    fixtureItem('untagged', 7, metadata, outlet),
+    fixtureItem('reason-tag', days[0], metadata, outlet, mediaType),
+    fixtureItem('tag', days[1], metadata, outlet, mediaType),
+    fixtureItem('untagged', days[2], metadata, outlet, mediaType),
   ];
   const html = renderToStaticMarkup(
     <OverviewPanel
@@ -199,6 +227,33 @@ type Row = {
   tags: Array<{ text: string; rect: Rect; clipped: number }>;
 };
 
+/**
+ * The pill-clipping observer, as ONE definition shared by `measure()` and its positive control.
+ *
+ * It is extracted rather than inlined because a control that re-implements the observer proves the
+ * COPY, not the thing the assertions use. `clipped === 0` is asserted in four places in this file
+ * and, before this control existed, never once produced a non-zero value — so "the observer looked
+ * and found nothing" and "the observer cannot see" were indistinguishable results. The sibling
+ * `ThirdColumnTier.browser.test.tsx` carries the same shape for its visible-name observer.
+ *
+ * It deliberately reads `checkVisibility` AND walks every ancestor's computed overflow, because a
+ * pill can be lost either by being hidden or by being cut off by a clipping ancestor, and #879's
+ * subgrid work moves which ancestor that is.
+ */
+const CLIPPED_OBSERVER = `tag => {
+  const box = e => e.getBoundingClientRect();
+  const r = box(tag);
+  let clipped = tag.checkVisibility({checkOpacity: true, checkVisibilityCSS: true}) ? 0 : r.width;
+  for (let parent = tag.parentElement; parent; parent = parent.parentElement) {
+    const p = box(parent), style = getComputedStyle(parent);
+    if (['hidden','clip','auto','scroll'].includes(style.overflowX))
+      clipped = Math.max(clipped, p.left-r.left, r.right-p.right);
+    if (['hidden','clip','auto','scroll'].includes(style.overflowY))
+      clipped = Math.max(clipped, p.top-r.top, r.bottom-p.bottom);
+  }
+  return clipped;
+}`;
+
 async function measure(page: BrowserFixturePage): Promise<Row[]> {
   return page.evaluate<Row[]>(`(async () => {
     await document.fonts.ready;
@@ -231,16 +286,7 @@ async function measure(page: BrowserFixturePage): Promise<Row[]> {
         contextCount: card.querySelectorAll('[data-scoreboard-context-slot]').length,
         footer: rect(card.querySelector('[data-scoreboard-odds-footer]')),
         tags: [...card.querySelectorAll('[data-watchlist-reason-label], [data-eyebrow-tag]')].map(tag => {
-          const r = rect(tag);
-          let clipped = tag.checkVisibility({checkOpacity: true, checkVisibilityCSS: true}) ? 0 : r.width;
-          for (let parent = tag.parentElement; parent; parent = parent.parentElement) {
-            const p = rect(parent), style = getComputedStyle(parent);
-            if (['hidden','clip','auto','scroll'].includes(style.overflowX))
-              clipped = Math.max(clipped, p.left-r.left, r.right-p.right);
-            if (['hidden','clip','auto','scroll'].includes(style.overflowY))
-              clipped = Math.max(clipped, p.top-r.top, r.bottom-p.bottom);
-          }
-          return {text: tag.textContent, rect:r, clipped};
+          return {text: tag.textContent, rect: rect(tag), clipped: (${CLIPPED_OBSERVER})(tag)};
         })};
     });
   })()`);
@@ -535,4 +581,119 @@ test('a tags-only watchlist header never wraps, and the rendered outlet bound is
       }
     );
   }
+});
+
+/**
+ * THE CLIPPING OBSERVER'S OWN POSITIVE CONTROL.
+ *
+ * `clipped === 0` is asserted at four points above. Every one of them passes if the observer is
+ * blind, and the tests cannot tell that apart from a genuinely unclipped pill — the
+ * "measurement coverage is part of the result" shape. #879's subgrid work moves the clipping
+ * ancestor these assertions depend on, so the observer needs to be shown capable of returning
+ * non-zero against this markup, not just trusted to.
+ *
+ * The poison shrinks the header, which carries `overflow-hidden`, so the pills are cut by a REAL
+ * clipping ancestor of the production markup rather than by a synthetic wrapper.
+ */
+test('the pill-clipping observer rejects its own poisoned control', async (t) => {
+  await withBrowserFixture(
+    t,
+    { directoryPrefix: 'cfb-watchlist-observer-', markup: () => fixtureMarkup('long') },
+    async (page) => {
+      await page.setViewport(1440, 900);
+      const report = await page.evaluate<{ before: number[]; after: number[]; overflowX: string }>(
+        `(async () => {
+          await document.fonts.ready;
+          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+          const clippedOf = ${CLIPPED_OBSERVER};
+          const card = document.querySelector('[aria-label="reason-tag Away at reason-tag Home"]');
+          const header = card.querySelector('[data-scoreboard-header]');
+          const pills = () => [...card.querySelectorAll('[data-watchlist-reason-label], [data-eyebrow-tag]')];
+          const before = pills().map(clippedOf);
+          const overflowX = getComputedStyle(header).overflowX;
+          header.style.width = '40px';
+          const after = pills().map(clippedOf);
+          return { before, after, overflowX };
+        })()`
+      );
+      assert.equal(
+        report.overflowX,
+        'hidden',
+        'the header is a real clipping ancestor, so the poison uses production markup'
+      );
+      assert.ok(report.before.length >= 2, 'the control needs the two-pill card');
+      assert.deepEqual(
+        report.before.map((clipped) => clipped <= 0),
+        report.before.map(() => true),
+        'positive control: every pill is unclipped before the poison'
+      );
+      assert.ok(
+        report.after.every((clipped) => clipped > 0),
+        `the observer detects clipping when the header cannot hold the pills (after=${JSON.stringify(report.after)})`
+      );
+    }
+  );
+});
+
+/**
+ * THE RADIO PATH AT THE TIGHTEST BUDGET — the reachable worst case, which nothing else covers.
+ *
+ * `formatPrimaryBroadcastLabel` prefixes a radio-only game with `Radio · `, and both
+ * `gameCardPresentation.ts:139-144` and `DESIGN.md:219-223` forbid retiring that as unreachable. So
+ * the tags-only card's budget has to hold `Radio · ERADM` beside the LONGEST kickoff form, at the
+ * narrowest two-column width — and per the measurement above it does so with no margin whatever.
+ *
+ * `expectNoVisibleTruncation` is the member-visible property and is what this asserts; the raw slack
+ * is a diagnostic, because pinning −0.3px as a literal would be asserting one host's font metrics.
+ * The structural assertion is the one that survives a font change: the radio label is WIDER than the
+ * tv bound, so a future change that re-derives the budget from `LONGEST_RENDERED_OUTLET` alone is
+ * measuring the looser of the two paths.
+ */
+test('the radio-only guard still fits the tags-only card at the narrowest two-column width', async (t) => {
+  const naturalByCase = new Map<string, number>();
+  for (const [label, outlet, mediaType] of [
+    ['tv bound', LONGEST_RENDERED_OUTLET, 'tv'],
+    ['radio guard', 'ERADM', 'radio'],
+  ] as const) {
+    await withBrowserFixture(
+      t,
+      {
+        directoryPrefix: 'cfb-watchlist-radio-',
+        // Two-digit days force `Wed, Sep 16 · Time TBD`, the longest kickoff the surface renders.
+        markup: () => fixtureMarkup('long', outlet, mediaType, [15, 16, 17]),
+      },
+      async (page) => {
+        await page.setViewport(809, 900);
+        const tagOnly = (await measure(page)).find((row) => row.name === 'tag Away at tag Home')!;
+        assert.ok(tagOnly.metadata, `${label}: the tags-only card has a metadata span`);
+        const rendered = tagOnly.text.map((span) => span.text).join(' | ');
+        assert.match(
+          rendered,
+          /Time TBD/,
+          `${label}: the fixture renders the longest kickoff form (got ${rendered})`
+        );
+        if (mediaType === 'radio') {
+          assert.match(
+            rendered,
+            /Radio · ERADM/,
+            `${label}: the radio prefix is what the guard is about (got ${rendered})`
+          );
+        }
+        for (const span of tagOnly.text) {
+          assert.ok(
+            span.scroll <= span.client,
+            `${label} 809px: ${span.text} renders whole — the reachable worst case must not clip`
+          );
+        }
+        naturalByCase.set(label, tagOnly.metadataNaturalWidth);
+        t.diagnostic(
+          `${label}: box=${tagOnly.metadata.width} natural=${tagOnly.metadataNaturalWidth} rendered=[${rendered}]`
+        );
+      }
+    );
+  }
+  assert.ok(
+    naturalByCase.get('radio guard')! > naturalByCase.get('tv bound')!,
+    `the radio guard is the WIDER path, so it is the one that bounds the budget (${JSON.stringify([...naturalByCase])})`
+  );
 });

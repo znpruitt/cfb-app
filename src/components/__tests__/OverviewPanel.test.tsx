@@ -566,8 +566,13 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
   assert.doesNotMatch(scoreboard, /data-scoreboard-context-slot|data-watchlist-reason-row/);
   assert.match(scoreboard, /Game of the Week/);
   // Item 162 retired `Contender Watch`. `Game of the Week` above is the positive
-  // control: the reason row on THIS card still renders content, so the absence
-  // below is the retirement rather than a row that stopped rendering entirely.
+  // control: it still renders on THIS card, so the absence below is the retirement
+  // rather than a surface that stopped rendering reasons entirely.
+  //
+  // It renders in the shared header's tag slot, NOT in a reason row — PLATFORM-669
+  // removed that row, which is why line 566 asserts `data-watchlist-reason-row` is
+  // absent. This comment used to call it "the reason row on THIS card", naming the
+  // very element the same commit deleted.
   assert.doesNotMatch(scoreboard, /Contender Watch/);
   assert.match(scoreboard, /Thu, Sep 3, 10:00 PM/);
   assert.match(scoreboard, /ESPN/);
