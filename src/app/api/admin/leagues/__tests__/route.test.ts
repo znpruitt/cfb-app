@@ -577,3 +577,80 @@ test('a founding year in the future is refused even though that season is creata
   assert.equal(res.status, 400, 'but a founding year may not be in the future');
   assert.deepEqual(await readRegistry(), []);
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-836 — a MALFORMED registry is not an empty one, and creation must not
+// treat it as permission.
+//
+// `getLeagues()` mapped a corrupt container to `[]`, so the duplicate-slug check
+// above passed VACUOUSLY and a new league took a slug a live league still
+// occupied — adopting its rosters, drafts and archives. The route now reads the
+// classified container and refuses.
+//
+// The two tests below are deliberately NOT one test, because the F2I residue
+// survey masks the fail-open on exactly one of the two paths.
+// ---------------------------------------------------------------------------
+
+/** The registry RECORD, not its value — a malformed value is not an array. */
+async function readRegistryRecord(): Promise<unknown> {
+  return getAppState<unknown>('leagues', 'registry');
+}
+
+const CORRUPT_REGISTRY = { alpha: 1 };
+
+// REGRESSION TEST — the slug is CLEAN, so the F2I residue guard cannot be what
+// refuses. That isolation is the point: with no stored data for the slug,
+// `residual.length === 0` and the residue branch is not taken, so the only
+// possible refusal is the container check this slice adds.
+test('creation refuses a malformed registry instead of treating every slug as free', async () => {
+  await setAppState('leagues', 'registry', CORRUPT_REGISTRY);
+  const before = await readRegistryRecord();
+  assert.ok(before !== null, 'positive control: the corrupt value is readable');
+
+  const res = await POST(createRequest({ slug: 'fresh', displayName: 'Fresh' }));
+
+  assert.equal(res.status, 500);
+  const text = await res.text();
+  assert.match(text, /^league-registry-malformed:/);
+  // The refusal must not read as "the slug is taken" — those are different
+  // operator conditions with different remedies (repair vs. choose another slug).
+  assert.ok(!/already exists/i.test(text), 'a corrupt registry is not a duplicate-slug conflict');
+  assert.deepEqual(await readRegistryRecord(), before, 'nothing was written');
+});
+
+// REGRESSION TEST — THE PATH THE ROUTE'S OWN REFUSAL TEXT INVITES.
+//
+// The F2I residue survey reads durable scopes directly, so it fires under a
+// corrupt registry too and masks the fail-open for any slug whose occupant has
+// stored data. It does NOT mask the `adoptExistingData` path — and that is the
+// path the residue refusal tells the operator to take ("re-submit with 'adopt
+// existing data' to proceed"). So the realistic sequence is: operator creates a
+// slug, hits the residue refusal, follows its instruction, and the create
+// proceeds against a registry nobody could read.
+//
+// Against pre-836 code this did not merely create the wrong league: `addLeague`
+// wrote `[ghost]` OVER the corrupt value, so the registry afterwards read `ok`
+// with every other league gone. The unchanged-record assertion is what pins that.
+test('adoption cannot walk through the malformed-registry refusal', async () => {
+  await setAppState('leagues', 'registry', CORRUPT_REGISTRY);
+  await setAppState('owners:ghost:2024', 'csv', 'Owner,Team\nDana,Alabama');
+  const before = await readRegistryRecord();
+
+  const res = await POST(
+    createRequest({
+      slug: 'ghost',
+      displayName: 'G',
+      year: 2025,
+      adoptExistingData: true,
+      restoreFoundedYear: 2019,
+    })
+  );
+
+  assert.equal(res.status, 500);
+  assert.match(await res.text(), /^league-registry-malformed:/);
+  assert.deepEqual(
+    await readRegistryRecord(),
+    before,
+    'the corrupt value survives, so the corruption stays recoverable'
+  );
+});
