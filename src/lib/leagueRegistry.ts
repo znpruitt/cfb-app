@@ -122,6 +122,13 @@ export class LeagueRegistryMalformedError extends Error {
  * registry that `readLeagueRegistry` reports `ok`, with every other league's
  * rosters, drafts and archives surviving under their slugs and unreachable.
  *
+ * "THE ONE THAT WROTE" IS SCOPED TO THIS FUNCTION'S CALLERS, not to every
+ * consumer of the collapse. A high-effort review read it as a claim about the
+ * whole codebase and reported the aliases path as a missed writer, so the scope
+ * is stated rather than implied: `api/aliases/route.ts` reaches a durable write
+ * through its own `getLeagues()` call, on a different store key and never through
+ * `mutateRegistry` — tracked as #881, not closed here.
+ *
  * ABSENT IS NOT MALFORMED, and the distinction is the whole fix: a `null` record
  * is a genuine first-run absence and still yields `[]`, so creating the first
  * league in an empty store works exactly as before. Only a PRESENT record whose
