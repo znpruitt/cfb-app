@@ -750,3 +750,45 @@ test('flipping the demo league to PRESEASON invalidates standings, like the seas
     `deleting the draft must invalidate — got ${tags.join(', ') || 'no tags'}`
   );
 });
+
+// REGRESSION TEST — PLATFORM-836. The demo controls refuse a malformed registry
+// rather than reporting `league-not-found`.
+//
+// Before 836 `mutateRegistry` flattened a corrupt container to `[]`, so these
+// two found no demo league and answered `{ kind: 'refused', reason:
+// 'league-not-found' }` — a confident claim that the demo league does not exist,
+// made on a registry nobody could read. Compare 'an absent demo league clears
+// nothing and reports not found' above: that reason is CORRECT there and was
+// false here, and the two states were indistinguishable.
+//
+// They refuse by THROWING, which is a known rough edge rather than the intended
+// end state: `TestControlResult` is a typed union specifically because
+// PLATFORM-086F2H3B1 found that production redacts thrown Server Action
+// messages, so a `registry-malformed` reason belongs in that union. Adding it
+// means an operator surface must render it, which is its own slice; this test
+// pins the behaviour that actually ships.
+test('the demo controls refuse a malformed registry', async () => {
+  await setAppState('leagues', 'registry', { alpha: 1 });
+  const before = await getAppState<unknown>('leagues', 'registry');
+
+  for (const [name, call] of [
+    ['setTestLeagueStatus', () => setTestLeagueStatus('preseason')],
+    ['resetTestLeague', () => resetTestLeague()],
+  ] as Array<[string, () => Promise<unknown>]>) {
+    const error = await runWithRevalidateContext(call).then(
+      () => null,
+      (e: unknown) => e
+    );
+
+    assert.equal(
+      (error as Error | null)?.name,
+      'LeagueRegistryMalformedError',
+      `${name} must refuse a malformed registry, got ${String(error)}`
+    );
+    assert.deepEqual(
+      await getAppState<unknown>('leagues', 'registry'),
+      before,
+      `${name} wrote nothing`
+    );
+  }
+});

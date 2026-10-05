@@ -140,11 +140,38 @@ export class LeagueRegistryMalformedError extends Error {
  * `findIndex(...) === -1` on the fabricated `[]` and returned their
  * league-not-found result. They were safe BY ACCIDENT — they found nothing in an
  * array that was not the registry — and they answered a corrupt registry with a
- * confident "that league does not exist". They now throw instead. That is
- * reachable in exactly three places (`completePreseasonSetup` via the
- * `completeSetup` Server Action, and the two demo lifecycle controls); every
- * other production path already refuses upstream on `readLeagueRegistry`, so the
- * crons and the admin `[slug]` routes never reach a mutation under `malformed`.
+ * confident "that league does not exist". They now throw instead.
+ *
+ * WHERE THAT THROW IS REACHABLE: the five Server Actions in
+ * `app/admin/[slug]/actions.ts` — `setAssignmentMethod` (`:396`),
+ * `beginPreseason` (`:297`), `completeSetup` (`:447`), and the two demo
+ * lifecycle controls (`:125`, `:250`). Of the eleven production call sites that
+ * reach a mutator, those five are the ones with no upstream container check.
+ * Pinned by three tests, each naming which sites it covers:
+ * `app/admin/[slug]/__tests__/actions.test.ts` → 'a malformed registry is a
+ * typed refusal, not a redacted Server Action throw' (`setAssignmentMethod`) and
+ * 'the void-returning Server Actions refuse a malformed registry by throwing'
+ * (`beginPreseason`, `completeSetup`); `testControls.test.ts` → 'the demo
+ * controls refuse a malformed registry' (the demo pair).
+ *
+ * THIS ENUMERATION WAS WRONG ONCE AND THE CORRECTION IS THE POINT. Review found
+ * it claimed "exactly three", having missed `setAssignmentMethod` — whose guard
+ * is `if (league && …)`, so `getLeague`'s malformed→`null` collapse SKIPS it and
+ * falls through to the write — and `beginPreseason`, which reads no registry at
+ * all. An uncited count in a comment, in the slice whose whole subject is that
+ * collapsing malformed into absence manufactures false claims. It is now carried
+ * by the tests named above rather than by this sentence.
+ *
+ * THE ROUTES AND CRONS DO NOT REACH A MUTATION, BUT NOT FOR THE SAME REASON, and
+ * the difference matters to anyone changing them. The crons refuse on
+ * `readLeagueRegistry` — a deliberate container check. The admin `[slug]` routes
+ * (PATCH, DELETE, password) refuse only because `getLeague` collapses `malformed`
+ * to `null` and they 404 on it: the right outcome via the very collapse this
+ * slice exists to remove, so each tells the operator the league does not exist
+ * when the truth is that the registry is unreadable. Correct by accident, and
+ * the accident is load-bearing — replacing `getLeague` there with a check that
+ * distinguishes the two would need its own slice.
+ *
  * The lifecycle guards' own logic is untouched.
  *
  * The advisory lock is unchanged: this throws INSIDE the callback, which is the

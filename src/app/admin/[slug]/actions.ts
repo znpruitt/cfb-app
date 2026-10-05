@@ -6,6 +6,7 @@ import {
   beginPreseasonTransition,
   completePreseasonSetup,
   getLeague,
+  readLeagueRegistry,
   updateLeague,
   resetTestLeagueLifecycle,
   setTestLeagueLifecycleState,
@@ -347,7 +348,38 @@ export async function setAssignmentMethod(
   // form and whose arguments cross HTTP unvalidated — hiding the control is
   // presentation, not enforcement (PLATFORM-086F2H1SB, and PLATFORM-094's
   // `completeSetup` for the same reason).
-  const league = await getLeague(slug);
+  // PLATFORM-836 — read the CONTAINER here, and refuse a malformed one with a
+  // TYPED result rather than letting the registry's throw reach the client.
+  //
+  // `getLeague` collapses `malformed` to `null`, which did two things on this
+  // path. The draft-completion guard below is `if (league && …)`, so a corrupt
+  // registry SKIPPED it entirely — and then `updateLeague` ran anyway, which
+  // before 836 wrote nothing and returned `{ ok: true }`: a silent success that
+  // changed no data and told the commissioner it had.
+  //
+  // 836 makes that write throw, which is the right direction and the wrong
+  // surface: Next.js redacts errors raised in a Server Action before they reach
+  // the client in production builds (the note below says so for this function's
+  // other refusal, and PLATFORM-086F2H3B1 converted this file's demo-control
+  // throws to typed results for the same reason). `SetAssignmentMethodResult`
+  // already carries `{ ok: false; error }`, so this needs no new variant — which
+  // is also why the sibling actions are NOT changed here: `beginPreseason` and
+  // `completeSetup` return `void` and have always thrown every refusal, and the
+  // demo controls would need a NEW `TestControlResult` variant that an operator
+  // surface must learn to render. Those are their own slice.
+  //
+  // Pinned by `__tests__/actions.test.ts` → 'a malformed registry is a typed
+  // refusal, not a redacted Server Action throw'.
+  const registry = await readLeagueRegistry();
+  if (registry.kind === 'malformed') {
+    return {
+      ok: false,
+      error:
+        'The league registry is stored in an unreadable shape, so no assignment method was set. Repair the registry record and try again.',
+    };
+  }
+  const league =
+    registry.kind === 'ok' ? (registry.leagues.find((l) => l.slug === slug) ?? null) : null;
   const year =
     league?.status?.state === 'preseason' || league?.status?.state === 'season'
       ? league.status.year
