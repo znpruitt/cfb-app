@@ -78,19 +78,136 @@ export const getLeague = cache(async (slug: string): Promise<League | null> => {
 });
 
 /**
+ * PLATFORM-836 — a registry MUTATION refused because the stored container is
+ * malformed. Thrown from inside the registry transaction, before any write.
+ *
+ * Carries NO part of the malformed value, for the same reason
+ * `readLeagueRegistry` never returns or logs it: the corrupt bytes may hold
+ * password material, and an error message is the least controlled surface in
+ * the app.
+ *
+ * Pinned by `leagueRegistry.mutateFailClosed.test.ts` →
+ * 'mutateRegistry refuses a malformed registry and leaks no stored value'.
+ */
+export class LeagueRegistryMalformedError extends Error {
+  constructor() {
+    super(
+      'League registry is malformed; refusing to mutate it. Being unable to determine ' +
+        'which leagues exist is not permission to write over them.'
+    );
+    this.name = 'LeagueRegistryMalformedError';
+  }
+}
+
+/**
  * Serialize every registry read-modify-write on the ONE registry key
  * (PLATFORM-086F2B, Codex review). The registry is a whole-array record, so two
  * concurrent mutators reading the same snapshot would drop one another's update
  * on the final write (e.g. independent per-year rollovers, or a rollover racing
  * a preseason action). `withAppStateKeyTransaction` holds the per-key advisory
  * lock across the read → mutate → write cycle on both store backends.
+ *
+ * PLATFORM-836 — IT FAILS CLOSED ON A MALFORMED CONTAINER, and it is the
+ * authority for that rather than each caller.
+ *
+ * This function used to repeat the exact collapse `readLeagueRegistry` exists to
+ * prevent — `Array.isArray(record?.value) ? record.value : []` — twenty lines
+ * below that reader's docblock calling it "the collapse this reader exists to
+ * prevent". Under a corrupt registry every mutator therefore ran against a
+ * FABRICATED empty array, and `addLeague` was the one that then WROTE: its
+ * in-transaction duplicate check passed vacuously, `[...leagues, league]`
+ * evaluated to `[league]`, and `txn.write` replaced the corrupt value with a
+ * valid single-entry array. That converts a RECOVERABLE corruption — the bad
+ * bytes still on disk, inspectable and repairable — into an unrecoverable
+ * registry that `readLeagueRegistry` reports `ok`, with every other league's
+ * rosters, drafts and archives surviving under their slugs and unreachable.
+ *
+ * "THE ONE THAT WROTE" IS SCOPED TO THIS FUNCTION'S CALLERS, not to every
+ * consumer of the collapse. A high-effort review read it as a claim about the
+ * whole codebase and reported the aliases path as a missed writer, so the scope
+ * is stated rather than implied: `api/aliases/route.ts` reaches a durable write
+ * through its own `getLeagues()` call, on a different store key and never through
+ * `mutateRegistry` — tracked as #881, not closed here.
+ *
+ * ABSENT IS NOT MALFORMED, and the distinction is the whole fix: a `null` record
+ * is a genuine first-run absence and still yields `[]`, so creating the first
+ * league in an empty store works exactly as before. Only a PRESENT record whose
+ * value is not an array refuses. Same classification as `readLeagueRegistry`,
+ * deliberately — one rule, two enforcement points.
+ *
+ * REFUSING HERE RATHER THAN IN `addLeague` is the F2H1SB principle this repo
+ * already applies to authorization: routing is never the authority, and neither
+ * is one call site. `addLeague` is the only writer TODAY (its only production
+ * caller is `POST /api/admin/leagues`), so a guard there would be sufficient and
+ * would silently stop being sufficient the moment a second mutator is added.
+ *
+ * WHAT THIS CHANGES FOR THE NON-WRITING CALLERS, stated because "it only affects
+ * `addLeague`" would be false. `updateLeague`, `guardedLifecycleWrite`,
+ * `completeSeasonRollover`, `clearLeaguePassword` and `removeLeague` all reached
+ * `findIndex(...) === -1` on the fabricated `[]` and returned their
+ * league-not-found result. They were safe BY ACCIDENT — they found nothing in an
+ * array that was not the registry — and they answered a corrupt registry with a
+ * confident "that league does not exist". They now throw instead.
+ *
+ * WHERE THAT THROW IS REACHABLE, BY CLASS AND NOT BY COUNT: the Server Actions
+ * in `app/admin/[slug]/actions.ts` that call a mutator without first classifying
+ * the container — `beginPreseason`, `completeSetup`, and the two demo lifecycle
+ * controls. They refuse by throwing. `setAssignmentMethod` is NOT among them: it
+ * classifies the container itself and returns a typed refusal, so the throw never
+ * reaches it.
+ *
+ * Which site has which disposition is carried by tests, named here, and by
+ * nothing in this prose:
+ * `app/admin/[slug]/__tests__/actions.test.ts` → 'a malformed registry is a
+ * typed refusal, not a redacted Server Action throw' (`setAssignmentMethod`) and
+ * 'the void-returning Server Actions refuse a malformed registry by throwing'
+ * (`beginPreseason`, `completeSetup`); `testControls.test.ts` → 'the demo
+ * controls refuse a malformed registry' (the demo pair).
+ *
+ * THIS PARAGRAPH CARRIED A FALSE CLAIM TWICE, AND WHAT CHANGED IS THE FORM, NOT
+ * JUST THE FACTS. v1 said "exactly three", missing `setAssignmentMethod` and
+ * `beginPreseason`. v2 corrected the facts but kept the form — a count ("eleven
+ * production call sites", which was twelve), a list of five, and five bare line
+ * numbers, three of which pointed at a prose line, a `requireAdminAction` call,
+ * and a different function's `savePreseasonOwners`. Worse, v2 listed
+ * `setAssignmentMethod` as having "no upstream container check" in the very
+ * commit that gave it one, contradicted by the name of the test cited beside it.
+ *
+ * The lesson is structural, so the fix is structural: A COUNT, A LINE NUMBER, OR
+ * AN EXHAUSTIVE LIST IN A DOCBLOCK IS A CLAIM WITH NO TEST AND AN EXPIRY DATE.
+ * Every edit to the file moves the lines; every new caller falsifies the count.
+ * State the CLASS, name the tests, and let a reader who needs the sites grep for
+ * the mutators. v2's own text said it was "carried by the tests rather than by
+ * this sentence" while the sentence still carried a count — which is how the
+ * second falsehood survived writing a paragraph about the first.
+ *
+ * THE ROUTES AND CRONS DO NOT REACH A MUTATION, BUT NOT FOR THE SAME REASON, and
+ * the difference matters to anyone changing them. The crons refuse on
+ * `readLeagueRegistry` — a deliberate container check. The admin `[slug]` routes
+ * (PATCH, DELETE, password) refuse only because `getLeague` collapses `malformed`
+ * to `null` and they 404 on it: the right outcome via the very collapse this
+ * slice exists to remove, so each tells the operator the league does not exist
+ * when the truth is that the registry is unreadable. Correct by accident, and
+ * the accident is load-bearing — replacing `getLeague` there with a check that
+ * distinguishes the two would need its own slice.
+ *
+ * The lifecycle guards' own logic is untouched.
+ *
+ * The advisory lock is unchanged: this throws INSIDE the callback, which is the
+ * path `addLeague`'s pre-existing duplicate-slug throw has always taken —
+ * `withAppStateKeyTransaction` rolls back, releases the lock, and commits
+ * nothing. Pinned by 'a refusal releases the registry lock, so the next mutation
+ * proceeds'.
  */
 async function mutateRegistry<T>(
   fn: (leagues: League[]) => { next?: League[]; result: T }
 ): Promise<T> {
   return withAppStateKeyTransaction(REGISTRY_SCOPE, REGISTRY_KEY, async (txn) => {
     const record = await txn.read<League[]>();
-    const leagues = Array.isArray(record?.value) ? record.value : [];
+    if (record !== null && !Array.isArray(record.value)) {
+      throw new LeagueRegistryMalformedError();
+    }
+    const leagues = record === null ? [] : record.value;
     const { next, result } = fn(leagues);
     if (next) await txn.write(next);
     return result;

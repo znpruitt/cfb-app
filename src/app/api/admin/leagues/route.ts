@@ -1,5 +1,5 @@
 import { requireAdminRequest } from '@/lib/server/adminAuth';
-import { getLeagues, addLeague, isValidSlug } from '@/lib/leagueRegistry';
+import { getLeagues, addLeague, isValidSlug, readLeagueRegistry } from '@/lib/leagueRegistry';
 import { sanitizeLeague, sanitizeLeagues } from '@/lib/leagueSanitize';
 import { findResidualLeagueScopes } from '@/lib/server/leagueResidualData';
 import {
@@ -25,6 +25,19 @@ export async function GET(req: Request): Promise<Response> {
   const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
+  // PLATFORM-836 — THIS READ IS KNOWINGLY STILL COLLAPSED, and the asymmetry with
+  // POST below is a deferral, not a decision that it is correct.
+  //
+  // `getLeagues()` maps a malformed container to `[]`, so a corrupt registry is
+  // served here as an empty league list and `admin/leagues/page.tsx` renders "No
+  // leagues configured yet" — the exact falsehood POST now refuses to act on, on
+  // the operator's only read surface for this condition. The "69 modules depend on
+  // the array contract" argument for leaving `getLeagues()` alone does NOT excuse
+  // this call site, which could consume `readLeagueRegistry()` directly.
+  //
+  // Not changed here because the fix is not this line: the page needs a state to
+  // render for an unreadable registry, which is a UI surface `DESIGN.md` governs.
+  // Raised by review on this branch and carried out as its own item.
   const leagues = await getLeagues();
   return Response.json({ leagues: sanitizeLeagues(leagues) });
 }
@@ -64,7 +77,45 @@ export async function POST(req: Request): Promise<Response> {
   const now = new Date();
   const nowMs = now.getTime();
 
-  const existing = await getLeagues();
+  // PLATFORM-836 — UNABLE TO DETERMINE WHETHER THE SLUG IS TAKEN IS NOT
+  // PERMISSION TO CREATE.
+  //
+  // This read used `getLeagues()`, which maps a MALFORMED container to `[]`
+  // alongside a genuinely empty one. The duplicate check below then passed
+  // VACUOUSLY on a corrupt registry, and the consequence is the one the F2I
+  // comment further down already spells out: the new league adopts the previous
+  // occupant's rosters, drafts and archives — "showing one set of people's names
+  // to a commissioner with no relationship to them".
+  //
+  // Refused BEFORE the residue survey and before the adopt decision, which is
+  // load-bearing rather than incidental ordering. The F2I survey reads durable
+  // scopes directly, so it fires independently of the registry and masks this
+  // fail-open for any slug whose occupant has stored data — but NOT on the
+  // `adoptExistingData` path, and that is the path this route's own refusal text
+  // tells the operator to take ("re-submit with 'adopt existing data' to
+  // proceed"). Placing the container check first covers adoption, ordinary
+  // creation, and a slug whose occupant has no residue yet, with one refusal.
+  //
+  // 500, matching the cron precedent (`api/cron/season-transition`,
+  // `season-rollover`): a corrupt container is not a controlled operational
+  // outcome an operator may read as "nothing to do". A store READ failure still
+  // propagates uncaught, exactly as it did through `getLeagues()`.
+  //
+  // Pinned by `__tests__/route.test.ts` → 'creation refuses a malformed registry
+  // instead of treating every slug as free' and 'adoption cannot walk through the
+  // malformed-registry refusal'.
+  const registry = await readLeagueRegistry();
+  if (registry.kind === 'malformed') {
+    return new Response(
+      `league-registry-malformed: the league registry is stored in an unreadable shape, so ` +
+        `whether "${slug}" is already taken CANNOT be determined. Nothing was created. ` +
+        `Repair the registry record and retry — this is not a statement that the slug is free.`,
+      { status: 500 }
+    );
+  }
+  // `missing` is a genuine first-run absence: no league exists anywhere, so no
+  // slug is taken. Unchanged from the pre-836 behaviour.
+  const existing = registry.kind === 'ok' ? registry.leagues : [];
   if (existing.some((l) => l.slug === slug)) {
     return new Response(`League with slug "${slug}" already exists`, { status: 409 });
   }
@@ -90,6 +141,16 @@ export async function POST(req: Request): Promise<Response> {
   // The override is deliberate, not incidental: the caller must send
   // `adoptExistingData: true`, which is the same standard as the delete
   // confirmation — impossible by accident, available when it is what you mean.
+  //
+  // PLATFORM-836 — this comment's runtime claims each name the test asserting
+  // them, per the standing rule that a comment asserting behaviour cites its
+  // test. All in `__tests__/route.test.ts`: the refusal itself is 'creation
+  // refuses a slug whose previous league data survives'; that it is not a blanket
+  // refusal is the positive control 'creation still succeeds for a slug with no
+  // surviving data'; that residue and a LIVE occupant are different operator
+  // conditions is 'a live-slug conflict reads differently from a residual-data
+  // conflict'; and that the override works rather than dead-ending the slug is
+  // 'an explicit adopt acknowledgement lets the same slug be restored'.
   const adoptExistingData = obj.adoptExistingData === true;
 
   // PLATFORM-086F2I — the residue survey runs UNCONDITIONALLY.

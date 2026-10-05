@@ -651,3 +651,93 @@ test('a draft mid-correction still counts as run for the method guard', async ()
   });
   assert.equal(refused?.ok, false, 'a run draft cannot be discarded mid-correction');
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-836 — the Server Actions are where a malformed-registry refusal is
+// REACHABLE, and this is the pin for that enumeration.
+//
+// `mutateRegistry` now throws on a malformed container. The crons refuse upstream
+// on `readLeagueRegistry` and the admin `[slug]` routes 404 via `getLeague`'s
+// malformed→null collapse, so the Server Actions in this file are the ones that
+// reach the throw — except `setAssignmentMethod`, which classifies the container
+// itself and returns a typed refusal instead.
+//
+// NO COUNT APPEARS HERE ON PURPOSE. The `leagueRegistry.ts` docblock asserted one
+// twice and was wrong twice (see the note there); this header previously repeated
+// the second wrong figure. Each test below names the sites it covers, and that is
+// the whole claim.
+// ---------------------------------------------------------------------------
+
+const CORRUPT_REGISTRY = { alpha: 1 };
+
+/** The refusal surfaced by whichever path the action takes. */
+async function refusalOf(fn: () => Promise<unknown>): Promise<unknown> {
+  return runCapturingTags(fn).then(
+    () => null,
+    (e: unknown) => e
+  );
+}
+
+// REGRESSION TEST — a TYPED refusal, not a redacted throw.
+//
+// Next.js redacts errors raised in a Server Action before they reach the client
+// in production builds, so a thrown refusal renders as an opaque digest.
+// `SetAssignmentMethodResult` already carries `{ ok: false; error }`, so this
+// path reports the condition instead of throwing it.
+//
+// Before 836 this returned `{ ok: true }` while writing nothing — a silent
+// success — so asserting `ok: false` here is what separates the fix from both
+// the old defect and a bare throw.
+test('a malformed registry is a typed refusal, not a redacted Server Action throw', async () => {
+  await setAppState('leagues', 'registry', CORRUPT_REGISTRY);
+  const before = await getAppState<unknown>('leagues', 'registry');
+
+  // RETURNED, not thrown — captured inside the context exactly as the
+  // draft-finished refusal above is.
+  let refused: Awaited<ReturnType<typeof setAssignmentMethod>> | undefined;
+  await runCapturingTags(async () => {
+    refused = await setAssignmentMethod('alpha', 'manual');
+  });
+
+  assert.deepEqual(refused, {
+    ok: false,
+    error:
+      'The league registry is stored in an unreadable shape, so no assignment method was set. Repair the registry record and try again.',
+  });
+  assert.deepEqual(
+    await getAppState<unknown>('leagues', 'registry'),
+    before,
+    'the corrupt value is untouched'
+  );
+});
+
+// CONTRACT PIN — the remaining reachable Server Actions refuse by THROWING,
+// which is their established contract: both return `void` and have always
+// thrown every refusal. Enumerated individually so each disposition is recorded
+// rather than implied by a count.
+test('the void-returning Server Actions refuse a malformed registry by throwing', async () => {
+  const cases: Array<[string, () => Promise<unknown>]> = [
+    ['beginPreseason', () => beginPreseason('alpha')],
+    ['completeSetup', () => completeSetup('alpha', 2026)],
+  ];
+
+  for (const [name, call] of cases) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    await setAppState('leagues', 'registry', CORRUPT_REGISTRY);
+    const before = await getAppState<unknown>('leagues', 'registry');
+
+    const error = await refusalOf(call);
+
+    assert.equal(
+      (error as Error | null)?.name,
+      'LeagueRegistryMalformedError',
+      `${name} must refuse a malformed registry, got ${String(error)}`
+    );
+    assert.deepEqual(
+      await getAppState<unknown>('leagues', 'registry'),
+      before,
+      `${name} wrote nothing`
+    );
+  }
+});
