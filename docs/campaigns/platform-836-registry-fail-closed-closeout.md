@@ -1,6 +1,6 @@
 # PLATFORM-836 — a malformed registry read as empty, and one path wrote over it (closeout)
 
-Status: **Implemented** on `claude/836-registry-fail-closed`; pre-merge closeout.
+Status: **MERGED `46962b3e`** ([PR #885](https://github.com/znpruitt/cfb-app/pull/885)) 2026-10-05; #836 closed. **NOT LIVE until promoted** — auto-promotion is off. Tree-hash verified identical to the gated commit (`aa988599`), so the tree that landed is the one every gate ran against.
 Issue: [#836](https://github.com/znpruitt/cfb-app/issues/836).
 Prompt: `docs/prompts/platform-836-registry-fail-closed-claude-v1.md`
 (`PROMPT_ID: PLATFORM-836-REGISTRY-FAIL-CLOSED-CLAUDE-v1`).
