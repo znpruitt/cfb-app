@@ -142,25 +142,37 @@ export class LeagueRegistryMalformedError extends Error {
  * array that was not the registry — and they answered a corrupt registry with a
  * confident "that league does not exist". They now throw instead.
  *
- * WHERE THAT THROW IS REACHABLE: the five Server Actions in
- * `app/admin/[slug]/actions.ts` — `setAssignmentMethod` (`:396`),
- * `beginPreseason` (`:297`), `completeSetup` (`:447`), and the two demo
- * lifecycle controls (`:125`, `:250`). Of the eleven production call sites that
- * reach a mutator, those five are the ones with no upstream container check.
- * Pinned by three tests, each naming which sites it covers:
+ * WHERE THAT THROW IS REACHABLE, BY CLASS AND NOT BY COUNT: the Server Actions
+ * in `app/admin/[slug]/actions.ts` that call a mutator without first classifying
+ * the container — `beginPreseason`, `completeSetup`, and the two demo lifecycle
+ * controls. They refuse by throwing. `setAssignmentMethod` is NOT among them: it
+ * classifies the container itself and returns a typed refusal, so the throw never
+ * reaches it.
+ *
+ * Which site has which disposition is carried by tests, named here, and by
+ * nothing in this prose:
  * `app/admin/[slug]/__tests__/actions.test.ts` → 'a malformed registry is a
  * typed refusal, not a redacted Server Action throw' (`setAssignmentMethod`) and
  * 'the void-returning Server Actions refuse a malformed registry by throwing'
  * (`beginPreseason`, `completeSetup`); `testControls.test.ts` → 'the demo
  * controls refuse a malformed registry' (the demo pair).
  *
- * THIS ENUMERATION WAS WRONG ONCE AND THE CORRECTION IS THE POINT. Review found
- * it claimed "exactly three", having missed `setAssignmentMethod` — whose guard
- * is `if (league && …)`, so `getLeague`'s malformed→`null` collapse SKIPS it and
- * falls through to the write — and `beginPreseason`, which reads no registry at
- * all. An uncited count in a comment, in the slice whose whole subject is that
- * collapsing malformed into absence manufactures false claims. It is now carried
- * by the tests named above rather than by this sentence.
+ * THIS PARAGRAPH CARRIED A FALSE CLAIM TWICE, AND WHAT CHANGED IS THE FORM, NOT
+ * JUST THE FACTS. v1 said "exactly three", missing `setAssignmentMethod` and
+ * `beginPreseason`. v2 corrected the facts but kept the form — a count ("eleven
+ * production call sites", which was twelve), a list of five, and five bare line
+ * numbers, three of which pointed at a prose line, a `requireAdminAction` call,
+ * and a different function's `savePreseasonOwners`. Worse, v2 listed
+ * `setAssignmentMethod` as having "no upstream container check" in the very
+ * commit that gave it one, contradicted by the name of the test cited beside it.
+ *
+ * The lesson is structural, so the fix is structural: A COUNT, A LINE NUMBER, OR
+ * AN EXHAUSTIVE LIST IN A DOCBLOCK IS A CLAIM WITH NO TEST AND AN EXPIRY DATE.
+ * Every edit to the file moves the lines; every new caller falsifies the count.
+ * State the CLASS, name the tests, and let a reader who needs the sites grep for
+ * the mutators. v2's own text said it was "carried by the tests rather than by
+ * this sentence" while the sentence still carried a count — which is how the
+ * second falsehood survived writing a paragraph about the first.
  *
  * THE ROUTES AND CRONS DO NOT REACH A MUTATION, BUT NOT FOR THE SAME REASON, and
  * the difference matters to anyone changing them. The crons refuse on

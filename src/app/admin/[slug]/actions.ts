@@ -357,6 +357,15 @@ export async function setAssignmentMethod(
   // before 836 wrote nothing and returned `{ ok: true }`: a silent success that
   // changed no data and told the commissioner it had.
   //
+  // THAT SILENT SUCCESS IS CLOSED FOR `malformed` ONLY, and the rest of it still
+  // ships. `updateLeague` returns `League | null` and this function discards it,
+  // so when the registry is `missing`, or is `ok` but holds no entry for `slug`
+  // (deleted in another tab, stale admin page), the guard below is still skipped,
+  // the write still matches nothing, and this action still answers `{ ok: true }`.
+  // Found by review on this branch; NOT fixed here, because it is absence rather
+  // than corruption and so belongs to a different subject than 836. The typed
+  // variant it needs is the one already used above.
+  //
   // 836 makes that write throw, which is the right direction and the wrong
   // surface: Next.js redacts errors raised in a Server Action before they reach
   // the client in production builds (the note below says so for this function's

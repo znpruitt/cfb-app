@@ -656,15 +656,16 @@ test('a draft mid-correction still counts as run for the method guard', async ()
 // PLATFORM-836 — the Server Actions are where a malformed-registry refusal is
 // REACHABLE, and this is the pin for that enumeration.
 //
-// `mutateRegistry` now throws on a malformed container. Of the eleven production
-// call sites reaching a mutator, the crons refuse upstream on
-// `readLeagueRegistry` and the admin `[slug]` routes 404 via `getLeague`'s
-// malformed→null collapse, so only the Server Actions in this file get there.
+// `mutateRegistry` now throws on a malformed container. The crons refuse upstream
+// on `readLeagueRegistry` and the admin `[slug]` routes 404 via `getLeague`'s
+// malformed→null collapse, so the Server Actions in this file are the ones that
+// reach the throw — except `setAssignmentMethod`, which classifies the container
+// itself and returns a typed refusal instead.
 //
-// The first version of that claim in `leagueRegistry.ts` said "exactly three"
-// and was wrong — it missed `setAssignmentMethod`, whose `if (league && …)`
-// guard is SKIPPED by the same collapse, and `beginPreseason`, which reads no
-// registry at all. An uncited count in a comment; it is now carried here.
+// NO COUNT APPEARS HERE ON PURPOSE. The `leagueRegistry.ts` docblock asserted one
+// twice and was wrong twice (see the note there); this header previously repeated
+// the second wrong figure. Each test below names the sites it covers, and that is
+// the whole claim.
 // ---------------------------------------------------------------------------
 
 const CORRUPT_REGISTRY = { alpha: 1 };

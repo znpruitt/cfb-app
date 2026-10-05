@@ -25,6 +25,19 @@ export async function GET(req: Request): Promise<Response> {
   const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
+  // PLATFORM-836 — THIS READ IS KNOWINGLY STILL COLLAPSED, and the asymmetry with
+  // POST below is a deferral, not a decision that it is correct.
+  //
+  // `getLeagues()` maps a malformed container to `[]`, so a corrupt registry is
+  // served here as an empty league list and `admin/leagues/page.tsx` renders "No
+  // leagues configured yet" — the exact falsehood POST now refuses to act on, on
+  // the operator's only read surface for this condition. The "69 modules depend on
+  // the array contract" argument for leaving `getLeagues()` alone does NOT excuse
+  // this call site, which could consume `readLeagueRegistry()` directly.
+  //
+  // Not changed here because the fix is not this line: the page needs a state to
+  // render for an unreadable registry, which is a UI surface `DESIGN.md` governs.
+  // Raised by review on this branch and carried out as its own item.
   const leagues = await getLeagues();
   return Response.json({ leagues: sanitizeLeagues(leagues) });
 }
