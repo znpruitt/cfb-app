@@ -123,22 +123,23 @@ These consolidate recurring historical observations, not new project-governance 
 
 ### INSIGHTS-026C-FORWARD-LOOK-CODEX-v1
 
-- Purpose: Fill Overview's Thursday-to-next-recap gap with immediate-week league stakes; closes
-  [#886](https://github.com/znpruitt/cfb-app/issues/886) on merge.
-- Scope: Existing recap gather/calendar, three independent selectors, transport and expandable
-  narrative tile. No new data path, endpoint, cache layer or provider call.
+- Purpose: Fill Overview's Thursday gap with immediate-week league stakes; associated issue
+  [#886](https://github.com/znpruitt/cfb-app/issues/886).
+- Scope: Existing recap gather/calendar, independent selectors, transport and expandable tile.
+  No new data path, endpoint, cache layer or provider call.
 - Outcome: Kicked candidates excluded; odds expire at 24 hours. Tight rivalry aggregates and ordered
-  streaks are distinct. Applicable empty weeks retain orientation; expiry precedes story deduplication
-  and family caps. Completed-result additions/removals/corrections refresh through the existing hook;
-  stale forward lines clear pending replacement. Clock ticks and nonfinal score churn do not refetch.
-- Review / verification: Initial review and one remediation exposed a stale-premises P2; stopped,
-  then obtained explicit approval for a second and final narrow round. At `99c284ff`, Codex was clean;
-  `/code-review` found bootstrap request amplification, reproduced as one request becoming two.
-  Stopped without a third patch or merge. Lint, types, build and 5,644 tests passed, zero skips;
-  26 tests added, none removed.
-  Nine final-round mutations supplement 28 earlier checks. Main pulled before closeout. The forward-claim
-  validity obligation is recorded in AGENTS.md. [Evidence and dispositions](campaigns/insights-026c-forward-look-verification.md).
-- Status: Final review blocked — [PR #887](https://github.com/znpruitt/cfb-app/pull/887) draft; not merged.
+  streaks are distinct. Applicable empty weeks retain orientation. Expiry precedes story/family caps.
+  Completed-result changes invalidate claims; clock ticks and nonfinal churn do not refetch.
+- Review / verification: After two documented stops, the owner explicitly authorized a third,
+  baseline-only round. At `4a3121d9`, existing finals mount with one request and later finals cause a
+  second; removing baseline seeding fails only the mount-count assertion while steady-state stays
+  green. Two new tests bring the slice delta to 28, none removed/weakened. Frozen-code gates passed:
+  lint, types, build and 5,646 tests, zero skips. Codex was clean; Claude found a bootstrap snapshot
+  race, independently reproduced: a result arriving between Insights and bootstrap is absorbed,
+  leaving an earlier tie claim visible. Stopped without further code changes. Main pulled before
+  closeout; AGENTS.md records the baseline lesson.
+  [Evidence and review dispositions](campaigns/insights-026c-forward-look-verification.md).
+- Status: Review blocked — [PR #887](https://github.com/znpruitt/cfb-app/pull/887) draft, not merged.
 
 ### PLATFORM-836-REGISTRY-FAIL-CLOSED-CLAUDE-v1
 

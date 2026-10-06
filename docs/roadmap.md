@@ -208,7 +208,8 @@ Full-page view of all insights for a league, accessible via "See all →" from t
 > immediate upcoming canonical week using the existing recap gather. It derives standings stakes,
 > ordered rivalry history and fresh odds risk, taking over the same slot at the Thursday cutoff.
 > Completed-result changes invalidate forward premises through the existing refresh path; clock
-> ticks do not generate new requests. Final review is blocked by duplicate bootstrap requests.
+> ticks do not generate new requests. Review is blocked by a result arriving between the Insights
+> and bootstrap snapshots being absorbed into the baseline. Snapshot ordering/provenance needs resolution before merge.
 > Applicable empty weeks retain orientation. The receipt corrected the prior claim that separate
 > schedule/rankings inputs were needed. See the [execution record](prompt-registry.md#insights-026c-forward-look-codex-v1).
 

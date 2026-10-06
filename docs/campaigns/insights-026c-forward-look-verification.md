@@ -1,8 +1,8 @@
 # INSIGHTS-026C — Forward Look verification
 
-Status: Stopped after the authorized final remediation; bootstrap request P2 unresolved
+Status: Stopped after the explicitly authorized third round; bootstrap snapshot race P2 unresolved
 Date: 2026-10-06
-Implementation: `82c68872`; first remediation `2ec3634a`; authorized final remediation `99c284ff`; base `11a4b98a`
+Implementation: `82c68872`; first remediation `2ec3634a`; second remediation `99c284ff`; baseline-only third round `4a3121d9`; base `11a4b98a`
 PR: [#887](https://github.com/znpruitt/cfb-app/pull/887)
 
 ## Behavioral choices
@@ -27,9 +27,9 @@ PR: [#887](https://github.com/znpruitt/cfb-app/pull/887)
   so later qualifying games replace expired stories. Families contribute independently. An applicable
   empty tile names its week; inapplicable scope renders nothing.
 
-## Gates
+## Second-round gates (historical)
 
-The frozen final code commit `99c284ff` passed `lint:all`, `npx tsc --noEmit`, `npm run build`,
+The frozen second-round code commit `99c284ff` passed `lint:all`, `npx tsc --noEmit`, `npm run build`,
 focused tests and `npm test`, each exit 0, with HEAD unchanged and the worktree clean. The full suite
 passed **5,644 tests, zero failures and zero skips**. Both reviewers examined this same commit. The initial
 sandboxed build could not fetch the existing Google Fonts dependencies; the network-enabled build
@@ -119,11 +119,11 @@ Both confirming reviews targeted `2ec3634a`. Codex found no remaining credible P
 rule failure; it independently passed 33 focused tests and five mutation checks. `/code-review`
 confirmed the accepted fixes but found a reachable same-day freshness defect, rating it P2/P3
 conditional on an owner exemption for the daily refresh model. No such exemption was given: the
-implementer reproduced the false present-tense claims and treats this as **unresolved P2**.
+implementer reproduced the false present-tense claims and treated this as **unresolved P2 at that stop** (resolved in round two).
 At that point the branch was stopped, not merge-ready. No second remediation was attempted until
 the owner explicitly authorized the narrow final round below.
 
-### P2 reproduced at the first stop — resolved by the authorized final round
+### P2 reproduced at the first stop — resolved by round two
 
 Synthetic reproduction, using the real composer and visibility selector on `2ec3634a`:
 
@@ -147,7 +147,7 @@ The recommendation was to invalidate narrative premises on relevant result chang
 the applicable week frame. Merely suppressing a repeated `storyKey` cannot cover standings changed by
 other games. The owner subsequently authorized exactly that narrow correction, with no third round.
 
-### Authorized final remediation — `99c284ff`
+### Authorized second remediation — `99c284ff`
 
 The user explicitly approved AGENTS.md step 6's narrow exception. The implementation changes only
 three production files: the existing Forward Look selector, Insights hook and CFBScheduleApp wiring.
@@ -191,9 +191,9 @@ mutation then failed that named assertion. No production change was needed.
 
 Final reviews: Codex independently passed 36 focused tests and three memory-only mutations, finding
 no credible remaining P0/P1/P2 or required-rule failure. `/code-review` was not clean: an initial
-completed-score bootstrap triggers an additional Insights request. This was independently reproduced and is treated as an unresolved P2, not accepted as a cost tradeoff.
+completed-score bootstrap triggers an additional Insights request. This was independently reproduced and was treated as an unresolved P2 at that stop, not accepted as a cost tradeoff.
 
-### Final stop: initial score hydration is not a new result
+### Second-round stop: initial score hydration is not a new result
 
 The completed-result key also changes when an empty client score map first receives existing finals.
 The first Insights request is already underway (or completed) before that bootstrap; the new key
@@ -213,16 +213,16 @@ attachment path execute against stubbed HTTP responses; the server composer is r
 Both measurement runs exited 0 with assertions for those counts. This establishes request
 amplification, not a production CPU duration, headroom or frequency measurement. The steady-state
 fix is correct, but the first-load regression is directly attributable to the final remediation.
-No third round is authorized; PR #887 remains draft and was not merged. Under AGENTS.md's two-round
+At that stop no third round was authorized; PR #887 remained draft and was not merged. Under AGENTS.md's two-round
 rule, the recommendation is reconstruction from the settled result/response-validity specification,
 including a bootstrap baseline and its request-count proof, rather than appending another patch.
 No reconstruction or new data path was started, and no new issue was filed by the lane.
 
 The final reviewer also noted pending-state presentation, null-final classification differences,
 unowned-game invalidations and non-result schedule changes as smaller or out-of-scope concerns.
-None was folded into another patch. The bootstrap P2 alone stops the branch.
+None was folded into another patch. The bootstrap P2 alone stopped the branch.
 
-No third remediation was performed. `git pull --no-rebase origin main` completed before writing
+No third remediation had been performed at that stop. `git pull --no-rebase origin main` completed before writing
 this closeout, reporting already up to date at `11a4b98a`.
 
 **Structural lesson:** this zone's forward claims have a result-dependent lifetime while displayed.
@@ -230,6 +230,86 @@ Calendar/kickoff expiry is insufficient. A later game does not falsify a recap o
 but it can falsify present standings or a live streak asserted about an upcoming game. Future
 forward-facing occupants inherit the invalidation obligation, now recorded in AGENTS.md beside the
 selector architecture. This is separate from historical provider-score corrections.
+
+## Third round — baseline only, `4a3121d9`
+
+Owner decision 2026-10-06 explicitly authorized a third round, superseding the preceding stop's
+no-third instruction for the baseline alone. The starting result set is seeded at the existing
+initial score-bootstrap boundary before publishing those scores to React state. The Insights hook
+stores a scope-specific baseline; normal polls do not reseed it. The three production files changed
+are `CFBScheduleApp.tsx`, `useLiveRefresh.ts` and `useInsightsFeed.ts`. The completed-result selector,
+steady-state invalidation, composer inputs, endpoint and caches are unchanged. No clock-driven
+request was introduced.
+
+### Requested regression distinction and gates
+
+Two tests were added, none removed or weakened: the existing full-app polling fixture now also
+mounts with an existing final, and a hook fixture checks baseline scoping and subsequent results.
+The existing-final app fixture makes exactly one Insights request after bootstrap, then a second
+when another game finishes. The original nonfinal-bootstrap/steady-state fixture remains a control.
+
+On frozen `4a3121d9`, `npm test` passed 5,646 tests with zero failures/skips; `lint:all`,
+`npx tsc --noEmit`, and `npm run build` each exited 0. The app/hook focused run passed 16 tests.
+The slice adds 28 tests in total. These gates precede the documentation-only stop closeout; they do
+not imply that the later-discovered race is covered by the committed suite.
+
+| Isolated mutation | Failed assertion | Distinction |
+| --- | --- | --- |
+| Remove bootstrap baseline seeding | `existing finals at mount produce exactly one Insights request` | Original steady-state fixture stays green |
+| Reseed baseline on every poll | `the completed-result signal uses exactly one existing refresh` | Mount count stays correct; later changes are lost |
+
+Each mutation exited 1; restored control exited 0. The first mutation's TAP explicitly reports the
+original steady-state fixture `ok`; the compact mutation summary lists only failures. Codex
+independently reproduced both mutations and passed 32 focused tests. Earlier mutation tables above
+remain evidence from their named earlier commits, not reruns on this commit.
+
+### Both reviewers, same commit; binding stop
+
+Both Codex and Claude `/code-review` reviewed `4a3121d972e08bea31cd79b5f7a59ee596810e28` against
+`11a4b98a`. Codex was clean. Claude identified a possible interval between the Insights snapshot and
+the initial score snapshot: a game can finish after the former but before the latter. The implementer
+reproduced it in an isolated full-app fixture using the real composer and score attachment, stubbed
+HTTP, and a deferred bootstrap response. The initial Insights response has already rendered a tie
+claim; bootstrap then delivers the newly final game that breaks it.
+
+| Code used with identical race fixture | Insights requests | Earlier tie claim visible after final hydration | Correctness assertion exit |
+| --- | --- | --- | --- |
+| `99c284ff` | 2 | No (withheld pending refresh) | 0 |
+| `4a3121d9` | 1 | Yes | 1 |
+
+The named failing assertion is `a final arriving between Insights and bootstrap invalidates the
+earlier tie claim`. This differs from an existing final at mount: the two reads legitimately see
+different result sets. Both occur independently in production, with no shared snapshot token or
+ordering guard. The baseline marker makes the newer set appear equal to the earlier response's
+provenance. This is a confirmed P2 caused by round three, not a measured production frequency or CPU
+claim. The historical 3.33s figure was not rederived or used.
+
+**Stopped without another code patch or merge.** Correcting the demonstrated ambiguity requires
+settling which snapshot establishes the response's baseline (request ordering or response provenance),
+beyond simply remembering the first hydrated set. Changing the request trigger or transport contract
+would cross the owner's binding baseline-only limit. No such change was attempted. Recommendation:
+settle that ordering/provenance contract before further implementation; preserve both requested
+request-count cases and this race as separate acceptance cases.
+
+Other Claude findings were evaluated, not accumulated into this round:
+
+- A partial bootstrap can seed an incomplete set; later hydration can add existing finals. The
+  callback precedes the existing clean-read clock guard, so the proposed path is plausible; it was
+  not independently reproduced or promoted to an additional blocking finding.
+- The stale-scope assertion checks externally visible behavior, not unique necessity of the callback
+  guard: render-time scope reset supplies a second defense. No claim that guard removal must fail
+  that assertion is made.
+- The poll-clock option has only one production caller passing true, the initial bootstrap. A future
+  caller changing that is a maintenance concern, not a demonstrated second live path.
+- Returning a server result fingerprint would change the response contract; not authorized here.
+- Unowned-result invalidations originate in round two; filtering the trigger is explicitly outside
+  this round. Schedule clearing already changed that trigger in round two; a reload request-count
+  concern was not independently reproduced as a new third-round defect.
+
+`git pull --no-rebase origin main` completed before this closeout, already up to date at `11a4b98a`.
+PR #887 remains draft and issue #886 open. The structural lesson in AGENTS.md now includes the
+starting-state distinction: nothing remembered is not nothing present, and a baseline belongs to a
+particular snapshot. No completed-work milestone is added for unmerged work.
 
 ### Other confirming-review residue for planning
 
@@ -248,8 +328,8 @@ selector architecture. This is separate from historical provider-score correctio
 ## Preview
 
 The canonical alias is [cfb-app-preview.vercel.app](https://cfb-app-preview.vercel.app/league/tsc),
-verified through Vercel deployment metadata as READY on `99c284ff`, deployment
-`dpl_8nVFbC9U8b8fPc8VegNuw224eiUU`. The prior implementation league-route smoke returned HTTP 200. This verifies deployment and
+verified through Vercel deployment metadata as READY on `4a3121d9`, deployment
+`dpl_ACy4jLVeGHSGCv56w2r61y4aCxAL`. The prior implementation league-route smoke returned HTTP 200. This verifies deployment and
 route availability, not a signed-in production-data walkthrough. Local browser and API tests cover
 the rendering/transport flow.
 

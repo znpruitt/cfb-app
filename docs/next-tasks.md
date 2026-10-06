@@ -253,10 +253,11 @@ reason is a property no other open item has: its value DECAYS.** Every other ite
 waits. A week of preview content that was never shown cannot be shown later — the owner's words:
 *"we're losing weeks of content by allowing it to languish."*
 
-Implementation is stopped after the explicitly authorized final remediation in
-[PR #887](https://github.com/znpruitt/cfb-app/pull/887). Final review reproduced an added Insights
-request when existing finals hydrate at bootstrap. No third round or merge is authorized with this
-finding open. The item retains top priority; the data-path stop trigger did not fire.
+Implementation is stopped after the owner-authorized third, baseline-only round in
+[PR #887](https://github.com/znpruitt/cfb-app/pull/887). Review reproduced a result arriving between
+Insights and bootstrap being absorbed into the baseline, leaving a stale forward claim. Resolving
+snapshot ordering/provenance exceeds the baseline-only limit; no further patch or merge was made.
+The item retains top priority pending that contract decision.
 
 Kickoff: [`INSIGHTS-026C-FORWARD-LOOK-CODEX-v1`](prompts/insights-026c-forward-look-codex-v1.md).
 The settled owner rulings remain in `DESIGN.md` → *Elevated timely-content zone*; execution evidence
