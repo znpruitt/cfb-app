@@ -130,16 +130,16 @@ These consolidate recurring historical observations, not new project-governance 
 - Outcome: Kicked candidates excluded; odds expire at 24 hours. Tight rivalry aggregates and ordered
   streaks are distinct. Applicable empty weeks retain orientation. Expiry precedes story/family caps.
   Completed-result changes invalidate claims; clock ticks and nonfinal churn do not refetch.
-- Review / verification: After two documented stops, the owner explicitly authorized a third,
-  baseline-only round. At `4a3121d9`, existing finals mount with one request and later finals cause a
-  second; removing baseline seeding fails only the mount-count assertion while steady-state stays
-  green. Two new tests bring the slice delta to 28, none removed/weakened. Frozen-code gates passed:
-  lint, types, build and 5,646 tests, zero skips. Codex was clean; Claude found a bootstrap snapshot
-  race, independently reproduced: a result arriving between Insights and bootstrap is absorbed,
-  leaving an earlier tie claim visible. Stopped without further code changes. Main pulled before
-  closeout; AGENTS.md records the baseline lesson.
-  [Evidence and review dispositions](campaigns/insights-026c-forward-look-verification.md).
-- Status: Review blocked — [PR #887](https://github.com/znpruitt/cfb-app/pull/887) draft, not merged.
+- Review / verification: Both reviewers examined `4a3121d9`. Codex was clean; Claude found a
+  reproduced bootstrap snapshot race. The owner authorized merge with that defect open under
+  [#888](https://github.com/znpruitt/cfb-app/issues/888), a re-derivation of the invalidation component,
+  not another patch. The four-round table is its regression list. Existing finals cause one mount
+  request; later finals cause a second. Removing baseline seeding fails only the mount assertion,
+  leaving steady-state green. The slice adds 28 tests, none removed/weakened. Frozen-code gates passed:
+  lint, types, build and 5,646 tests, zero skips. Only documentation changed after review, including
+  main's mechanism lesson; the source-tree hash is unchanged.
+  [Evidence, race and four-round table](campaigns/insights-026c-forward-look-verification.md).
+- Status: Owner-approved for merge — [PR #887](https://github.com/znpruitt/cfb-app/pull/887), pending merge.
 
 ### PLATFORM-836-REGISTRY-FAIL-CLOSED-CLAUDE-v1
 

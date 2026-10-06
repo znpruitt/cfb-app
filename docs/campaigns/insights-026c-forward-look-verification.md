@@ -1,6 +1,6 @@
 # INSIGHTS-026C — Forward Look verification
 
-Status: Stopped after the explicitly authorized third round; bootstrap snapshot race P2 unresolved
+Status: Owner authorized merge with the bootstrap snapshot race deferred to #888; pending merge
 Date: 2026-10-06
 Implementation: `82c68872`; first remediation `2ec3634a`; second remediation `99c284ff`; baseline-only third round `4a3121d9`; base `11a4b98a`
 PR: [#887](https://github.com/znpruitt/cfb-app/pull/887)
@@ -324,6 +324,38 @@ particular snapshot. No completed-work milestone is added for unmerged work.
   evidence of what happened to an unresolved meeting. Conservative unknown-result barriers remain.
 - Candidate transport is bounded by the immediate week's games; the reviewer did not establish a
   payload/performance defect. No arbitrary cap was added that could recreate lost backfill.
+
+## Owner merge disposition — 2026-10-06
+
+The owner authorized merging the slice with the reproduced bootstrap snapshot race open and filed
+[#888 — re-derive Forward Look result invalidation](https://github.com/znpruitt/cfb-app/issues/888).
+This supersedes the preceding stop's merge block, not its finding. The race ships deliberately:
+a final arriving after the Insights snapshot but before bootstrap can be absorbed into the baseline,
+leaving an earlier claim visible. Its production frequency and window duration have not been measured.
+Issue #888 requires measurement and a server-authoritative re-derivation of the invalidation component;
+it is not authorization to extend the client baseline mechanism. The composer, families, tile,
+rendering and changeover remain outside that re-derivation.
+
+The owner's four-round table is the regression list for #888:
+
+| Round | Fix | What review then found |
+| --- | --- | --- |
+| 0 | The tile | Forward claims go stale when a result lands |
+| 1 | Expiry + family isolation | Result dependency: held payload kept a broken streak |
+| 2 | Invalidate on results changing | Bootstrap: an empty baseline reads every existing final as new |
+| 3 | Record a baseline at mount | A final landing between the Insights fetch and snapshot is absorbed into that baseline |
+
+These are ordering cases in one invalidation mechanism, not four unrelated patch tasks. The
+existing-final mount count, later-result count, no-clock-request guard and independently reproduced
+bootstrap race must remain distinct regression claims in the re-derivation.
+
+Both reviews remain attached to `4a3121d9`; they were not rerun or represented as both clean.
+Everything after that commit is documentation-only: the stop closeout, this merge closeout, and
+integration of main's AGENTS.md mechanism lesson (`7c4b62c6`). No runtime or test change followed
+review. The `src` tree hash at the reviewed commit and the integrated branch is identical:
+`6374f6bd52823a7b24834462ad75102bfee275ae`. The full repository tree differs because documentation
+changed. Main was pulled before writing this closeout and will be pulled again after its branch
+commit; final comparison and gate results are reported with the merge.
 
 ## Preview
 

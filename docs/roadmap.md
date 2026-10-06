@@ -180,7 +180,7 @@ shows.
 
 Full-page view of all insights for a league, accessible via "See all →" from the overview panel. Grouped by category, full descriptions, lifecycle filtering.
 
-#### Insights Engine — Two Weekly In-Season Pulses (Look Back complete; Forward Look implemented, final review blocked — INSIGHTS-026)
+#### Insights Engine — Two Weekly In-Season Pulses (Look Back complete; Forward Look approved for merge — INSIGHTS-026)
 
 > **ID note (2026-08-14):** this campaign was filed under `INSIGHTS-018`, which the backlog also used
 > for the NEW-tag mechanism. Split to `INSIGHTS-026` so a content campaign stops hiding behind a
@@ -204,12 +204,13 @@ Full-page view of all insights for a league, accessible via "See all →" from t
 > accolades, record changes, and odds upsets are all wired. The immutable artifact/event-source
 > portion remains open.
 >
-> **Forward Look implemented, final review blocked (2026-10-06):** the compact Overview occupant targets the
+> **Forward Look approved for merge (2026-10-06):** the compact Overview occupant targets the
 > immediate upcoming canonical week using the existing recap gather. It derives standings stakes,
 > ordered rivalry history and fresh odds risk, taking over the same slot at the Thursday cutoff.
 > Completed-result changes invalidate forward premises through the existing refresh path; clock
-> ticks do not generate new requests. Review is blocked by a result arriving between the Insights
-> and bootstrap snapshots being absorbed into the baseline. Snapshot ordering/provenance needs resolution before merge.
+> ticks do not generate new requests. The owner accepted the remaining bootstrap snapshot race for
+> merge; [#888](https://github.com/znpruitt/cfb-app/issues/888) re-derives the invalidation mechanism
+> with server-authoritative result provenance.
 > Applicable empty weeks retain orientation. The receipt corrected the prior claim that separate
 > schedule/rankings inputs were needed. See the [execution record](prompt-registry.md#insights-026c-forward-look-codex-v1).
 
