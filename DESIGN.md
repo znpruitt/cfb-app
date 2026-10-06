@@ -73,6 +73,21 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   overlaying, clipping, or independently scrolling the dashboard beneath it.
 - Occupancy is lifecycle- and time-bounded. An inapplicable state renders nothing so the podium
   returns to the top of Overview; the zone is not a permanent home for general announcements.
+- **FORWARD LOOK IS THE ZONE'S THIRD OCCUPANT, AND IT REPLACES THE RECAP IN THE SAME SLOT RATHER THAN
+  ADDING A SECTION.** Owner decision 2026-10-06 on
+  [#886](https://github.com/znpruitt/cfb-app/issues/886). One tile holds the slot all week and changes
+  what it shows: the recap until the Thursday 06:00 ET cutoff, the look-ahead after it. **Not two
+  tiles, not a second heading** — a member sees one piece of timely content whose subject turns over
+  with the football week.
+  **This closes a gap the rule above did not anticipate.** "An inapplicable state renders nothing" is
+  right for a league out of season or a week with no content. But `selectWeeklyRecapTileState`
+  (`weeklyRecapFacts.ts:329-357`) returns a THIRD state, `'upcoming'`, meaning "last week is finished
+  and the next has not started" — and that is not inapplicable, it is **unoccupied**. Both consumers
+  read it as "render nothing" (`CFBScheduleApp.tsx:1149`, `overviewGameSections.ts:193`), so **the zone
+  has been empty every week from Thursday morning through the weekend** — the window when members are
+  most engaged. The state was never the problem; nothing was listening to it.
+  **So `'upcoming'` is an OCCUPIED state from here.** An inapplicable state still renders nothing; a
+  state that merely has no occupant yet is a gap to fill, not a reason to collapse the zone.
 
 ## Multi-line row pattern
 
