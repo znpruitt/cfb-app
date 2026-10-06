@@ -1,8 +1,8 @@
 # INSIGHTS-026C — Forward Look verification
 
-Status: Implemented; stopped after one remediation with an unresolved P2
+Status: Stopped after the authorized final remediation; bootstrap request P2 unresolved
 Date: 2026-10-06
-Implementation: `82c68872`; single remediation `2ec3634a`; base `11a4b98a`
+Implementation: `82c68872`; first remediation `2ec3634a`; authorized final remediation `99c284ff`; base `11a4b98a`
 PR: [#887](https://github.com/znpruitt/cfb-app/pull/887)
 
 ## Behavioral choices
@@ -29,15 +29,15 @@ PR: [#887](https://github.com/znpruitt/cfb-app/pull/887)
 
 ## Gates
 
-The implementation and remediation passed lint, `npx tsc --noEmit`, `npm run build`, focused tests,
-and `npm test`, each exit 0. The remediated full suite passed **5,641 tests, zero failures and zero
-skips**; `lint:all` also passed. The final added exception assertion passed its focused rerun. The initial
+The frozen final code commit `99c284ff` passed `lint:all`, `npx tsc --noEmit`, `npm run build`,
+focused tests and `npm test`, each exit 0, with HEAD unchanged and the worktree clean. The full suite
+passed **5,644 tests, zero failures and zero skips**. Both reviewers examined this same commit. The initial
 sandboxed build could not fetch the existing Google Fonts dependencies; the network-enabled build
 passed. The branch's pre-push `lint:all` also passed.
 
-**Test delta: 23 added, none removed.** Existing assertions were not weakened. Added coverage spans
-15 selector/composer/parser tests, two tile tests, one Chrome test, two full-app integration tests,
-one API-to-client-parser test, one hook failure/scope test, and one loader fault-isolation test. The Chrome test clicks the real React
+**Test delta: 26 added, none removed.** Existing assertions were not weakened. Added coverage spans
+16 selector/composer/parser tests, two tile tests, one Chrome test, three full-app integration tests,
+one API-to-client-parser test, two hook tests, and one loader fault-isolation test. The Chrome test clicks the real React
 button at 320, 390, 820 and 1280px and measures normal-flow podium displacement and horizontal overflow.
 Exact-viewport screenshots were inspected at 390 and 1280px.
 
@@ -46,7 +46,7 @@ Exact-viewport screenshots were inspected at 390 and 1280px.
 Each mutation was restored before the next control/gate. Mutations below exited 1 with the named
 assertion; the unmutated focused suite exited 0. The pre-fix-slot mutation disables only the new
 Forward Look branch, restoring the previous empty-slot behavior without breaking compilation.
-All 28 final mutation/observer checks ran in an isolated copy of the remediation tree; the 9–1
+All 28 first-remediation mutation/observer checks ran in an isolated copy of that tree; the 9–1
 mutation targets only lopsided histories so it reaches its own ordered-streak assertion.
 
 Selector assertions are in
@@ -120,9 +120,10 @@ rule failure; it independently passed 33 focused tests and five mutation checks.
 confirmed the accepted fixes but found a reachable same-day freshness defect, rating it P2/P3
 conditional on an owner exemption for the daily refresh model. No such exemption was given: the
 implementer reproduced the false present-tense claims and treats this as **unresolved P2**.
-The branch is stopped, not merge-ready. No second remediation was attempted.
+At that point the branch was stopped, not merge-ready. No second remediation was attempted until
+the owner explicitly authorized the narrow final round below.
 
-### Remaining P2: stale story premises after an earlier result
+### P2 reproduced at the first stop — resolved by the authorized final round
 
 Synthetic reproduction, using the real composer and visibility selector on `2ec3634a`:
 
@@ -135,17 +136,100 @@ Synthetic reproduction, using the real composer and visibility selector on `2ec3
    `Bob and Alice meet one win apart`; no rivalry streak qualifies.
 
 Assertions pinning all four observations passed. This is a synthetic reachability proof, not a
-measurement of production frequency. The hook's fetch effect depends on the daily eligibility key,
-scope and manual refresh revision, not on attached-score changes. Client expiry removes the kicked
-game but does not rederive the premises of the remaining stories. Repeated-pair backfill exposes it
-directly; results in other games can also stale standings implications. The daily hook cadence
-predates this slice, but the false Forward Look narratives are new behavior. A passing suite did not
-cover this dependency.
+measurement of production frequency. The earlier report overstated the daily-only refresh path: the app already called `refreshInsights`
+for observed finalizations and corrections. That detector intentionally ignores first-seen finals,
+and the old forward claims also remained visible while a refresh was pending. The raw held-payload
+reproduction established stale premises, not that every normal live final waited until 06:00 ET.
+Results in other games can stale standings implications too. A passing suite did not cover these
+response-validity and observed-result dependencies.
 
-Recommendation: plan a bounded correction that refreshes or invalidates narrative premises when
-relevant results change, preserving the applicable week frame while claims are untrusted. Merely
-suppressing a repeated `storyKey` does not cover standings changed by other games. The owner allowed
-one remediation round; any additional code work requires explicit authorization.
+The recommendation was to invalidate narrative premises on relevant result changes while retaining
+the applicable week frame. Merely suppressing a repeated `storyKey` cannot cover standings changed by
+other games. The owner subsequently authorized exactly that narrow correction, with no third round.
+
+### Authorized final remediation — `99c284ff`
+
+The user explicitly approved AGENTS.md step 6's narrow exception. The implementation changes only
+three production files: the existing Forward Look selector, Insights hook and CFBScheduleApp wiring.
+No endpoint, cache layer, gather or composer input changed; the stop-and-report condition did not fire.
+
+`selectCompletedResultsKey` sorts usable final game IDs with both final scores. That value keys the
+existing request effect. First-seen finals, additions/removals and score corrections change it;
+clock ticks, live score changes, arrival order and equivalent final labels do not. The former
+finalization callback still refreshes canonical server standings, but no longer separately triggers
+Insights. Response provenance clears only forward narrative lines while a different result key is
+pending; the applicable week frame stays. Existing request sequencing rejects obsolete responses.
+
+Three added tests cover the result signature, hook and real app live poll. The app test observes one
+Insights request at bootstrap, then exactly one more when its live poll completes the earlier game.
+It observes `Week 6 ahead` while pending and the corrected one-win-gap heading after resolution. The
+hook test uses the real composer: repeated clock/live-score changes add zero requests; a first-seen
+final adds one; a material final correction adds one. It also exercises overlapping result responses.
+
+The historical 3.33s Active CPU figure was not rederived or used as a current measurement. The cost
+claim here is limited to synthetic request counts, not CPU usage or production headroom.
+
+Nine final-round mutations each exited 1 at their intended assertion; the unmutated 30-test focused
+control exited 0. They ran in an isolated copy, leaving the review tree untouched.
+
+| Mutation | Named assertion that failed |
+| --- | --- |
+| Remove result key from fetch dependencies | `a first-seen completed result makes exactly one refresh` |
+| Add `nowTick` as a fetch dependency | `clock ticks and nonfinal score changes make no Insights requests` |
+| Include nonfinal scores in the key | `clock ticks and nonfinal score changes make no Insights requests` |
+| Remove scores from the final signature | `corrected final scores change the key`; `a material final correction refreshes once` |
+| Remove stable game-key sorting | `reordered equivalent finals keep the same key` |
+| Keep old claims during a key mismatch | `old forward premises disappear while the refresh is pending` |
+| Drop the pending frame instead of its lines | app test cannot find `Week 6 ahead` |
+| Disconnect app scores from the hook | `the completed-result signal uses exactly one existing refresh` |
+| Accept superseded request responses | `a superseded result response cannot clear current narratives` |
+
+The first race-mutation attempt hit an older league-scope assertion, not the new claim: result-key
+masking independently hid the stale response. The test was strengthened to resolve the current
+response before the old one and assert that obsolete work cannot clear current narratives; the same
+mutation then failed that named assertion. No production change was needed.
+
+Final reviews: Codex independently passed 36 focused tests and three memory-only mutations, finding
+no credible remaining P0/P1/P2 or required-rule failure. `/code-review` was not clean: an initial
+completed-score bootstrap triggers an additional Insights request. This was independently reproduced and is treated as an unresolved P2, not accepted as a cost tradeoff.
+
+### Final stop: initial score hydration is not a new result
+
+The completed-result key also changes when an empty client score map first receives existing finals.
+The first Insights request is already underway (or completed) before that bootstrap; the new key
+starts a second request. The previous finalization detector intentionally excluded first-seen
+already-final scores, but the replacement trigger has no equivalent bootstrap baseline. The initial
+round-two app test seeded an in-progress score, so its request-count assertion missed this case.
+
+Measured on the same synthetic app fixture, in isolated archives of each commit: one existing final
+at bootstrap, one score hydration, no subsequent poll. The real CFBScheduleApp, hook and score
+attachment path execute against stubbed HTTP responses; the server composer is real.
+
+| Code commit | Bootstrap score requests | Insights requests before any result change |
+| --- | --- | --- |
+| `2ec3634a` | 1 | 1 |
+| `99c284ff` | 1 | 2 |
+
+Both measurement runs exited 0 with assertions for those counts. This establishes request
+amplification, not a production CPU duration, headroom or frequency measurement. The steady-state
+fix is correct, but the first-load regression is directly attributable to the final remediation.
+No third round is authorized; PR #887 remains draft and was not merged. Under AGENTS.md's two-round
+rule, the recommendation is reconstruction from the settled result/response-validity specification,
+including a bootstrap baseline and its request-count proof, rather than appending another patch.
+No reconstruction or new data path was started, and no new issue was filed by the lane.
+
+The final reviewer also noted pending-state presentation, null-final classification differences,
+unowned-game invalidations and non-result schedule changes as smaller or out-of-scope concerns.
+None was folded into another patch. The bootstrap P2 alone stops the branch.
+
+No third remediation was performed. `git pull --no-rebase origin main` completed before writing
+this closeout, reporting already up to date at `11a4b98a`.
+
+**Structural lesson:** this zone's forward claims have a result-dependent lifetime while displayed.
+Calendar/kickoff expiry is insufficient. A later game does not falsify a recap of completed games,
+but it can falsify present standings or a live streak asserted about an upcoming game. Future
+forward-facing occupants inherit the invalidation obligation, now recorded in AGENTS.md beside the
+selector architecture. This is separate from historical provider-score corrections.
 
 ### Other confirming-review residue for planning
 
@@ -164,8 +248,8 @@ one remediation round; any additional code work requires explicit authorization.
 ## Preview
 
 The canonical alias is [cfb-app-preview.vercel.app](https://cfb-app-preview.vercel.app/league/tsc),
-verified through Vercel deployment metadata as READY on `2ec3634a`, deployment
-`dpl_75c8Z8gBmhbqYFf75f6tWweij6jz`. Its league route returned HTTP 200. This verifies deployment and
+verified through Vercel deployment metadata as READY on `99c284ff`, deployment
+`dpl_8nVFbC9U8b8fPc8VegNuw224eiUU`. The prior implementation league-route smoke returned HTTP 200. This verifies deployment and
 route availability, not a signed-in production-data walkthrough. Local browser and API tests cover
 the rendering/transport flow.
 

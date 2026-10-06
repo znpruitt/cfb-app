@@ -117,6 +117,19 @@ Key selectors:
 
 UI components may perform lightweight presentation-layer logic (filtering, sorting already-derived arrays for display). They must not recompute league state inline.
 
+**Forward-facing timely content has a result-dependent lifetime (INSIGHTS-026C).** The recap
+reports completed games: a later game's result does not falsify those historical claims. Forward
+Look asserts present standings and rivalry state about future games; another result can falsify it
+while the tile remains displayed. Future occupants with forward-facing claims inherit this
+invalidation obligation. Calendar eligibility and kickoff expiry alone do not establish premise
+validity. Wire changes in the completed-result set (including score corrections) to the existing
+refresh path, and withhold old claims while their replacement is pending. Do not turn clock ticks,
+score-object identity or nonfinal score churn into requests for expensive narrative generation.
+Distinguish loading an initial snapshot of already-completed games from new result changes: a
+bootstrap baseline must not itself duplicate narrative generation. See the
+[Forward Look verification record](docs/campaigns/insights-026c-forward-look-verification.md) for the
+measured failure case and its evidence.
+
 ### API routes
 
 `src/app/api/` routes act as provider adapters:

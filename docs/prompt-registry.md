@@ -126,18 +126,19 @@ These consolidate recurring historical observations, not new project-governance 
 - Purpose: Fill Overview's Thursday-to-next-recap gap with immediate-week league stakes; closes
   [#886](https://github.com/znpruitt/cfb-app/issues/886) on merge.
 - Scope: Existing recap gather/calendar, three independent selectors, transport and expandable
-  narrative tile. No new data path, provider call, watchlist ranker or scoreboard change.
-- Outcome: Already-kicked candidates excluded; odds limited to the immediate week and less than
-  24 hours old. Aggregate rivalry tightness is separate from ordered streaks. Applicable empty
-  weeks retain their label. Client expiry precedes story deduplication and caps (two per family,
-  five total), allowing later games to replace expired stories. Recap and preview failures are
-  isolated, and the full recap page avoids preview assembly.
-- Review / verification: Both independent reviews completed on `82c68872`; one cohesive remediation
-  at `2ec3634a`, followed by both confirming passes. Codex was clean; `/code-review` exposed a remaining
-  same-day narrative freshness defect, reproduced and treated as P2. No second remediation. Lint, types, build
-  and 5,641 tests passed with zero skips; 23 tests added, none removed. Twenty-eight mutation/observer
-  checks failed their intended assertions. [Evidence and dispositions](campaigns/insights-026c-forward-look-verification.md).
-- Status: Implemented, review blocked — [PR #887](https://github.com/znpruitt/cfb-app/pull/887) draft; not merged.
+  narrative tile. No new data path, endpoint, cache layer or provider call.
+- Outcome: Kicked candidates excluded; odds expire at 24 hours. Tight rivalry aggregates and ordered
+  streaks are distinct. Applicable empty weeks retain orientation; expiry precedes story deduplication
+  and family caps. Completed-result additions/removals/corrections refresh through the existing hook;
+  stale forward lines clear pending replacement. Clock ticks and nonfinal score churn do not refetch.
+- Review / verification: Initial review and one remediation exposed a stale-premises P2; stopped,
+  then obtained explicit approval for a second and final narrow round. At `99c284ff`, Codex was clean;
+  `/code-review` found bootstrap request amplification, reproduced as one request becoming two.
+  Stopped without a third patch or merge. Lint, types, build and 5,644 tests passed, zero skips;
+  26 tests added, none removed.
+  Nine final-round mutations supplement 28 earlier checks. Main pulled before closeout. The forward-claim
+  validity obligation is recorded in AGENTS.md. [Evidence and dispositions](campaigns/insights-026c-forward-look-verification.md).
+- Status: Final review blocked — [PR #887](https://github.com/znpruitt/cfb-app/pull/887) draft; not merged.
 
 ### PLATFORM-836-REGISTRY-FAIL-CLOSED-CLAUDE-v1
 
