@@ -88,6 +88,25 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   most engaged. The state was never the problem; nothing was listening to it.
   **So `'upcoming'` is an OCCUPIED state from here.** An inapplicable state still renders nothing; a
   state that merely has no occupant yet is a gap to fill, not a reason to collapse the zone.
+- **FORWARD LOOK RENDERS NARRATIVE LINES, NOT A SECOND GAME LIST — and it expands, as the recap does.**
+  Owner decisions 2026-10-06. It mirrors the recap's shape because it mirrors the recap's job: the
+  recap says what the week DID, Forward Look says what the week is FOR. Reuse the recap's line
+  primitives rather than the scoreboard grid.
+  **The reason this rule exists is a measured collision risk.** Overview's watchlist already lists
+  curated upcoming games twenty pixels below this zone. A Forward Look that renders game cards shows a
+  member the same games twice with two different orderings, which is worse than showing them once.
+- **FORWARD LOOK RANKS ON LEAGUE STAKES. THE WATCHLIST RANKS ON NATIONAL PROFILE. THEY MUST NOT SHARE
+  A RANKER.** `watchlistPriority` (`overview.ts:357-381`) is a `Math.max` over `top25` (100),
+  `isUpsetWatch` (95), `isGameOfSlate` (90), `close` (80) and `hasTop25RankedTeam` (70) — **and not one
+  term knows about owners.** Measured 2026-10-06: a game between two drafted teams, owned by rivals,
+  with a title race riding on it scores **0** unless a team is AP-ranked.
+  **That is correct for the watchlist and wrong for this tile.** The watchlist answers "which games
+  matter in college football"; Forward Look answers "which games decide something in YOUR league".
+  Same games, orthogonal criteria. **Consuming the national ranker here would reproduce the
+  duplication the rule above forbids, by the back door.**
+  **Two selection rules on one page is a real hazard and this is the mitigation:** they are
+  deliberately different, their criteria are stated, and the reason is recorded — rather than two
+  rankers nobody compared.
 
 ## Multi-line row pattern
 

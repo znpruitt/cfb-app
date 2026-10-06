@@ -246,6 +246,28 @@ places it.** A lane must not dispatch itself, and planning must not dispatch res
 the context is warm — warm context is an argument for writing the issue well, not for taking the work
 now.
 
+### TOP OF QUEUE — FORWARD LOOK, owner direction 2026-10-06
+
+**[#886](https://github.com/znpruitt/cfb-app/issues/886) outranks the audit order below, and the
+reason is a property no other open item has: its value DECAYS.** Every other item accumulates risk and
+waits. A week of preview content that was never shown cannot be shown later — the owner's words:
+*"we're losing weeks of content by allowing it to languish."*
+
+**Overview's elevated timely-content zone renders NOTHING from the Thursday 06:00 ET recap cutoff
+until the next week's results become eligible** — most of every football week, including the whole
+game weekend. `selectWeeklyRecapTileState` already returns `'upcoming'` at exactly the right moment
+and **both its consumers read that as "render nothing"** (`CFBScheduleApp.tsx:1149`,
+`overviewGameSections.ts:193`). The state was never the problem; nothing was listening to it.
+
+**It languished for a mechanical reason worth not repeating:** it was portion 3 of a three-portion
+issue (#637), and nobody takes a third of an issue, so all three sat. Split out 2026-10-06.
+
+Kickoff: [`docs/prompts/insights-026c-forward-look-codex-v1.md`](prompts/insights-026c-forward-look-codex-v1.md).
+Rulings in `DESIGN.md` → *Elevated timely-content zone*: one tile replacing the recap in the same slot,
+narrative lines rather than a second game list, expandable, and **it must not consume
+`watchlistPriority`** — measured 2026-10-06, that ranker scores a rivalry collision with a title race
+riding on it at **0** unless a team is AP-ranked, because not one of its terms knows about owners.
+
 ### DISPATCH ORDER — AUDIT-FIRST, owner decision 2026-09-09
 
 **Evidence:** [`docs/archive/audits/codebase-audit-existing-plans-2026-09-08.md`](archive/audits/codebase-audit-existing-plans-2026-09-08.md)
