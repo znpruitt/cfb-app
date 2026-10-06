@@ -4,7 +4,7 @@ import { loadInsightsForLeague, type InsightsResponse } from '@/lib/insights/loa
 import { MIN_SEASON_YEAR, maxCreatableSeasonYear, type LeagueStatus } from '@/lib/league';
 import { isAuthorizedForLeague } from '@/lib/leagueAuth';
 import { getLeague } from '@/lib/leagueRegistry';
-import { loadWeeklyRecap } from '@/lib/recap/loadWeeklyRecap';
+import { loadTimelyContent } from '@/lib/recap/loadWeeklyRecap';
 import { requireAdminAuth } from '@/lib/server/adminAuth';
 import {
   resolveDisplayLeagueStatus,
@@ -157,18 +157,18 @@ export async function GET(
   }
   const resolvedYear = requestedYear.year;
 
-  const [feed, weeklyRecap] = await Promise.all([
+  const [feed, timelyContent] = await Promise.all([
     loadInsightsForLeague(slug, resolvedYear, { bypassSuppression }),
     league && resolvedYear
-      ? loadWeeklyRecap({
+      ? loadTimelyContent({
           leagueSlug: slug,
           seasonYear: resolvedYear,
           leagueStatus: resolveDisplayLeagueStatus(league),
           now,
         })
-      : Promise.resolve({ status: 'inactive' } as const),
+      : Promise.resolve({ weeklyRecap: { status: 'inactive' } as const, forwardLook: null }),
   ]);
-  const response: InsightsResponse = { ...feed, weeklyRecap };
+  const response: InsightsResponse = { ...feed, ...timelyContent };
   return NextResponse.json<InsightsResponse>(response, {
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
   });

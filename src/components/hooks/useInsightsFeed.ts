@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { LeagueStatus } from '../../lib/league.ts';
+import { parseForwardLook } from '../../lib/recap/parseForwardLook.ts';
+import type { ForwardLook } from '../../lib/selectors/forwardLook.ts';
 import type {
   WeeklyRecapGameLine,
   WeeklyRecapLeaderLine,
@@ -32,6 +34,7 @@ type InsightsPayload = {
   insights: Insight[];
   lifecycleState: LifecycleState | undefined;
   weeklyRecap: WeeklyRecapViewModel;
+  forwardLook: ForwardLook | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -209,7 +212,12 @@ function parseWeeklyRecap(value: unknown): WeeklyRecapViewModel {
 
 export function parseInsightsPayload(value: unknown): InsightsPayload {
   if (!isRecord(value)) {
-    return { insights: [], lifecycleState: undefined, weeklyRecap: UNAVAILABLE_RECAP };
+    return {
+      insights: [],
+      lifecycleState: undefined,
+      weeklyRecap: UNAVAILABLE_RECAP,
+      forwardLook: null,
+    };
   }
 
   const lifecycleState =
@@ -222,6 +230,7 @@ export function parseInsightsPayload(value: unknown): InsightsPayload {
     insights: Array.isArray(value.insights) ? (value.insights as Insight[]) : [],
     lifecycleState,
     weeklyRecap: parseWeeklyRecap(value.weeklyRecap),
+    forwardLook: parseForwardLook(value.forwardLook),
   };
 }
 
@@ -239,6 +248,7 @@ export function useInsightsFeed(args: {
     insights: [],
     lifecycleState: undefined,
     weeklyRecap: INACTIVE_RECAP,
+    forwardLook: null,
   });
   const [resolvedScopeKey, setResolvedScopeKey] = useState<string | null>(null);
   const [refreshRevision, setRefreshRevision] = useState(0);
@@ -260,7 +270,12 @@ export function useInsightsFeed(args: {
     if (!enabled || !leagueSlug) {
       requestSequenceRef.current += 1;
       payloadScopeRef.current = null;
-      setPayload({ insights: [], lifecycleState: undefined, weeklyRecap: INACTIVE_RECAP });
+      setPayload({
+        insights: [],
+        lifecycleState: undefined,
+        weeklyRecap: INACTIVE_RECAP,
+        forwardLook: null,
+      });
       setResolvedScopeKey(null);
       return;
     }
@@ -292,8 +307,13 @@ export function useInsightsFeed(args: {
         const canPreserveFeed = payloadScopeRef.current === scopeKey;
         setPayload((current) =>
           canPreserveFeed
-            ? { ...current, weeklyRecap: UNAVAILABLE_RECAP }
-            : { insights: [], lifecycleState: undefined, weeklyRecap: UNAVAILABLE_RECAP }
+            ? { ...current, weeklyRecap: UNAVAILABLE_RECAP, forwardLook: null }
+            : {
+                insights: [],
+                lifecycleState: undefined,
+                weeklyRecap: UNAVAILABLE_RECAP,
+                forwardLook: null,
+              }
         );
         payloadScopeRef.current = scopeKey;
         setResolvedScopeKey(scopeKey);
@@ -309,6 +329,7 @@ export function useInsightsFeed(args: {
       insights: [],
       lifecycleState: undefined,
       weeklyRecap: INACTIVE_RECAP,
+      forwardLook: null,
     }),
     refreshInsights,
   };

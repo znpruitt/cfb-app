@@ -8,6 +8,10 @@ import React from 'react';
 import CFBScheduleApp from '../CFBScheduleApp';
 import { OVERVIEW_SCOREBOARD_GRID_STYLE } from '../OverviewPanel';
 import { AppContextProviders } from './_setup/renderWithAppContext';
+import { deriveStandings } from '../../lib/standings';
+import { composeForwardLook } from '../../lib/recap/composeForwardLook';
+import { composeWeeklyRecap } from '../../lib/recap/composeWeeklyRecap';
+import { forwardContext, FORWARD_NOW, FORWARD_SCOPE } from '../../test/forwardLookFixtures';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'https://example.test/',
@@ -62,7 +66,11 @@ const recapPayload = {
   },
 };
 
-function installFetch(scheduleItems: unknown[] | null): {
+function installFetch(
+  scheduleItems: unknown[] | null,
+  payload: unknown = recapPayload,
+  ownersCsv: string | null = null
+): {
   insightsCalls: () => number;
   scheduleCalls: () => number;
 } {
@@ -72,7 +80,7 @@ function installFetch(scheduleItems: unknown[] | null): {
     const url = String(input);
     if (url.startsWith('/api/insights/')) {
       insightsCalls += 1;
-      return jsonResponse(recapPayload);
+      return jsonResponse(payload);
     }
     if (url.startsWith('/api/schedule')) {
       scheduleCalls += 1;
@@ -82,7 +90,7 @@ function installFetch(scheduleItems: unknown[] | null): {
     }
     if (url.startsWith('/api/aliases')) return jsonResponse({ map: {} });
     if (url.startsWith('/api/owners')) {
-      return jsonResponse({ year: 2026, csvText: null, hasStoredValue: false });
+      return jsonResponse({ year: 2026, csvText: ownersCsv, hasStoredValue: ownersCsv !== null });
     }
     if (url.startsWith('/api/postseason-overrides')) {
       return jsonResponse({ year: 2026, map: {}, hasStoredValue: false });
@@ -114,13 +122,17 @@ function installFetch(scheduleItems: unknown[] | null): {
   return { insightsCalls: () => insightsCalls, scheduleCalls: () => scheduleCalls };
 }
 
-function renderApp(initialIssues: string[] = []): ReturnType<typeof render> {
+function renderApp(
+  initialIssues: string[] = [],
+  props: Partial<React.ComponentProps<typeof CFBScheduleApp>> = {}
+): ReturnType<typeof render> {
   return render(
     <CFBScheduleApp
       leagueSlug="tsc"
       leagueYear={2026}
       leagueStatus={{ state: 'season', year: 2026 }}
       initialIssues={initialIssues}
+      {...props}
     />,
     { wrapper: AppContextProviders }
   );
@@ -129,6 +141,132 @@ function renderApp(initialIssues: string[] = []): ReturnType<typeof render> {
 beforeEach(() => {
   Date.now = () => Date.parse('2026-09-01T14:00:00.000Z');
   window.localStorage.clear();
+});
+
+test('Overview replaces the recap at the real cutoff and keeps an empty Forward Look before the podium', async () => {
+  const context = forwardContext();
+  context.rosterByTeam.clear();
+  const result = { status: 'available' as const, context };
+  const before = new Date(FORWARD_NOW.getTime() - 60_000);
+  const payload = {
+    ...recapPayload,
+    weeklyRecap: composeWeeklyRecap(result, before, FORWARD_SCOPE),
+    forwardLook: composeForwardLook(result, before, FORWARD_SCOPE),
+  };
+  Date.now = () => before.getTime();
+  installFetch(
+    [
+      {
+        id: 'next',
+        week: 6,
+        startDate: '2026-10-10T19:00:00Z',
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Alabama',
+        awayTeam: 'Georgia',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    payload
+  );
+  let rendered = renderApp();
+  await waitFor(() => assert.ok(rendered.getByText('Weekly recap')));
+  assert.equal(rendered.queryByText('Forward look'), null, 'recap owns the pre-cutoff slot');
+  rendered.unmount();
+  Date.now = () => FORWARD_NOW.getTime();
+  rendered = renderApp();
+  await waitFor(() => assert.ok(rendered.getByRole('heading', { name: 'Week 6 ahead' })));
+  assert.equal(rendered.queryByText('Weekly recap'), null, 'exact cutoff replaces the recap');
+  const tile = rendered.getByText('Forward look').closest('section')!;
+  await waitFor(() => assert.ok(rendered.getByText('League summary')));
+  const podium = rendered.getByText('League summary').closest('section')!;
+  assert.ok(
+    tile.compareDocumentPosition(podium) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+    'empty tile remains above podium'
+  );
+});
+
+test('Forward Look leaves the watchlist, Insights panel and scoreboard grid unchanged', async () => {
+  Date.now = () => FORWARD_NOW.getTime();
+  const result = { status: 'available' as const, context: forwardContext() };
+  const payload = {
+    ...recapPayload,
+    insights: [
+      {
+        id: 'standing-insight',
+        type: 'race',
+        title: 'Standing insight stays here',
+        description: 'The league race continues',
+        priorityScore: 100,
+      },
+    ],
+    weeklyRecap: composeWeeklyRecap(result, FORWARD_NOW, FORWARD_SCOPE),
+    forwardLook: composeForwardLook(result, FORWARD_NOW, FORWARD_SCOPE),
+  };
+  const schedule = [
+    {
+      id: 'upcoming',
+      week: 6,
+      startDate: '2026-10-10T19:00:00Z',
+      neutralSite: false,
+      conferenceGame: true,
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
+      homeConference: 'SEC',
+      awayConference: 'SEC',
+      status: 'scheduled',
+      seasonType: 'regular',
+    },
+  ];
+  const observe = async (withLook: boolean) => {
+    installFetch(
+      schedule,
+      { ...payload, forwardLook: withLook ? payload.forwardLook : null },
+      'team,owner\nAlabama,Alice\nGeorgia,Bob\n'
+    );
+    const c = result.context;
+    const rendered = renderApp([], {
+      canonicalStandings: {
+        slug: 'tsc',
+        year: 2026,
+        source: 'live',
+        lifecycle: 'mid_season',
+        rows: deriveStandings(c.games, c.rosterByTeam, c.scoresByKey).rows,
+        noClaimRow: null,
+        ownerColorOrder: ['Alice', 'Bob'],
+        standingsHistory: null,
+        coverage: { state: 'complete', message: null },
+        ownersRosterSource: 'csv',
+        archiveYearResolved: null,
+        inferredSeasonStart: null,
+        generatedAt: FORWARD_NOW.toISOString(),
+      },
+    });
+    await waitFor(() => assert.ok(rendered.getByText('Upcoming watchlist')));
+    await waitFor(() => assert.ok(rendered.getByText('Standing insight stays here')));
+    if (withLook) await waitFor(() => assert.ok(rendered.getByText('Forward look')));
+    const grid = rendered.container.querySelector('[data-watchlist-scoreboard-grid]')!;
+    assert.ok(grid, 'observer sees the real scoreboard grid');
+    const observation = {
+      watchlist: rendered.getByText('Upcoming watchlist').closest('section')!.textContent,
+      insights: rendered.getByText('Insights').parentElement!.parentElement!.textContent,
+      grid: {
+        text: grid.textContent,
+        className: grid.className,
+        style: grid.getAttribute('style'),
+      },
+    };
+    rendered.unmount();
+    return observation;
+  };
+  const baseline = await observe(false);
+  const occupied = await observe(true);
+  assert.deepEqual(occupied.watchlist, baseline.watchlist, 'watchlist content stays unchanged');
+  assert.deepEqual(occupied.insights, baseline.insights, 'Insights content stays unchanged');
+  assert.deepEqual(occupied.grid, baseline.grid, 'scoreboard content and geometry stay unchanged');
 });
 
 afterEach(() => {

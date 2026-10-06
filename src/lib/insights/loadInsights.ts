@@ -39,6 +39,7 @@ import type { Insight } from '@/lib/selectors/insights';
 import type { InsightContext } from '@/lib/insights/types';
 import type { LifecycleState } from '@/lib/insights/types';
 import type { WeeklyRecapViewModel } from '@/lib/recap/composeWeeklyRecap';
+import type { ForwardLook } from '@/lib/selectors/forwardLook';
 
 export type InsightsFeedResponse = {
   insights: Insight[];
@@ -50,6 +51,7 @@ export type InsightsFeedResponse = {
 /** Authenticated API payload. The recap is composed per request after the raw-insights cache. */
 export type InsightsResponse = InsightsFeedResponse & {
   weeklyRecap: WeeklyRecapViewModel;
+  forwardLook: ForwardLook | null;
 };
 
 export type LoadInsightsOptions = {

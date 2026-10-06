@@ -6,6 +6,8 @@ import { JSDOM } from 'jsdom';
 
 import type { AppGame } from '../../../lib/schedule';
 import { parseInsightsPayload, useInsightsFeed } from '../useInsightsFeed';
+import { composeForwardLook } from '../../../lib/recap/composeForwardLook';
+import { forwardContext, FORWARD_NOW, FORWARD_SCOPE } from '../../../test/forwardLookFixtures';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'https://example.test/',
@@ -136,6 +138,57 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   globalThis.fetch = originalFetch;
+});
+
+test('Forward Look is cleared on request failure and league-scope change while the standing feed survives', async () => {
+  const look = composeForwardLook(
+    { status: 'available', context: forwardContext() },
+    FORWARD_NOW,
+    FORWARD_SCOPE
+  )!;
+  let fail = false;
+  globalThis.fetch = (async () => {
+    if (fail) throw new Error('offline');
+    return new Response(
+      JSON.stringify({
+        insights: [{ id: 'standing' }],
+        weeklyRecap: availableRecapPayload(1),
+        forwardLook: look,
+      }),
+      { status: 200 }
+    );
+  }) as typeof fetch;
+  const view = renderHook(
+    ({ slug }) =>
+      useInsightsFeed({
+        leagueSlug: slug,
+        seasonYear: 2026,
+        leagueStatus: ACTIVE_STATUS,
+        games: [],
+        scheduleLoaded: false,
+        nowTick: FORWARD_NOW.getTime(),
+      }),
+    { initialProps: { slug: 'tsc' } }
+  );
+  await waitFor(() => assert.equal(view.result.current.forwardLook?.target.week, 6));
+  fail = true;
+  act(() => view.result.current.refreshInsights());
+  await waitFor(() => assert.equal(view.result.current.weeklyRecap.status, 'unavailable'));
+  assert.equal(
+    view.result.current.forwardLook,
+    null,
+    'failed reads cannot leave forward claims behind'
+  );
+  assert.equal(view.result.current.insights.length, 1, 'standing feed is preserved');
+  fail = false;
+  act(() => view.result.current.refreshInsights());
+  await waitFor(() => assert.ok(view.result.current.forwardLook));
+  view.rerender({ slug: '' });
+  assert.equal(
+    view.result.current.forwardLook,
+    null,
+    'slugless surface cannot retain another league preview'
+  );
 });
 
 test('invalid recap data cannot empty an otherwise healthy insights payload', () => {
