@@ -4,10 +4,19 @@ import test, { afterEach, beforeEach } from 'node:test';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { JSDOM } from 'jsdom';
 
+import { selectVisibleForwardLook } from '../../../lib/selectors/forwardLook';
+import type { ScorePack } from '../../../lib/scores';
 import type { AppGame } from '../../../lib/schedule';
 import { parseInsightsPayload, useInsightsFeed } from '../useInsightsFeed';
 import { composeForwardLook } from '../../../lib/recap/composeForwardLook';
-import { forwardContext, FORWARD_NOW, FORWARD_SCOPE } from '../../../test/forwardLookFixtures';
+import {
+  forwardContext,
+  forwardGame,
+  forwardScore,
+  addRivalry,
+  FORWARD_NOW,
+  FORWARD_SCOPE,
+} from '../../../test/forwardLookFixtures';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'https://example.test/',
@@ -161,6 +170,7 @@ test('Forward Look is cleared on request failure and league-scope change while t
   const view = renderHook(
     ({ slug }) =>
       useInsightsFeed({
+        scoresByKey: {},
         leagueSlug: slug,
         seasonYear: 2026,
         leagueStatus: ACTIVE_STATUS,
@@ -261,6 +271,7 @@ test('a stale response cannot overwrite a newer league request', async () => {
   const view = renderHook(
     ({ leagueSlug }) =>
       useInsightsFeed({
+        scoresByKey: {},
         leagueSlug,
         seasonYear: 2026,
         leagueStatus: ACTIVE_STATUS,
@@ -307,6 +318,7 @@ test('non-Overview surfaces skip the feed request until the Overview is entered'
   const view = renderHook(
     ({ enabled }) =>
       useInsightsFeed({
+        scoresByKey: {},
         leagueSlug: 'tsc',
         seasonYear: 2026,
         leagueStatus: ACTIVE_STATUS,
@@ -336,6 +348,7 @@ test('the open page refetches exactly once at 06:00 ET without a usable client s
   const view = renderHook(
     ({ nowTick }) =>
       useInsightsFeed({
+        scoresByKey: {},
         leagueSlug: 'tsc',
         seasonYear: 2026,
         leagueStatus: ACTIVE_STATUS,
@@ -383,6 +396,7 @@ test('a failed boundary refresh preserves the healthy standing feed', async () =
   const view = renderHook(
     ({ nowTick }) =>
       useInsightsFeed({
+        scoresByKey: {},
         leagueSlug: 'tsc',
         seasonYear: 2026,
         leagueStatus: ACTIVE_STATUS,
@@ -404,4 +418,112 @@ test('a failed boundary refresh preserves the healthy standing feed', async () =
   assert.equal(calls, 2);
   assert.equal(view.result.current.insights.length, 1);
   assert.equal(view.result.current.lifecycleState, 'mid_season');
+});
+
+test('completed results refresh forward premises once, not on clock ticks or live-score churn', async () => {
+  const context = forwardContext();
+  context.games[0] = forwardGame('prior', 5, '2026-10-03T19:00:00Z', 'Unowned', 'Other');
+  context.games[1].date = '2026-10-10T16:00:00Z';
+  context.games.push(forwardGame('repeat', 6, '2026-10-10T23:00:00Z'));
+  context.scoresByKey = {};
+  addRivalry(context, Array(5).fill('Alice'));
+  let now = new Date('2026-10-10T10:00:00Z');
+  const requests: { response: Response; pending: Deferred<Response> }[] = [];
+  globalThis.fetch = (async () => {
+    const response = new Response(
+      JSON.stringify({
+        insights: [{ id: 'standing' }],
+        forwardLook: composeForwardLook({ status: 'available', context }, now, FORWARD_SCOPE),
+      })
+    );
+    const pending = deferred<Response>();
+    requests.push({ response, pending });
+    return pending.promise;
+  }) as typeof fetch;
+  const view = renderHook(
+    ({ scores, tick }: { scores: Record<string, ScorePack>; tick: number }) =>
+      useInsightsFeed({
+        leagueSlug: 'tsc',
+        seasonYear: 2026,
+        leagueStatus: ACTIVE_STATUS,
+        games: context.games,
+        scheduleLoaded: true,
+        scoresByKey: scores,
+        nowTick: tick,
+      }),
+    { initialProps: { scores: {} as Record<string, ScorePack>, tick: now.getTime() } }
+  );
+  await act(async () => requests[0].pending.resolve(requests[0].response));
+  assert.ok(view.result.current.forwardLook?.lines.some((line) => line.value === '5 straight'));
+  for (let poll = 1; poll <= 4; poll++) {
+    view.rerender({
+      scores: { collision: { ...forwardScore(poll, 14), status: 'inprogress' } },
+      tick: now.getTime() + poll * 60_000,
+    });
+  }
+  assert.equal(
+    requests.length,
+    1,
+    'clock ticks and nonfinal score changes make no Insights requests'
+  );
+
+  now = new Date('2026-10-10T21:00:00Z');
+  context.scoresByKey = { collision: forwardScore(7, 21) };
+  view.rerender({ scores: context.scoresByKey, tick: now.getTime() });
+  assert.equal(requests.length, 2, 'a first-seen completed result makes exactly one refresh');
+  assert.equal(
+    view.result.current.forwardLook?.lines.length,
+    0,
+    'old forward premises disappear while the refresh is pending'
+  );
+  assert.equal(
+    view.result.current.forwardLook?.weekLabel,
+    'Week 6',
+    'pending refresh retains the applicable week frame'
+  );
+  assert.equal(
+    view.result.current.insights.length,
+    1,
+    'standing feed remains present while refreshing'
+  );
+  await act(async () => requests[1].pending.resolve(requests[1].response));
+  const fresh = selectVisibleForwardLook(view.result.current.forwardLook, now)!;
+  assert.match(
+    fresh.lines[0].title,
+    /one win apart/,
+    'refreshed standings replace the obsolete tie'
+  );
+  assert.equal(
+    fresh.lines.some((line) => line.family === 'rivalry'),
+    false,
+    'refreshed rivalry removes the broken streak'
+  );
+  view.rerender({
+    scores: { collision: { ...forwardScore(7, 21), status: 'Final/OT', time: 'changed' } },
+    tick: now.getTime() + 60_000,
+  });
+  assert.equal(requests.length, 2, 'equivalent final labels and timestamps do not refetch');
+
+  context.scoresByKey = { collision: forwardScore(21, 7) };
+  view.rerender({ scores: context.scoresByKey, tick: now.getTime() });
+  assert.equal(requests.length, 3, 'a material final correction refreshes once');
+  context.scoresByKey = { collision: forwardScore(7, 21) };
+  view.rerender({ scores: context.scoresByKey, tick: now.getTime() });
+  assert.equal(requests.length, 4);
+  await act(async () => requests[3].pending.resolve(requests[3].response));
+  await act(async () => requests[2].pending.resolve(requests[2].response));
+  assert.equal(
+    view.result.current.forwardLook?.lines.length,
+    1,
+    'a superseded result response cannot clear current narratives'
+  );
+  assert.equal(
+    view.result.current.forwardLook?.lines.some((line) => line.value === '6 straight'),
+    false,
+    'a superseded result response cannot restore a stale streak'
+  );
+  assert.equal(
+    view.result.current.forwardLook?.lines.some((line) => line.family === 'rivalry'),
+    false
+  );
 });

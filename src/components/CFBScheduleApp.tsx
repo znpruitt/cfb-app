@@ -1075,12 +1075,12 @@ export default function CFBScheduleApp({
     lifecycleState: insightsLifecycleState,
     weeklyRecap: weeklyRecapResponse,
     forwardLook: forwardLookResponse,
-    refreshInsights,
   } = useInsightsFeed({
     leagueSlug,
     seasonYear: selectedSeason,
     leagueStatus,
     games,
+    scoresByKey,
     scheduleLoaded,
     nowTick: liveStaleClock,
     enabled: primarySurfaceKind === 'overview',
@@ -1093,8 +1093,7 @@ export default function CFBScheduleApp({
   // derivation and no upstream provider fetch (PLATFORM-075 preserved).
   const handleGamesFinalized = useCallback(() => {
     router.refresh();
-    refreshInsights();
-  }, [refreshInsights, router]);
+  }, [router]);
 
   const { liveScoreObservation } = useLiveRefresh({
     selectedSeason,

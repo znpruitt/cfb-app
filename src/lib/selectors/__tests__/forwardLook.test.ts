@@ -14,6 +14,7 @@ import {
 } from '../../../test/forwardLookFixtures.ts';
 import {
   mergeForwardLookLines,
+  selectCompletedResultsKey,
   selectForwardLookInputs,
   selectForwardStandings,
   selectForwardUpsets,
@@ -497,4 +498,37 @@ test('Forward Look family failures leave the other families and the week frame a
     'odds exception does not erase standings'
   );
   assert.equal(selectVisibleForwardLook(fewer, FORWARD_NOW)?.weekLabel, 'Week 6');
+});
+
+test('completed result keys depend on final identities and scores, not arrival order or metadata', () => {
+  const scores = { a: forwardScore(), b: forwardScore(7, 21) };
+  const original = selectCompletedResultsKey(scores);
+  assert.equal(
+    selectCompletedResultsKey({
+      b: { ...scores.b, status: 'Final/OT', time: 'new' },
+      a: { ...scores.a },
+    }),
+    original,
+    'reordered equivalent finals keep the same key'
+  );
+  assert.equal(
+    selectCompletedResultsKey({ ...scores, live: { ...forwardScore(), status: 'inprogress' } }),
+    original,
+    'live scores do not change the completed set'
+  );
+  assert.notEqual(
+    selectCompletedResultsKey({ a: scores.a }),
+    original,
+    'removing a completed result changes the key'
+  );
+  assert.notEqual(
+    selectCompletedResultsKey({ ...scores, b: forwardScore(21, 7) }),
+    original,
+    'corrected final scores change the key'
+  );
+  assert.notEqual(
+    selectCompletedResultsKey({ ...scores, c: forwardScore() }),
+    original,
+    'adding a completed result changes the key'
+  );
 });

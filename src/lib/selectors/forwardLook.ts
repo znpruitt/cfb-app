@@ -1,7 +1,8 @@
 import { displayOwner, getGameOwners } from '../gameOwnership.ts';
-import { classifyStatusLabel } from '../gameStatus.ts';
+import { classifyStatusLabel, hasUsableFinalScore } from '../gameStatus.ts';
 import type { WeeklyRecapContext } from '../recap/loadRecapContext.ts';
 import type { AppGame } from '../schedule.ts';
+import type { ScorePack } from '../scores.ts';
 import { deriveStandings, type OwnerStandingsRow } from '../standings.ts';
 import {
   selectWeeklyRecapTargetWeek,
@@ -42,6 +43,15 @@ export const FORWARD_LOOK_SLOTS = 5;
 export const FORWARD_LOOK_FAMILY_CAP = 2;
 // One day's price, not a season-opening line. Boundary: "Forward Look odds expire at 24 hours".
 export const FORWARD_LOOK_ODDS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+export function selectCompletedResultsKey(scoresByKey: Record<string, ScorePack>): string {
+  return JSON.stringify(
+    Object.entries(scoresByKey)
+      .filter(([, score]) => hasUsableFinalScore(score))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, score]) => [key, score.home.score, score.away.score])
+  );
+}
 
 export function selectForwardLookInputs(
   context: WeeklyRecapContext,

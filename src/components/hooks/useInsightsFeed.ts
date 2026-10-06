@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { LeagueStatus } from '../../lib/league.ts';
 import { parseForwardLook } from '../../lib/recap/parseForwardLook.ts';
-import type { ForwardLook } from '../../lib/selectors/forwardLook.ts';
+import { selectCompletedResultsKey, type ForwardLook } from '../../lib/selectors/forwardLook.ts';
+import type { ScorePack } from '../../lib/scores.ts';
 import type {
   WeeklyRecapGameLine,
   WeeklyRecapLeaderLine,
@@ -239,11 +240,14 @@ export function useInsightsFeed(args: {
   seasonYear: number;
   leagueStatus: LeagueStatus | undefined;
   games: AppGame[];
+  scoresByKey: Record<string, ScorePack>;
   scheduleLoaded: boolean;
   nowTick: number;
   enabled?: boolean;
 }): InsightsPayload & { refreshInsights: () => void } {
-  const { leagueSlug, seasonYear, leagueStatus, nowTick, enabled = true } = args;
+  const { leagueSlug, seasonYear, leagueStatus, scoresByKey, nowTick, enabled = true } = args;
+  const completedResultsKey = useMemo(() => selectCompletedResultsKey(scoresByKey), [scoresByKey]);
+  const [resolvedResultsKey, setResolvedResultsKey] = useState<string | null>(null);
   const [payload, setPayload] = useState<InsightsPayload>({
     insights: [],
     lifecycleState: undefined,
@@ -300,6 +304,7 @@ export function useInsightsFeed(args: {
         payloadScopeRef.current = scopeKey;
         setPayload(parseInsightsPayload(value));
         setResolvedScopeKey(scopeKey);
+        setResolvedResultsKey(completedResultsKey);
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted || requestSequence !== requestSequenceRef.current) return;
@@ -320,7 +325,15 @@ export function useInsightsFeed(args: {
       });
 
     return () => controller.abort();
-  }, [eligibilityBoundaryKey, enabled, leagueSlug, lifecycleKey, refreshRevision, seasonYear]);
+  }, [
+    completedResultsKey,
+    eligibilityBoundaryKey,
+    enabled,
+    leagueSlug,
+    lifecycleKey,
+    refreshRevision,
+    seasonYear,
+  ]);
 
   const resolvedPayload = enabled && resolvedScopeKey === requestScopeKey ? payload : null;
 
@@ -331,6 +344,12 @@ export function useInsightsFeed(args: {
       weeklyRecap: INACTIVE_RECAP,
       forwardLook: null,
     }),
+    // Forward claims can be falsified by another game's result. Retain orientation,
+    // but suppress their old premises until the result-keyed request resolves.
+    forwardLook:
+      resolvedPayload?.forwardLook && resolvedResultsKey !== completedResultsKey
+        ? { ...resolvedPayload.forwardLook, lines: [] }
+        : (resolvedPayload?.forwardLook ?? null),
     refreshInsights,
   };
 }
