@@ -527,3 +527,49 @@ test('completed results refresh forward premises once, not on clock ticks or liv
     false
   );
 });
+
+test('a result baseline belongs to its league scope and later results still invalidate it', async () => {
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    return recapResponse(1);
+  }) as typeof fetch;
+  const view = renderHook(
+    ({ slug, scores }: { slug: string; scores: Record<string, ScorePack> }) =>
+      useInsightsFeed({
+        leagueSlug: slug,
+        seasonYear: 2026,
+        leagueStatus: ACTIVE_STATUS,
+        games: [],
+        scheduleLoaded: true,
+        scoresByKey: scores,
+        nowTick: FORWARD_NOW.getTime(),
+      }),
+    {
+      initialProps: {
+        slug: 'alpha',
+        scores: { first: forwardScore() } as Record<string, ScorePack>,
+      },
+    }
+  );
+  await waitFor(() => assert.equal(view.result.current.weeklyRecap.status, 'available'));
+  assert.equal(calls, 1, 'a supplied mount baseline needs one request');
+  const staleBaseline = view.result.current.establishResultBaseline;
+  view.rerender({ slug: 'beta', scores: {} });
+  await waitFor(() => assert.equal(calls, 2));
+  act(() => staleBaseline({ old: forwardScore() }));
+  assert.equal(calls, 2, 'another league cannot replace the current baseline');
+  act(() => {
+    view.result.current.establishResultBaseline({ second: forwardScore() });
+    view.rerender({ slug: 'beta', scores: { second: forwardScore() } });
+  });
+  assert.equal(
+    calls,
+    2,
+    'the new league hydration establishes its own baseline without refetching'
+  );
+  view.rerender({ slug: 'beta', scores: { second: forwardScore(), later: forwardScore(7, 21) } });
+  await waitFor(() =>
+    assert.equal(calls, 3, 'a later result still produces a second request for that league')
+  );
+});

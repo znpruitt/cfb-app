@@ -244,9 +244,12 @@ export function useInsightsFeed(args: {
   scheduleLoaded: boolean;
   nowTick: number;
   enabled?: boolean;
-}): InsightsPayload & { refreshInsights: () => void } {
+}): InsightsPayload & {
+  refreshInsights: () => void;
+  establishResultBaseline: (scores: Record<string, ScorePack>) => void;
+} {
   const { leagueSlug, seasonYear, leagueStatus, scoresByKey, nowTick, enabled = true } = args;
-  const completedResultsKey = useMemo(() => selectCompletedResultsKey(scoresByKey), [scoresByKey]);
+  const observedResultsKey = useMemo(() => selectCompletedResultsKey(scoresByKey), [scoresByKey]);
   const [resolvedResultsKey, setResolvedResultsKey] = useState<string | null>(null);
   const [payload, setPayload] = useState<InsightsPayload>({
     insights: [],
@@ -267,6 +270,22 @@ export function useInsightsFeed(args: {
     ? `${leagueStatus.state}:${'year' in leagueStatus ? leagueStatus.year : 'none'}`
     : 'missing';
   const requestScopeKey = leagueSlug ? `${leagueSlug}:${seasonYear}:${lifecycleKey}` : null;
+  const [baseline, setBaseline] = useState({ scope: requestScopeKey, key: observedResultsKey });
+  const baselineKey = baseline.scope === requestScopeKey ? baseline.key : observedResultsKey;
+  if (baseline.scope !== requestScopeKey) {
+    setBaseline({ scope: requestScopeKey, key: observedResultsKey });
+  }
+  const completedResultsKey = observedResultsKey === baselineKey ? 'baseline' : observedResultsKey;
+  const establishResultBaseline = useCallback(
+    (scores: Record<string, ScorePack>) => {
+      setBaseline((current) =>
+        current.scope === requestScopeKey
+          ? { scope: requestScopeKey, key: selectCompletedResultsKey(scores) }
+          : current
+      );
+    },
+    [requestScopeKey]
+  );
   const eligibilityBoundaryKey =
     nowTick > 0 ? selectWeeklyRecapEligibilityBoundaryKey(new Date(nowTick)) : null;
 
@@ -351,5 +370,6 @@ export function useInsightsFeed(args: {
         ? { ...resolvedPayload.forwardLook, lines: [] }
         : (resolvedPayload?.forwardLook ?? null),
     refreshInsights,
+    establishResultBaseline,
   };
 }

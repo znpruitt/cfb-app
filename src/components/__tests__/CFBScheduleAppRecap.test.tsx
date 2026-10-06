@@ -348,106 +348,155 @@ test('Overview keeps the recap tile before its podium when the schedule succeeds
   );
 });
 
-test('Overview refreshes Forward Look once when its live poll completes an earlier game', async (t) => {
-  let now = new Date('2026-10-10T19:00:00Z');
-  Date.now = () => now.getTime();
-  const oldVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
-  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
-  t.after(() => {
-    if (oldVisibility) Object.defineProperty(document, 'visibilityState', oldVisibility);
-    else delete (document as unknown as Record<string, unknown>).visibilityState;
-  });
-  const context = forwardContext();
-  context.games[0] = forwardGame('prior', 5, '2026-10-03T19:00:00Z', 'Unowned', 'Other');
-  context.games[1].date = '2026-10-10T16:00:00Z';
-  context.games.push(forwardGame('repeat', 6, '2026-10-10T23:00:00Z'));
-  context.scoresByKey = {};
-  addRivalry(context, Array(5).fill('Alice'));
-  const schedule = context.games
-    .filter((game) => game.canonicalWeek === 6)
-    .map((game) => ({
-      id: game.key,
-      week: 6,
-      seasonType: 'regular',
-      startDate: game.date,
-      homeTeam: 'Texas',
-      awayTeam: 'Georgia',
-      homeConference: 'SEC',
-      awayConference: 'SEC',
-      status: 'scheduled',
-      completed: false,
-      neutralSite: false,
-      conferenceGame: true,
-    }));
-  installFetch(schedule, recapPayload, 'team,owner\nTexas,Alice\nGeorgia,Bob\n');
-  const fallback = globalThis.fetch;
-  let scoreCalls = 0;
-  let insightCalls = 0;
-  let final = false;
-  let resolveRefresh: ((response: Response) => void) | undefined;
-  let freshResponse: Response | undefined;
-  globalThis.fetch = (async (input, init) => {
-    const url = String(input);
-    if (url.startsWith('/api/teams'))
-      return jsonResponse({
-        items: [
-          { school: 'Texas', subdivision: 'fbs', conference: 'SEC' },
-          { school: 'Georgia', subdivision: 'fbs', conference: 'SEC' },
-        ],
+for (const existingFinal of [true, false]) {
+  test(
+    existingFinal
+      ? 'Overview seeds existing finals at mount and refreshes for a later final'
+      : 'Overview refreshes Forward Look once when its live poll completes an earlier game',
+    async (t) => {
+      let now = new Date('2026-10-10T19:00:00Z');
+      Date.now = () => now.getTime();
+      const oldVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      t.after(() => {
+        if (oldVisibility) Object.defineProperty(document, 'visibilityState', oldVisibility);
+        else delete (document as unknown as Record<string, unknown>).visibilityState;
       });
-    if (url.startsWith('/api/scores')) {
-      scoreCalls++;
-      return jsonResponse({
-        items: [
-          {
-            id: 'collision',
-            week: 6,
-            seasonType: 'regular',
-            startDate: schedule[0].startDate,
-            status: final ? 'final' : 'inprogress',
-            time: null,
-            home: { team: 'Texas', score: 7 },
-            away: { team: 'Georgia', score: 21 },
-          },
-        ],
-        meta: { source: 'cache', cache: 'hit' },
-      });
+      const context = forwardContext();
+      context.games[0] = forwardGame('prior', 5, '2026-10-03T19:00:00Z', 'Unowned', 'Other');
+      context.games[1].date = '2026-10-10T16:00:00Z';
+      context.games.push(forwardGame('repeat', 6, '2026-10-10T23:00:00Z'));
+      context.scoresByKey = {};
+      if (existingFinal) {
+        context.games.push(forwardGame('baseline-final', 6, '2026-10-10T14:00:00Z'));
+        context.scoresByKey['baseline-final'] = forwardScore(7, 21);
+      }
+      addRivalry(context, Array(5).fill('Alice'));
+      const schedule = context.games
+        .filter((game) => game.canonicalWeek === 6)
+        .map((game) => ({
+          id: game.key,
+          week: 6,
+          seasonType: 'regular',
+          startDate: game.date,
+          homeTeam: 'Texas',
+          awayTeam: 'Georgia',
+          homeConference: 'SEC',
+          awayConference: 'SEC',
+          status: 'scheduled',
+          completed: false,
+          neutralSite: false,
+          conferenceGame: true,
+        }));
+      installFetch(schedule, recapPayload, 'team,owner\nTexas,Alice\nGeorgia,Bob\n');
+      const fallback = globalThis.fetch;
+      let scoreCalls = 0;
+      let insightCalls = 0;
+      let final = false;
+      let resolveBootstrap: ((response: Response) => void) | undefined;
+      let bootstrapResponse: Response | undefined;
+      let resolveRefresh: ((response: Response) => void) | undefined;
+      let freshResponse: Response | undefined;
+      globalThis.fetch = (async (input, init) => {
+        const url = String(input);
+        if (url.startsWith('/api/teams'))
+          return jsonResponse({
+            items: [
+              { school: 'Texas', subdivision: 'fbs', conference: 'SEC' },
+              { school: 'Georgia', subdivision: 'fbs', conference: 'SEC' },
+            ],
+          });
+        if (url.startsWith('/api/scores')) {
+          scoreCalls++;
+          const response = jsonResponse({
+            items: [
+              ...(existingFinal
+                ? [
+                    {
+                      id: 'baseline-final',
+                      week: 6,
+                      seasonType: 'regular',
+                      startDate: '2026-10-10T14:00:00Z',
+                      status: 'final',
+                      time: null,
+                      home: { team: 'Texas', score: 7 },
+                      away: { team: 'Georgia', score: 21 },
+                    },
+                  ]
+                : []),
+              {
+                id: 'collision',
+                week: 6,
+                seasonType: 'regular',
+                startDate: schedule[0].startDate,
+                status: final ? 'final' : 'inprogress',
+                time: null,
+                home: { team: 'Texas', score: existingFinal && final ? 21 : 7 },
+                away: { team: 'Georgia', score: existingFinal && final ? 7 : 21 },
+              },
+            ],
+            meta: { source: 'cache', cache: 'hit' },
+          });
+          if (scoreCalls === 1) {
+            bootstrapResponse = response;
+            return new Promise<Response>((resolve) => {
+              resolveBootstrap = resolve;
+            });
+          }
+          return response;
+        }
+        if (url.startsWith('/api/insights/')) {
+          insightCalls++;
+          const response = jsonResponse({
+            ...recapPayload,
+            forwardLook: composeForwardLook({ status: 'available', context }, now, FORWARD_SCOPE),
+          });
+          if (insightCalls === 1) return response;
+          freshResponse = response;
+          return new Promise<Response>((resolve) => {
+            resolveRefresh = resolve;
+          });
+        }
+        return fallback(input, init);
+      }) as typeof fetch;
+      const rendered = renderApp();
+      await waitFor(() => assert.equal(scoreCalls, 1));
+      await act(async () => resolveBootstrap!(bootstrapResponse!));
+      assert.equal(
+        insightCalls,
+        1,
+        existingFinal
+          ? 'existing finals at mount produce exactly one Insights request'
+          : 'nonfinal bootstrap does not duplicate the Insights request'
+      );
+      const oldHeading = existingFinal ? /meet one win apart/ : /can break their wins tie/;
+      const newHeading = existingFinal ? /can break their wins tie/ : /meet one win apart/;
+      await waitFor(() => assert.ok(rendered.getByRole('heading', { name: oldHeading })));
+      final = true;
+      context.scoresByKey.collision = existingFinal ? forwardScore(21, 7) : forwardScore(7, 21);
+      now = new Date('2026-10-10T19:03:00Z');
+      act(() => window.dispatchEvent(new dom.window.Event('focus')));
+      await waitFor(() => assert.equal(scoreCalls, 2));
+      await waitFor(() =>
+        assert.equal(
+          insightCalls,
+          2,
+          'the completed-result signal uses exactly one existing refresh'
+        )
+      );
+      await waitFor(() => assert.ok(rendered.getByRole('heading', { name: 'Week 6 ahead' })));
+      assert.equal(
+        rendered.queryByRole('heading', { name: oldHeading }) === null,
+        true,
+        'live result invalidates the old claim before the response'
+      );
+      await act(async () => resolveRefresh!(freshResponse!));
+      await waitFor(() => assert.ok(rendered.getByRole('heading', { name: newHeading })));
+      assert.equal(
+        insightCalls,
+        2,
+        'finalization callback does not issue a second Insights refresh'
+      );
     }
-    if (url.startsWith('/api/insights/')) {
-      insightCalls++;
-      const response = jsonResponse({
-        ...recapPayload,
-        forwardLook: composeForwardLook({ status: 'available', context }, now, FORWARD_SCOPE),
-      });
-      if (insightCalls === 1) return response;
-      freshResponse = response;
-      return new Promise<Response>((resolve) => {
-        resolveRefresh = resolve;
-      });
-    }
-    return fallback(input, init);
-  }) as typeof fetch;
-  const rendered = renderApp();
-  await waitFor(() => assert.equal(scoreCalls, 1));
-  await waitFor(() =>
-    assert.ok(rendered.getByRole('heading', { name: /can break their wins tie/ }))
   );
-  assert.equal(insightCalls, 1, 'nonfinal bootstrap does not duplicate the Insights request');
-  final = true;
-  context.scoresByKey.collision = forwardScore(7, 21);
-  now = new Date('2026-10-10T19:03:00Z');
-  act(() => window.dispatchEvent(new dom.window.Event('focus')));
-  await waitFor(() => assert.equal(scoreCalls, 2));
-  await waitFor(() =>
-    assert.equal(insightCalls, 2, 'the completed-result signal uses exactly one existing refresh')
-  );
-  await waitFor(() => assert.ok(rendered.getByRole('heading', { name: 'Week 6 ahead' })));
-  assert.equal(
-    rendered.queryByRole('heading', { name: /can break their wins tie/ }) === null,
-    true,
-    'live result invalidates the old claim before the response'
-  );
-  await act(async () => resolveRefresh!(freshResponse!));
-  await waitFor(() => assert.ok(rendered.getByRole('heading', { name: /meet one win apart/ })));
-  assert.equal(insightCalls, 2, 'finalization callback does not issue a second Insights refresh');
-});
+}

@@ -1075,6 +1075,7 @@ export default function CFBScheduleApp({
     lifecycleState: insightsLifecycleState,
     weeklyRecap: weeklyRecapResponse,
     forwardLook: forwardLookResponse,
+    establishResultBaseline,
   } = useInsightsFeed({
     leagueSlug,
     seasonYear: selectedSeason,
@@ -1096,6 +1097,7 @@ export default function CFBScheduleApp({
   }, [router]);
 
   const { liveScoreObservation } = useLiveRefresh({
+    onScoreBaseline: establishResultBaseline,
     selectedSeason,
     selectedTab,
     selectedWeek,
