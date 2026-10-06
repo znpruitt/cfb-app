@@ -734,6 +734,30 @@ exception's justification.** The exception exists for one narrow defect, asked f
 SECOND occurrence of "my fix broke the next thing" is the two-round trigger above firing, and the
 answer is to rebuild, not to patch a third time.
 
+**"WRONG MODEL" MEANS THE MECHANISM, NOT THE CONCEPT — AND THE TEST IS OPERATIONAL.** Added
+2026-10-06 after planning overrode this trigger on INSIGHTS-026c and was proved wrong one round later.
+
+**The test: if each round's fix lands INSIDE the mechanism the previous round added, the mechanism IS
+the model and it is wrong** — however sound the feature's concept is. Four rounds on 026c produced
+four P2s, each one layer inside the last: forward claims go stale → the held payload keeps a broken
+streak → an empty baseline reads every existing final as new → a final landing between two fetches is
+absorbed into that baseline. **Not four bugs. One wrong mechanism surfacing one layer in each time.**
+
+**The lane invoked the trigger correctly and planning talked it out of it**, arguing "the model is
+right, the bug is local." The concept — compose forward stories, invalidate when results change — was
+right and stayed right. **The MECHANISM was "diff two independently-fetched client-held async sources",
+which was wrong from round zero and could not be patched into correctness.** Judging the concept and
+calling it the model is how a count-based trigger gets overridden by a confident reading.
+
+**So when overriding this trigger, name the mechanism the rounds have been patching and say why THAT
+is sound** — not why the feature is a good idea. If you cannot name it separately from the concept,
+you have not done the check.
+
+**Scope the rebuild to what earned it.** 026c's composer, families, tile, rendering and changeover were
+correct across four passes; only the invalidation component was wrong, and it was re-derived as its own
+item ([#888](https://github.com/znpruitt/cfb-app/issues/888)) rather than by discarding the slice. **A
+trigger that fires on a branch does not mean the branch is the unit to rebuild.**
+
 **And the sizing signal fires FIRST, which is the cheaper place to stop.** PLATFORM-757a's original
 implementation was already ~2,700 insertions against an approved ~1,500, before any reviewer saw it;
 review remediation then added ~1,400 more, ending at 32 files and ~4,100 insertions. **The mandatory-split
