@@ -121,6 +121,24 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### INSIGHTS-026C-FORWARD-LOOK-CODEX-v1
+
+- Purpose: Fill Overview's Thursday-to-next-recap gap with immediate-week league stakes; closes
+  [#886](https://github.com/znpruitt/cfb-app/issues/886) on merge.
+- Scope: Existing recap gather/calendar, three independent selectors, transport and expandable
+  narrative tile. No new data path, provider call, watchlist ranker or scoreboard change.
+- Outcome: Already-kicked candidates excluded; odds limited to the immediate week and less than
+  24 hours old. Aggregate rivalry tightness is separate from ordered streaks. Applicable empty
+  weeks retain their label. Client expiry precedes story deduplication and caps (two per family,
+  five total), allowing later games to replace expired stories. Recap and preview failures are
+  isolated, and the full recap page avoids preview assembly.
+- Review / verification: Both independent reviews completed on `82c68872`; one cohesive remediation
+  at `2ec3634a`, followed by both confirming passes. Codex was clean; `/code-review` exposed a remaining
+  same-day narrative freshness defect, reproduced and treated as P2. No second remediation. Lint, types, build
+  and 5,641 tests passed with zero skips; 23 tests added, none removed. Twenty-eight mutation/observer
+  checks failed their intended assertions. [Evidence and dispositions](campaigns/insights-026c-forward-look-verification.md).
+- Status: Implemented, review blocked — [PR #887](https://github.com/znpruitt/cfb-app/pull/887) draft; not merged.
+
 ### PLATFORM-836-REGISTRY-FAIL-CLOSED-CLAUDE-v1
 
 - Purpose: `mutateRegistry` repeated the exact collapse `readLeagueRegistry`'s docblock calls "the collapse this reader exists to prevent", twenty lines below it. Under a malformed registry every mutator ran against a fabricated `[]`, so league creation's duplicate-slug check passed vacuously AND `addLeague` then WROTE `[newLeague]` over the corrupt value — converting a recoverable corruption into an unrecoverable registry that reports `ok`, with every other league's data surviving under its slug and unreachable.

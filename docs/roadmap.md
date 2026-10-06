@@ -180,7 +180,7 @@ shows.
 
 Full-page view of all insights for a league, accessible via "See all →" from the overview panel. Grouped by category, full descriptions, lifecycle filtering.
 
-#### Insights Engine — Two Weekly In-Season Pulses (request-time Look Back complete — INSIGHTS-026)
+#### Insights Engine — Two Weekly In-Season Pulses (Look Back complete; Forward Look implemented, review blocked — INSIGHTS-026)
 
 > **ID note (2026-08-14):** this campaign was filed under `INSIGHTS-018`, which the backlog also used
 > for the NEW-tag mechanism. Split to `INSIGHTS-026` so a content campaign stops hiding behind a
@@ -202,8 +202,13 @@ Full-page view of all insights for a league, accessible via "See all →" from t
 > recap for the league's exact active season and immediately preceding eligible week; existing
 > standing/durable insights remain independent. Results, leaders, movement, head-to-head outcomes,
 > accolades, record changes, and odds upsets are all wired. The immutable artifact/event-source
-> portion remains open. Forward Look targets the immediate upcoming canonical week and needs its own
-> schedule/rankings inputs.
+> portion remains open.
+>
+> **Forward Look implemented, review blocked (2026-10-06):** the compact Overview occupant targets the
+> immediate upcoming canonical week using the existing recap gather. It derives standings stakes,
+> ordered rivalry history and fresh odds risk, taking over the same slot at the Thursday cutoff.
+> Applicable empty weeks retain orientation. The receipt corrected the prior claim that separate
+> schedule/rankings inputs were needed. See the [execution record](prompt-registry.md#insights-026c-forward-look-codex-v1).
 
 Enrich the existing insights panel on the overview page with contextual, data-driven narrative content. The panel structure is already built — this campaign populates it with meaningful insights that adapt automatically based on lifecycle state (offseason / preseason / in-season / postseason).
 
@@ -224,8 +229,8 @@ Insights page. No dedicated pulse route or navigation entry.
 - **Look Back:** Request-time weekend recap after the previous week's next-day 06:00 ET eligibility
   cutoff — notable results, standings movement, trash-talk fodder, owner-vs-owner outcomes, and
   surprising performances
-- **Forward Look:** Future schedule/rankings preview for the immediate upcoming canonical week —
-  games to watch, owner-vs-owner collision previews, rivalry implications, and who needs a win
+- **Forward Look:** Narrative league stakes for the immediate upcoming canonical week — standings
+  implications, rivalry implications and fresh upset risk, using unstarted games
 
 **Data sources (tiered by availability):**
 

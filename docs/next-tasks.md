@@ -253,20 +253,14 @@ reason is a property no other open item has: its value DECAYS.** Every other ite
 waits. A week of preview content that was never shown cannot be shown later — the owner's words:
 *"we're losing weeks of content by allowing it to languish."*
 
-**Overview's elevated timely-content zone renders NOTHING from the Thursday 06:00 ET recap cutoff
-until the next week's results become eligible** — most of every football week, including the whole
-game weekend. `selectWeeklyRecapTileState` already returns `'upcoming'` at exactly the right moment
-and **both its consumers read that as "render nothing"** (`CFBScheduleApp.tsx:1149`,
-`overviewGameSections.ts:193`). The state was never the problem; nothing was listening to it.
+Implementation is stopped after the one authorized remediation in [PR #887](https://github.com/znpruitt/cfb-app/pull/887).
+The final review reproduced stale standings/streak claims after an earlier result; owner disposition
+is required before further code work. The item retains top priority. The existing gather supports
+all three families; the data-path stop trigger did not fire.
 
-**It languished for a mechanical reason worth not repeating:** it was portion 3 of a three-portion
-issue (#637), and nobody takes a third of an issue, so all three sat. Split out 2026-10-06.
-
-Kickoff: [`docs/prompts/insights-026c-forward-look-codex-v1.md`](prompts/insights-026c-forward-look-codex-v1.md).
-Rulings in `DESIGN.md` → *Elevated timely-content zone*: one tile replacing the recap in the same slot,
-narrative lines rather than a second game list, expandable, and **it must not consume
-`watchlistPriority`** — measured 2026-10-06, that ranker scores a rivalry collision with a title race
-riding on it at **0** unless a team is AP-ranked, because not one of its terms knows about owners.
+Kickoff: [`INSIGHTS-026C-FORWARD-LOOK-CODEX-v1`](prompts/insights-026c-forward-look-codex-v1.md).
+The settled owner rulings remain in `DESIGN.md` → *Elevated timely-content zone*; execution evidence
+is in the [prompt registry](prompt-registry.md#insights-026c-forward-look-codex-v1).
 
 ### DISPATCH ORDER — AUDIT-FIRST, owner decision 2026-09-09
 
