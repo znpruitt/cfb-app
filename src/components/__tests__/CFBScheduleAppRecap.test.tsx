@@ -174,12 +174,20 @@ test('Overview replaces the recap at the real cutoff and keeps an empty Forward 
   );
   let rendered = renderApp();
   await waitFor(() => assert.ok(rendered.getByText('Weekly recap')));
-  assert.equal(rendered.queryByText('Forward look'), null, 'recap owns the pre-cutoff slot');
+  assert.equal(
+    rendered.queryByText('Forward look') === null,
+    true,
+    'recap owns the pre-cutoff slot'
+  );
   rendered.unmount();
   Date.now = () => FORWARD_NOW.getTime();
   rendered = renderApp();
   await waitFor(() => assert.ok(rendered.getByRole('heading', { name: 'Week 6 ahead' })));
-  assert.equal(rendered.queryByText('Weekly recap'), null, 'exact cutoff replaces the recap');
+  assert.equal(
+    rendered.queryByText('Weekly recap') === null,
+    true,
+    'exact cutoff replaces the recap'
+  );
   const tile = rendered.getByText('Forward look').closest('section')!;
   await waitFor(() => assert.ok(rendered.getByText('League summary')));
   const podium = rendered.getByText('League summary').closest('section')!;

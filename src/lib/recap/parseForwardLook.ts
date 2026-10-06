@@ -29,7 +29,9 @@ export function parseForwardLook(value: unknown): ForwardLook | null {
     (line): line is ForwardLookLine =>
       record(line) &&
       ['standings', 'rivalry', 'upset'].includes(String(line.family)) &&
-      ['id', 'gameKey', 'title', 'detail', 'value'].every((key) => typeof line[key] === 'string') &&
+      ['id', 'storyKey', 'gameKey', 'title', 'detail', 'value'].every(
+        (key) => typeof line[key] === 'string'
+      ) &&
       typeof line.priorityScore === 'number' &&
       Number.isFinite(line.priorityScore) &&
       typeof line.expiresAt === 'number' &&

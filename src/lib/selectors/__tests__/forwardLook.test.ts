@@ -286,6 +286,7 @@ test('Forward Look merger enforces a per-family cap independently of total slots
     priorityScore: number
   ): ForwardLookLine => ({
     id: `${family}-${n}`,
+    storyKey: `${family}-${n}`,
     family,
     gameKey: String(n),
     title: 'Title',
@@ -379,4 +380,121 @@ test('Forward Look payload parsing isolates malformed lines from the recap trans
   );
   assert.equal(parseForwardLook({ ...look, target: look.recapTarget }), null);
   assert.equal(parseForwardLook(undefined), null);
+});
+
+test('Forward Look backfills expired stories and deduplicates repeated owner pairs before capping', () => {
+  const context = forwardContext();
+  context.odds = { status: 'unavailable' };
+  context.scoresByKey = {};
+  context.games.push(forwardGame('repeat', 6, '2026-10-10T23:00:00Z', 'Georgia', 'Texas'));
+  for (let i = 0; i < 4; i++) {
+    const home = `Home ${i}`;
+    const away = `Away ${i}`;
+    context.rosterByTeam.set(home, `Owner H${i}`);
+    context.rosterByTeam.set(away, `Owner A${i}`);
+    context.games.push(forwardGame(`other-${i}`, 6, '2026-10-10T23:00:00Z', home, away));
+  }
+  const look = composeForwardLook({ status: 'available', context }, FORWARD_NOW, FORWARD_SCOPE)!;
+  assert.equal(look.lines.length, 6, 'transport retains candidates beyond the display cap');
+  const first = selectVisibleForwardLook(look, FORWARD_NOW)!;
+  assert.equal(first.lines.length, 2);
+  assert.equal(
+    new Set(first.lines.map((line) => line.storyKey)).size,
+    2,
+    'one story per owner pair per family'
+  );
+  const late = selectVisibleForwardLook(look, new Date('2026-10-10T20:00:00Z'))!;
+  assert.equal(late.lines.length, 2, 'eligible evening stories backfill expired daytime stories');
+  assert.equal(
+    late.lines.some((line) => line.gameKey === 'collision'),
+    false
+  );
+  assert.equal(
+    late.lines.some((line) => line.gameKey === 'repeat'),
+    true,
+    'a repeated pair can replace its expired earlier meeting'
+  );
+
+  context.scoresByKey.prior = forwardScore();
+  addRivalry(context, ['Bob', 'Alice', 'Alice']);
+  const rivalries = selectForwardRivalries(selectForwardLookInputs(context, FORWARD_NOW)!);
+  assert.equal(rivalries.length, 2);
+  assert.equal(
+    mergeForwardLookLines([rivalries]).length,
+    1,
+    'reversed home-away rivalry pairs share one slot'
+  );
+});
+
+test('Forward Look standings use the canonical final-score population even without kickoff dates', () => {
+  const context = forwardContext();
+  context.games[0].date = null;
+  context.games.push(forwardGame('dated-prior', 5, '2026-10-03T19:00:00Z', 'Unowned', 'Other'));
+  const inputs = selectForwardLookInputs(context, FORWARD_NOW)!;
+  assert.equal(
+    inputs.standings.find((row) => row.owner === 'Alice')?.wins,
+    1,
+    'undated finals still count toward canonical wins'
+  );
+});
+
+test('Forward Look canceled meetings do not break streaks but unresolved meetings suppress live claims', () => {
+  const context = forwardContext();
+  const archive = addRivalry(context, ['Bob', 'Alice', 'Alice', 'Alice']);
+  const lines = () => selectForwardRivalries(selectForwardLookInputs(context, FORWARD_NOW)!);
+  assert.equal(lines()[0]?.value, '4 straight');
+  const canceled = forwardGame('canceled', 5, '2026-10-04T19:00:00Z');
+  context.games.push(canceled);
+  for (const source of ['rawStatus', 'score'] as const) {
+    canceled.status = 'scheduled';
+    canceled.rawStatus = 'scheduled';
+    delete context.scoresByKey.canceled;
+    if (source === 'score')
+      context.scoresByKey.canceled = { ...forwardScore(), status: 'STATUS_CANCELED' };
+    else canceled[source] = 'STATUS_CANCELED';
+    assert.equal(lines()[0]?.value, '4 straight', `${source} cancellation is not a meeting result`);
+  }
+  context.scoresByKey.canceled = { ...forwardScore(), status: 'inprogress' };
+  assert.deepEqual(lines(), [], 'unresolved intervening meeting prevents a live-streak promise');
+  context.games.pop();
+  archive.games.push({
+    ...forwardGame('old-canceled', 9, '2025-11-01T19:00:00Z'),
+    rawStatus: 'canceled',
+  });
+  assert.equal(
+    lines()[0]?.value,
+    '4 straight',
+    'archived cancellation preserves the ordered winning run'
+  );
+});
+
+test('Forward Look family failures leave the other families and the week frame available', () => {
+  const context = forwardContext();
+  Object.defineProperty(context.records, 'archives', {
+    get() {
+      throw new Error('rivalry fault');
+    },
+  });
+  assert.doesNotThrow(
+    () => composeForwardLook({ status: 'available', context }, FORWARD_NOW, FORWARD_SCOPE),
+    'family exception does not abort composition'
+  );
+  const look = composeForwardLook({ status: 'available', context }, FORWARD_NOW, FORWARD_SCOPE)!;
+  assert.deepEqual(
+    look.lines.map((line) => line.family),
+    ['standings', 'upset'],
+    'rivalry exception does not erase healthy families'
+  );
+  Object.defineProperty(context, 'odds', {
+    get() {
+      throw new Error('odds fault');
+    },
+  });
+  const fewer = composeForwardLook({ status: 'available', context }, FORWARD_NOW, FORWARD_SCOPE)!;
+  assert.deepEqual(
+    fewer.lines.map((line) => line.family),
+    ['standings'],
+    'odds exception does not erase standings'
+  );
+  assert.equal(selectVisibleForwardLook(fewer, FORWARD_NOW)?.weekLabel, 'Week 6');
 });

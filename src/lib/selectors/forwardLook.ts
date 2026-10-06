@@ -13,6 +13,7 @@ import {
 export type ForwardLookFamily = 'standings' | 'rivalry' | 'upset';
 export type ForwardLookLine = {
   id: string;
+  storyKey: string;
   family: ForwardLookFamily;
   gameKey: string;
   title: string;
@@ -67,14 +68,13 @@ export function selectForwardLookInputs(
       (!score || classifyStatusLabel(score.status) === 'scheduled')
     );
   });
-  const playedGames = context.games.filter((game) => Date.parse(game.date ?? '') <= now.getTime());
   return {
     context,
     now,
     recapTarget,
     target,
     games,
-    standings: deriveStandings(playedGames, context.rosterByTeam, context.scoresByKey).rows,
+    standings: deriveStandings(context.games, context.rosterByTeam, context.scoresByKey).rows,
   };
 }
 
@@ -98,6 +98,7 @@ export function selectForwardStandings(inputs: ForwardLookInputs): ForwardLookLi
     return [
       {
         id: `standings:${game.key}`,
+        storyKey: `standings:${JSON.stringify([owners.home, owners.away].sort())}`,
         family: 'standings' as const,
         gameKey: game.key,
         title:
@@ -150,6 +151,7 @@ export function selectForwardUpsets(inputs: ForwardLookInputs): ForwardLookLine[
       return [
         {
           id: `upset:${game.key}:${owner}`,
+          storyKey: `upset:${game.key}:${owner}`,
           family: 'upset' as const,
           gameKey: game.key,
           title: `${owner} needs ${team} to beat the odds`,
@@ -172,8 +174,8 @@ export function mergeForwardLookLines(families: ForwardLookLine[][]): ForwardLoo
   return ranked
     .filter((line) => {
       const count = counts.get(line.family) ?? 0;
-      if (seen.has(line.id) || count >= FORWARD_LOOK_FAMILY_CAP) return false;
-      seen.add(line.id);
+      if (seen.has(line.storyKey) || count >= FORWARD_LOOK_FAMILY_CAP) return false;
+      seen.add(line.storyKey);
       counts.set(line.family, count + 1);
       return true;
     })
@@ -187,5 +189,8 @@ export function selectVisibleForwardLook(value: ForwardLook | null, now: Date): 
     selectWeeklyRecapTileState(value.target, now) !== 'hidden'
   )
     return null;
-  return { ...value, lines: value.lines.filter((line) => line.expiresAt > now.getTime()) };
+  return {
+    ...value,
+    lines: mergeForwardLookLines([value.lines.filter((line) => line.expiresAt > now.getTime())]),
+  };
 }

@@ -1,6 +1,9 @@
 import type { LeagueStatus } from '../league.ts';
 import { composeWeeklyRecap, type WeeklyRecapViewModel } from './composeWeeklyRecap.ts';
-import { loadRecapContextForSeasonScope } from './loadRecapContext.ts';
+import {
+  loadRecapContextForSeasonScope,
+  type WeeklyRecapContextResult,
+} from './loadRecapContext.ts';
 import { composeForwardLook } from './composeForwardLook.ts';
 import type { ForwardLook } from '../selectors/forwardLook.ts';
 
@@ -18,12 +21,15 @@ export async function loadTimelyContent(args: {
   try {
     const recapContext = await loadRecapContextForSeasonScope(args);
     if (!recapContext) return { weeklyRecap: { status: 'inactive' }, forwardLook: null };
-    return {
-      weeklyRecap: composeWeeklyRecap(recapContext, args.now, args),
-      forwardLook: composeForwardLook(recapContext, args.now, args),
-    };
+    let forwardLook: ForwardLook | null = null;
+    try {
+      forwardLook = composeForwardLook(recapContext, args.now, args);
+    } catch {
+      // The recap remains available if the preview cannot be assembled.
+    }
+    return { weeklyRecap: safeRecap(recapContext, args), forwardLook };
   } catch {
-    // The standing Insights feed remains usable when recap-only assembly fails.
+    // The standing Insights feed remains usable when the shared gather fails.
     return { weeklyRecap: { status: 'unavailable' }, forwardLook: null };
   }
 }
@@ -31,5 +37,21 @@ export async function loadTimelyContent(args: {
 export async function loadWeeklyRecap(
   args: Parameters<typeof loadTimelyContent>[0]
 ): Promise<WeeklyRecapViewModel> {
-  return (await loadTimelyContent(args)).weeklyRecap;
+  try {
+    const context = await loadRecapContextForSeasonScope(args);
+    return context ? safeRecap(context, args) : { status: 'inactive' };
+  } catch {
+    return { status: 'unavailable' };
+  }
+}
+
+function safeRecap(
+  context: WeeklyRecapContextResult,
+  args: Parameters<typeof loadTimelyContent>[0]
+): WeeklyRecapViewModel {
+  try {
+    return composeWeeklyRecap(context, args.now, args);
+  } catch {
+    return { status: 'unavailable' };
+  }
 }

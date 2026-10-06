@@ -1,6 +1,7 @@
 'use client';
 
 import { useId, useState } from 'react';
+import { RecapHeader } from './RecapPrimitives';
 import type { ForwardLook } from '@/lib/selectors/forwardLook';
 
 export default function ForwardLookTile({ look }: { look: ForwardLook }): React.ReactElement {
@@ -9,18 +10,13 @@ export default function ForwardLookTile({ look }: { look: ForwardLook }): React.
   const panelId = useId();
   return (
     <section aria-labelledby={headingId} className="rounded-lg bg-zinc-900 px-6 py-6 sm:px-7">
-      <header>
-        <div className="flex items-baseline gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-zinc-400">
-          <p>Forward look</p>
-          <p>{look.weekLabel}</p>
-        </div>
-        <h2
-          id={headingId}
-          className="mt-2.5 max-w-2xl text-[21px] font-semibold leading-[1.2] tracking-[-0.01em] text-zinc-50"
-        >
-          {look.lines[0]?.title ?? `${look.weekLabel} ahead`}
-        </h2>
-      </header>
+      <RecapHeader
+        headingId={headingId}
+        headline={look.lines[0]?.title ?? `${look.weekLabel} ahead`}
+        weekLabel={look.weekLabel}
+        eyebrow="Forward look"
+        compact
+      />
       {look.lines.length > 0 ? (
         <>
           <div id={panelId} hidden={!expanded} className="mt-5 border-t border-zinc-800 pt-5">

@@ -48,7 +48,11 @@ test('Forward Look disclosure renders narrative lines in normal flow and collaps
     /absolute|fixed|overflow|max-h-/,
     'disclosure pushes content down'
   );
-  assert.equal(panel.querySelector('article'), null, 'narratives are not scoreboard cards');
+  assert.equal(
+    panel.querySelector('article') === null,
+    true,
+    'narratives are not scoreboard cards'
+  );
   fireEvent.click(view.getByRole('button', { name: 'Collapse' }));
   assert.equal(panel.hidden, true);
 });
@@ -83,5 +87,5 @@ test('Forward Look renders with each family independently empty and with every f
   }
   const empty = render(<ForwardLookTile look={{ ...look, lines: [] }} />);
   assert.ok(empty.getByRole('heading', { name: 'Week 6 ahead' }), 'empty tile names its week');
-  assert.equal(empty.queryByRole('button'), null, 'empty tile has no empty disclosure');
+  assert.equal(empty.queryByRole('button') === null, true, 'empty tile has no empty disclosure');
 });

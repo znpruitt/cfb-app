@@ -1,15 +1,23 @@
 import type { LeagueStatus } from '../league.ts';
 import {
-  mergeForwardLookLines,
   selectForwardLookInputs,
   selectForwardStandings,
   selectForwardUpsets,
   type ForwardLook,
+  type ForwardLookLine,
 } from '../selectors/forwardLook.ts';
 import { selectForwardRivalries } from '../selectors/forwardLookRivalries.ts';
 import { isWeeklyRecapActiveSeason } from '../selectors/weeklyRecapFacts.ts';
 import { buildWeekLabelMap, formatWeekLabel } from '../weekLabel.ts';
 import type { WeeklyRecapContextResult } from './loadRecapContext.ts';
+
+function familyLines(select: () => ForwardLookLine[]): ForwardLookLine[] {
+  try {
+    return select();
+  } catch {
+    return [];
+  }
+}
 
 export function composeForwardLook(
   result: WeeklyRecapContextResult,
@@ -32,10 +40,10 @@ export function composeForwardLook(
     weekLabel: labels.has(inputs.target.week)
       ? formatWeekLabel(inputs.target.week, labels)
       : `Week ${inputs.target.week}`,
-    lines: mergeForwardLookLines([
-      selectForwardStandings(inputs),
-      selectForwardRivalries(inputs),
-      selectForwardUpsets(inputs),
-    ]),
+    lines: [
+      ...familyLines(() => selectForwardStandings(inputs)),
+      ...familyLines(() => selectForwardRivalries(inputs)),
+      ...familyLines(() => selectForwardUpsets(inputs)),
+    ],
   };
 }

@@ -1,5 +1,5 @@
 import { displayOwner, getGameOwners } from '../gameOwnership.ts';
-import { hasUsableFinalScore } from '../gameStatus.ts';
+import { hasUsableFinalScore, isCanceledStatusLabel } from '../gameStatus.ts';
 import type { AppGame } from '../schedule.ts';
 import type { ScorePack } from '../scores.ts';
 import {
@@ -56,8 +56,10 @@ export function selectForwardRivalries(inputs: ForwardLookInputs): ForwardLookLi
     roster: Map<string, string>
   ) => {
     for (const game of games) {
+      const score = scores[game.key];
       if (
         game.isPlaceholder ||
+        [game.status, game.rawStatus, score?.status].some(isCanceledStatusLabel) ||
         (year === inputs.context.seasonYear &&
           !(Date.parse(game.date ?? '') <= inputs.now.getTime()))
       )
@@ -67,7 +69,6 @@ export function selectForwardRivalries(inputs: ForwardLookInputs): ForwardLookLi
       const away = displayOwner(awayOwner);
       if (!home || !away || home === away || seen.has(`${year}:${game.key}`)) continue;
       seen.add(`${year}:${game.key}`);
-      const score = scores[game.key];
       const winner =
         hasUsableFinalScore(score) &&
         Number.isFinite(score.home.score) &&
@@ -116,6 +117,7 @@ export function selectForwardRivalries(inputs: ForwardLookInputs): ForwardLookLi
     return [
       {
         id: `rivalry:${game.key}`,
+        storyKey: `rivalry:${pairKey(owners.home, owners.away)}`,
         family: 'rivalry' as const,
         gameKey: game.key,
         title: running

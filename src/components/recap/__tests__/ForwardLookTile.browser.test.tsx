@@ -37,7 +37,8 @@ async function markup(): Promise<string> {
     (await readFile(from, 'utf8')).replace(
       "@import 'tailwindcss';",
       "@import 'tailwindcss' source(none);"
-    ) + "\n@source '../components/recap/ForwardLookTile.tsx';";
+    ) +
+    "\n@source '../components/recap/ForwardLookTile.tsx';\n@source '../components/recap/RecapPrimitives.tsx';";
   const css = (await postcss([tailwindcss()]).process(source, { from })).css;
   return `<!doctype html><html class="dark"><head><meta charset="utf-8"><style>${css}</style></head>
     <body style="background:#09090b;padding:16px"><div id="root"></div><section id="podium">Season podium</section>
