@@ -29,6 +29,65 @@ CARRIES: From INSIGHTS-026 (`docs/roadmap.md:219-228`), the campaign's own words
 
 ---
 
+## RECEIPT ADJUDICATED 2026-10-06 — proceed. All six corrections accepted; three change the work
+
+**The stop trigger does NOT fire.** No family needs a new data path, verified by running the real
+loader against a production snapshot. **The single-slice scope holds.**
+
+### Corrections that change what you build
+
+1. **`'upcoming'` does NOT mean the next week is unplayed.** Week 6 carries three kickoffs before the
+   Thursday cutoff. **Planning wrote the false version into `DESIGN.md` and it is now corrected there.**
+   **Consequence: the composer must not assume every game ahead of it is unplayed.** A preview that
+   previews a finished game is wrong. Decide explicitly what happens to an already-kicked game in the
+   upcoming week — exclude it, or treat it as context — and say which.
+
+2. **Odds availability is not odds freshness, and coverage collapses past the current week.** Your own
+   table: **week 6 had 58 lines for 58 games; week 8 had 4 for 56; week 11 had 6 for 67** — and the
+   week-8 lines were captured September 4-5, a month stale.
+   **So upset risk is viable ONLY because this tile's scope is the immediate upcoming week.** Build it
+   that way deliberately, with a staleness guard, and do not let it be extended to later weeks later —
+   a month-old spread is not a current one. State the guard's threshold and why.
+
+3. **Streaks need the ordered meeting sequence.** A 9-1 aggregate is not a nine-game streak, and
+   `selectAllTimeHeadToHead` gives aggregates. **The rivalry family's "distance from even" needs both**
+   — the aggregate for tightness, the ordered sequence for a live streak. That is more derivation than
+   this prompt implied.
+
+### Corrections to this prompt's claims, accepted
+
+4. **Standings are DERIVABLE from the gather, not already computed in it.** This prompt said "already
+   in the build". You derived 15 real-owner rows via `deriveStandings`; that is work, not a lookup.
+
+5. **Planning's 304/302/309 were RAW schedule rows — the wrong population.** The normalized gather
+   holds 59/56/67 for those weeks. **The collision counts reproduce exactly (50/50/62)**, which are the
+   figures the design rested on, so the conclusion stands and the denominator was mislabelled. That is
+   planning failing its own name-the-population rule.
+
+6. **The Insights merge does NOT cap per family.** It sorts engine insights by `priorityScore`
+   descending, appends unseen-ID fallbacks to five, and slices. **So "follow that pattern" was wrong
+   where it met this prompt's own per-family cap requirement.** Follow the pattern for merge and slot
+   discipline; **the per-family cap is an ADDITIONAL, explicit requirement** and it needs its own test.
+
+7. **The recap primitives need adaptation, not reuse.** The disclosure frame and compact two-line
+   presentation carry over. `MovementList` carries retrospective labels, and `TileHighlightsList`
+   renders `RecordChangeRow` or `GameScoreboard` rather than generic narrative lines. Budget for new
+   line renderers; the frame is what you inherit.
+
+### Acceptance 6 was wrong and is REPLACED — this is the ruling that matters most
+
+This prompt asked for a "stated state" when out of season, which contradicts `DESIGN.md`'s
+"inapplicable renders nothing". **You were right that the canonical rule governs.** But the conflict
+exposed a case neither document covered, and it is now ruled in `DESIGN.md`:
+
+- **Inapplicable** — out of season, no league, no week — **renders nothing.** Unchanged.
+- **Applicable but empty** — in season, `'upcoming'`, and no family produced a line — **still renders.**
+  At minimum it names the week ahead.
+
+**Collapsing the zone because a selector returned an empty list reproduces the exact defect this
+occupant exists to fix**, and it would do it on the quiet weeks a member most needs orientation.
+Acceptance 6 below is rewritten to this.
+
 ## Why this is urgent in a way the rest of the backlog is not
 
 **Every other open item is accumulating risk. This one has decaying value.** A bug waits; a week of
@@ -63,7 +122,7 @@ Planning verified it, and the whole single-slice scope rests on it:
 
 | gathered | serves |
 | --- | --- |
-| `assembleSeasonScoredBuild` — the whole season, **including future weeks** | all three families |
+| `assembleSeasonScoredBuild` — the whole season, **including future weeks** | all three families (standings are DERIVED from it, not read) |
 | `rosterByTeam` — owner ↔ team | collisions, rivalries |
 | season archives + historical rosters | rivalry history |
 | odds by game key | upset risk |
@@ -94,13 +153,18 @@ list twenty pixels below it**, which is the duplication `DESIGN.md` now forbids.
 
 ## The three families
 
-**Measured against production, 2026-10-06** — the live schedule joined to the 2026 draft (135 picks):
+**Measured against production, 2026-10-06** — the live schedule joined to the 2026 draft (135 picks),
+then **re-measured by the lane against the NORMALIZED gather**, which is the population that matters:
 
-| week | games | involving a drafted team | **owner-vs-owner collisions** |
-| --- | --- | --- | --- |
-| 5 | 304 | 59 | **50** |
-| 8 | 302 | 56 | **50** |
-| 11 | 309 | 67 | **62** |
+| week | gathered games | involving a drafted team | **owner-vs-owner collisions** | selected odds |
+| --- | --- | --- | --- | --- |
+| 6 | 58 | 58 | **53** | 58 |
+| 8 | 56 | 56 | **50** | **4** |
+| 11 | 67 | 67 | **62** | **6** |
+
+Planning's first pass reported 304/302/309 games — **raw national schedule rows, the wrong
+denominator.** The collision counts reproduced exactly, so the design conclusion stands; the
+population label did not.
 
 **The problem is selection, not availability.** ~135 of ~136 FBS teams are drafted, so nearly every
 FBS-vs-FBS game is a collision. **A list is not an option; every family needs a ranking.**
@@ -111,8 +175,8 @@ Every drafted team's game moves an owner ±1. A collision moves two owners in **
 a 2-game relative swing — so collisions dominate automatically.
 
 **The stake is not "two owners play". It is "this game can change their order."** Weight by standings
-proximity: a collision one game apart can flip them; #1 against #14 cannot. Standings are already in
-the build.
+proximity: a collision one game apart can flip them; #1 against #14 cannot. **Standings are DERIVED
+via `deriveStandings`, not read off the gather** — corrected at the receipt.
 
 ### 2. Rivalry implications
 
@@ -134,8 +198,10 @@ stake.
 ### Combining them
 
 Each family produces candidate lines with a score; merge, take the top few, **cap per family so one
-cannot crowd the tile**. The Insights panel already does exactly this — `priorityScore` sort, merged
-with a fallback, capped at `OVERVIEW_INSIGHT_SLOTS` — so follow that pattern rather than inventing one.
+cannot crowd the tile**. Follow the Insights panel's merge and slot discipline
+(`OverviewPanel.tsx:1794` — `priorityScore` sort, unseen-ID fallbacks appended to the slot count, then
+slice). **But it does NOT cap per family** — corrected at the receipt. The per-family cap is an
+additional requirement with its own test.
 
 ## Structure — families must be ADDITIVE
 
@@ -165,8 +231,10 @@ needing its own data path.**
    high-stakes unranked collision outranks a low-stakes ranked game.
 5. **Each family is independently droppable** — a test demonstrates the tile renders correctly with any
    one family returning nothing.
-6. **The empty case is honest.** A week with no upcoming games, a league out of season, or absent
-   schedule data renders a stated state, not a blank.
+6. **Inapplicable renders nothing; applicable-but-empty still renders.** Out of season, no league or
+   no week renders nothing, per `DESIGN.md`. **An in-season `'upcoming'` week where no family produced
+   a line still renders, naming the week ahead** — pinned by a test, because collapsing the zone there
+   reproduces the defect this slice exists to fix.
 7. **Nothing below the zone changes.** The watchlist, the Insights panel and the scoreboard grids are
    untouched, each pinned.
 

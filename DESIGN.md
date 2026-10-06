@@ -81,13 +81,23 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   with the football week.
   **This closes a gap the rule above did not anticipate.** "An inapplicable state renders nothing" is
   right for a league out of season or a week with no content. But `selectWeeklyRecapTileState`
-  (`weeklyRecapFacts.ts:329-357`) returns a THIRD state, `'upcoming'`, meaning "last week is finished
-  and the next has not started" — and that is not inapplicable, it is **unoccupied**. Both consumers
+  (`weeklyRecapFacts.ts:329-357`) returns a THIRD state, `'upcoming'`, meaning the recap window has
+  CLOSED — and that is not inapplicable, it is **unoccupied**. Both consumers
   read it as "render nothing" (`CFBScheduleApp.tsx:1149`, `overviewGameSections.ts:193`), so **the zone
   has been empty every week from Thursday morning through the weekend** — the window when members are
   most engaged. The state was never the problem; nothing was listening to it.
   **So `'upcoming'` is an OCCUPIED state from here.** An inapplicable state still renders nothing; a
   state that merely has no occupant yet is a gap to fill, not a reason to collapse the zone.
+  **CORRECTED 2026-10-06 — this bullet first said `'upcoming'` means "the next week has not started",
+  and that is false.** Measured by the #886 lane: week 6 carries three kickoffs BEFORE the Thursday
+  cutoff. The state marks the recap window closing, not the next slate being untouched, so **a tile
+  occupying it must not assume every game ahead of it is unplayed.**
+- **AN APPLICABLE STATE WITH NOTHING TO SAY STILL RENDERS.** Owner rule 2026-10-06. "Inapplicable
+  renders nothing" covers a league out of season, a slugless surface, a lifecycle with no week — and
+  it must NOT be stretched to cover an in-season `'upcoming'` week where no content qualified.
+  **Collapsing the zone because a selector returned an empty list reproduces the exact defect this
+  occupant was added to fix**, and it would do so on precisely the quiet weeks a member most needs
+  orientation. At minimum the tile names the week ahead.
 - **FORWARD LOOK RENDERS NARRATIVE LINES, NOT A SECOND GAME LIST — and it expands, as the recap does.**
   Owner decisions 2026-10-06. It mirrors the recap's shape because it mirrors the recap's job: the
   recap says what the week DID, Forward Look says what the week is FOR. Reuse the recap's line
