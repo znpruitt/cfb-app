@@ -161,9 +161,16 @@ INSIGHTS-026a–f merged 2026-08-28–29; these entries did not independently ve
 - Odds facts read the season-scoped durable store without a provider/HTTP call. One shared six-point pregame-spread policy serves badges and recap; asymmetric lines use the favorite's own spread.
 - The full page renders all completed families; Overview discloses dense sections progressively and shows at most three prioritized highlights. Archive/odds uncertainty suppresses only that enrichment family. Shared canonical scoreboards replace a dead predecessor pulse model.
 
-The durable event-source artifact and Thursday Forward Look were **not delivered** by this campaign. The favorite-pairing producer defect was fixed later under PLATFORM-123, recorded with Odds.
+The durable event-source artifact and Thursday Forward Look were **not delivered** by the August campaign. The favorite-pairing producer defect was fixed later under PLATFORM-123, recorded with Odds.
 
 PR references: #519, #521, #523, #525, #527, #529.
+
+**Forward Look merged 2026-10-08 ([PR #887](https://github.com/znpruitt/cfb-app/pull/887)).** Overview's
+Thursday slot now targets the immediate week ahead with derived standings stakes, ordered rivalry
+history and current odds risk. Kicked games are excluded and quiet weeks retain their week heading.
+Result changes invalidate forward claims without clock-driven requests. The owner accepted the
+remaining bootstrap snapshot race under #888, scoped to re-deriving that invalidation component.
+Merge does not establish production promotion.
 
 ### 12. Draft system — setup, live event, publication, and neutral selection
 

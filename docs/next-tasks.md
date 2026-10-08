@@ -246,22 +246,6 @@ places it.** A lane must not dispatch itself, and planning must not dispatch res
 the context is warm — warm context is an argument for writing the issue well, not for taking the work
 now.
 
-### TOP OF QUEUE — FORWARD LOOK, owner direction 2026-10-06
-
-**[#886](https://github.com/znpruitt/cfb-app/issues/886) outranks the audit order below, and the
-reason is a property no other open item has: its value DECAYS.** Every other item accumulates risk and
-waits. A week of preview content that was never shown cannot be shown later — the owner's words:
-*"we're losing weeks of content by allowing it to languish."*
-
-The owner authorized [PR #887](https://github.com/znpruitt/cfb-app/pull/887) to merge with the
-bootstrap snapshot race open. Its invalidation mechanism is filed separately as
-[#888](https://github.com/znpruitt/cfb-app/issues/888), a re-derivation rather than another patch.
-This queue slot ends when #886 merges; #888 receives its own dispatch decision.
-
-Kickoff: [`INSIGHTS-026C-FORWARD-LOOK-CODEX-v1`](prompts/insights-026c-forward-look-codex-v1.md).
-The settled owner rulings remain in `DESIGN.md` → *Elevated timely-content zone*; execution evidence
-is in the [prompt registry](prompt-registry.md#insights-026c-forward-look-codex-v1).
-
 ### DISPATCH ORDER — AUDIT-FIRST, owner decision 2026-09-09
 
 **Evidence:** [`docs/archive/audits/codebase-audit-existing-plans-2026-09-08.md`](archive/audits/codebase-audit-existing-plans-2026-09-08.md)
@@ -888,6 +872,9 @@ Acceptance boundary:
 This is the canonical deferral register. These items are explicitly not scheduled. Resolved entries
 are removed rather than retained with strikethrough; their outcomes live in `docs/completed-work.md`.
 
+- **Forward Look invalidation re-derivation — [#888](https://github.com/znpruitt/cfb-app/issues/888).**
+  Owner accepted the bootstrap snapshot race for merge; server-authoritative re-derivation awaits
+  its own dispatch decision.
 - **Team-record reconciliation log volume.** Persistent equal-time score conflicts or participant
   mismatches emit one structured error on every request to each of five dynamic league routes. The
   failure must remain distinguishable from a legitimate empty reconciliation, so any rate limit or

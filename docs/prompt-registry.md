@@ -141,7 +141,8 @@ These consolidate recurring historical observations, not new project-governance 
   file below 2.4s; 150 watchlist runs/arm yielded main 0 failures, branch 5 in one power-log-confirmed
   sleep interval. These failures remain recorded, not replaced by a passing rerun.
   [Evidence, race and four-round table](campaigns/insights-026c-forward-look-verification.md).
-- Status: Owner-approved for merge — [PR #887](https://github.com/znpruitt/cfb-app/pull/887), pending merge.
+- Status: Merged 2026-10-08 — [PR #887](https://github.com/znpruitt/cfb-app/pull/887), `db292b28`.
+  Final pre-merge `fe0c27d9` suite: exit 0, 5,646 passed, zero failed/cancelled/skipped.
 
 ### PLATFORM-836-REGISTRY-FAIL-CLOSED-CLAUDE-v1
 

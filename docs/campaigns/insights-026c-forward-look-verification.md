@@ -1,6 +1,6 @@
 # INSIGHTS-026C — Forward Look verification
 
-Status: Owner authorized merge with the bootstrap snapshot race deferred to #888; pending merge
+Status: Merged 2026-10-08 as db292b28, with the bootstrap snapshot race accepted under #888
 Date: 2026-10-06
 Implementation: `82c68872`; first remediation `2ec3634a`; second remediation `99c284ff`; baseline-only third round `4a3121d9`; base `11a4b98a`
 PR: [#887](https://github.com/znpruitt/cfb-app/pull/887)
@@ -469,6 +469,22 @@ reproduced while awake; this focused experiment does not prove whole-suite relia
 latent contention sensitivity. No fixture, timeout or production code was patched. The next full
 suite is a separately reported merge gate after diagnosis, not a replacement observation for any
 failed run. The known application snapshot race remains separately accepted under #888.
+
+## Merge completion — 2026-10-08
+
+PR #887 merged as `db292b28c2656ac70e0f5c084f69d698f36c1e44`; issue #886 closed and #888 remains
+open. The branch closeout was committed before the final main pull, which was already current.
+On final pre-merge head `fe0c27d9`, the single post-diagnosis `npm test` attempt exited 0:
+**5,646 passed, zero failed/cancelled/skipped**, 77.926 seconds. The earlier failed runs and the
+five A/B failures above remain part of the record. Sleep assertions were held for this gate's
+lifetime. Branch pre-push `lint:all` also exited 0. Typecheck and build had exited 0 on the identical
+non-Markdown tree; documentation lint passed on the added closeout.
+
+Both independent reviews remain those gathered on `4a3121d9`; no reviews were rerun. Only
+Markdown closeouts and main's documentation-only integration followed that commit. At review,
+final branch head and merge, the `src` tree hash is
+`6374f6bd52823a7b24834462ad75102bfee275ae`; all tracked non-Markdown content also matches exactly.
+The preview grant lapsed at merge; no post-merge preview push or production promotion was made.
 
 ## Preview
 
