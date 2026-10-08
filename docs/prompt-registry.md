@@ -121,6 +121,28 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### INSIGHTS-026C-FORWARD-LOOK-CODEX-v1
+
+- Purpose: Fill Overview's Thursday gap with immediate-week league stakes; associated issue
+  [#886](https://github.com/znpruitt/cfb-app/issues/886).
+- Scope: Existing recap gather/calendar, independent selectors, transport and expandable tile.
+  No new data path, endpoint, cache layer or provider call.
+- Outcome: Kicked candidates excluded; odds expire at 24 hours. Tight rivalry aggregates and ordered
+  streaks are distinct. Applicable empty weeks retain orientation. Expiry precedes story/family caps.
+  Completed-result changes invalidate claims; clock ticks and nonfinal churn do not refetch.
+- Review / verification: Both reviewers examined `4a3121d9`. Codex was clean; Claude found a
+  reproduced bootstrap snapshot race. The owner authorized merge with that defect open under
+  [#888](https://github.com/znpruitt/cfb-app/issues/888), a re-derivation of the invalidation component,
+  not another patch. The four-round table is its regression list. Existing finals cause one mount
+  request; later finals cause a second. Removing baseline seeding fails only the mount assertion,
+  leaving steady-state green. The slice adds 28 tests, none removed/weakened. Frozen-code gates passed:
+  lint, types, build and 5,646 tests, zero skips. Only documentation changed after review, including
+  main's mechanism lesson; the source-tree hash is unchanged. Timeout diagnosis timed every changed
+  file below 2.4s; 150 watchlist runs/arm yielded main 0 failures, branch 5 in one power-log-confirmed
+  sleep interval. These failures remain recorded, not replaced by a passing rerun.
+  [Evidence, race and four-round table](campaigns/insights-026c-forward-look-verification.md).
+- Status: Owner-approved for merge — [PR #887](https://github.com/znpruitt/cfb-app/pull/887), pending merge.
+
 ### PLATFORM-836-REGISTRY-FAIL-CLOSED-CLAUDE-v1
 
 - Purpose: `mutateRegistry` repeated the exact collapse `readLeagueRegistry`'s docblock calls "the collapse this reader exists to prevent", twenty lines below it. Under a malformed registry every mutator ran against a fabricated `[]`, so league creation's duplicate-slug check passed vacuously AND `addLeague` then WROTE `[newLeague]` over the corrupt value — converting a recoverable corruption into an unrecoverable registry that reports `ok`, with every other league's data surviving under its slug and unreachable.

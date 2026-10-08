@@ -1,8 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { LeagueStatus } from '../../lib/league.ts';
+import { parseForwardLook } from '../../lib/recap/parseForwardLook.ts';
+import { selectCompletedResultsKey, type ForwardLook } from '../../lib/selectors/forwardLook.ts';
+import type { ScorePack } from '../../lib/scores.ts';
 import type {
   WeeklyRecapGameLine,
   WeeklyRecapLeaderLine,
@@ -32,6 +35,7 @@ type InsightsPayload = {
   insights: Insight[];
   lifecycleState: LifecycleState | undefined;
   weeklyRecap: WeeklyRecapViewModel;
+  forwardLook: ForwardLook | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -209,7 +213,12 @@ function parseWeeklyRecap(value: unknown): WeeklyRecapViewModel {
 
 export function parseInsightsPayload(value: unknown): InsightsPayload {
   if (!isRecord(value)) {
-    return { insights: [], lifecycleState: undefined, weeklyRecap: UNAVAILABLE_RECAP };
+    return {
+      insights: [],
+      lifecycleState: undefined,
+      weeklyRecap: UNAVAILABLE_RECAP,
+      forwardLook: null,
+    };
   }
 
   const lifecycleState =
@@ -222,6 +231,7 @@ export function parseInsightsPayload(value: unknown): InsightsPayload {
     insights: Array.isArray(value.insights) ? (value.insights as Insight[]) : [],
     lifecycleState,
     weeklyRecap: parseWeeklyRecap(value.weeklyRecap),
+    forwardLook: parseForwardLook(value.forwardLook),
   };
 }
 
@@ -230,15 +240,22 @@ export function useInsightsFeed(args: {
   seasonYear: number;
   leagueStatus: LeagueStatus | undefined;
   games: AppGame[];
+  scoresByKey: Record<string, ScorePack>;
   scheduleLoaded: boolean;
   nowTick: number;
   enabled?: boolean;
-}): InsightsPayload & { refreshInsights: () => void } {
-  const { leagueSlug, seasonYear, leagueStatus, nowTick, enabled = true } = args;
+}): InsightsPayload & {
+  refreshInsights: () => void;
+  establishResultBaseline: (scores: Record<string, ScorePack>) => void;
+} {
+  const { leagueSlug, seasonYear, leagueStatus, scoresByKey, nowTick, enabled = true } = args;
+  const observedResultsKey = useMemo(() => selectCompletedResultsKey(scoresByKey), [scoresByKey]);
+  const [resolvedResultsKey, setResolvedResultsKey] = useState<string | null>(null);
   const [payload, setPayload] = useState<InsightsPayload>({
     insights: [],
     lifecycleState: undefined,
     weeklyRecap: INACTIVE_RECAP,
+    forwardLook: null,
   });
   const [resolvedScopeKey, setResolvedScopeKey] = useState<string | null>(null);
   const [refreshRevision, setRefreshRevision] = useState(0);
@@ -253,6 +270,22 @@ export function useInsightsFeed(args: {
     ? `${leagueStatus.state}:${'year' in leagueStatus ? leagueStatus.year : 'none'}`
     : 'missing';
   const requestScopeKey = leagueSlug ? `${leagueSlug}:${seasonYear}:${lifecycleKey}` : null;
+  const [baseline, setBaseline] = useState({ scope: requestScopeKey, key: observedResultsKey });
+  const baselineKey = baseline.scope === requestScopeKey ? baseline.key : observedResultsKey;
+  if (baseline.scope !== requestScopeKey) {
+    setBaseline({ scope: requestScopeKey, key: observedResultsKey });
+  }
+  const completedResultsKey = observedResultsKey === baselineKey ? 'baseline' : observedResultsKey;
+  const establishResultBaseline = useCallback(
+    (scores: Record<string, ScorePack>) => {
+      setBaseline((current) =>
+        current.scope === requestScopeKey
+          ? { scope: requestScopeKey, key: selectCompletedResultsKey(scores) }
+          : current
+      );
+    },
+    [requestScopeKey]
+  );
   const eligibilityBoundaryKey =
     nowTick > 0 ? selectWeeklyRecapEligibilityBoundaryKey(new Date(nowTick)) : null;
 
@@ -260,7 +293,12 @@ export function useInsightsFeed(args: {
     if (!enabled || !leagueSlug) {
       requestSequenceRef.current += 1;
       payloadScopeRef.current = null;
-      setPayload({ insights: [], lifecycleState: undefined, weeklyRecap: INACTIVE_RECAP });
+      setPayload({
+        insights: [],
+        lifecycleState: undefined,
+        weeklyRecap: INACTIVE_RECAP,
+        forwardLook: null,
+      });
       setResolvedScopeKey(null);
       return;
     }
@@ -285,6 +323,7 @@ export function useInsightsFeed(args: {
         payloadScopeRef.current = scopeKey;
         setPayload(parseInsightsPayload(value));
         setResolvedScopeKey(scopeKey);
+        setResolvedResultsKey(completedResultsKey);
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted || requestSequence !== requestSequenceRef.current) return;
@@ -292,15 +331,28 @@ export function useInsightsFeed(args: {
         const canPreserveFeed = payloadScopeRef.current === scopeKey;
         setPayload((current) =>
           canPreserveFeed
-            ? { ...current, weeklyRecap: UNAVAILABLE_RECAP }
-            : { insights: [], lifecycleState: undefined, weeklyRecap: UNAVAILABLE_RECAP }
+            ? { ...current, weeklyRecap: UNAVAILABLE_RECAP, forwardLook: null }
+            : {
+                insights: [],
+                lifecycleState: undefined,
+                weeklyRecap: UNAVAILABLE_RECAP,
+                forwardLook: null,
+              }
         );
         payloadScopeRef.current = scopeKey;
         setResolvedScopeKey(scopeKey);
       });
 
     return () => controller.abort();
-  }, [eligibilityBoundaryKey, enabled, leagueSlug, lifecycleKey, refreshRevision, seasonYear]);
+  }, [
+    completedResultsKey,
+    eligibilityBoundaryKey,
+    enabled,
+    leagueSlug,
+    lifecycleKey,
+    refreshRevision,
+    seasonYear,
+  ]);
 
   const resolvedPayload = enabled && resolvedScopeKey === requestScopeKey ? payload : null;
 
@@ -309,7 +361,15 @@ export function useInsightsFeed(args: {
       insights: [],
       lifecycleState: undefined,
       weeklyRecap: INACTIVE_RECAP,
+      forwardLook: null,
     }),
+    // Forward claims can be falsified by another game's result. Retain orientation,
+    // but suppress their old premises until the result-keyed request resolves.
+    forwardLook:
+      resolvedPayload?.forwardLook && resolvedResultsKey !== completedResultsKey
+        ? { ...resolvedPayload.forwardLook, lines: [] }
+        : (resolvedPayload?.forwardLook ?? null),
     refreshInsights,
+    establishResultBaseline,
   };
 }

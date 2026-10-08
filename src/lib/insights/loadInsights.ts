@@ -39,6 +39,7 @@ import type { Insight } from '@/lib/selectors/insights';
 import type { InsightContext } from '@/lib/insights/types';
 import type { LifecycleState } from '@/lib/insights/types';
 import type { WeeklyRecapViewModel } from '@/lib/recap/composeWeeklyRecap';
+import type { ForwardLook } from '@/lib/selectors/forwardLook';
 
 export type InsightsFeedResponse = {
   insights: Insight[];
@@ -50,6 +51,7 @@ export type InsightsFeedResponse = {
 /** Authenticated API payload. The recap is composed per request after the raw-insights cache. */
 export type InsightsResponse = InsightsFeedResponse & {
   weeklyRecap: WeeklyRecapViewModel;
+  forwardLook: ForwardLook | null;
 };
 
 export type LoadInsightsOptions = {
@@ -473,8 +475,8 @@ export async function loadInsightsForLeague(
   // year is BELOW this floor — `status: { state: 'season', year: 1999 }` with a
   // later `league.year` — is accepted by the route (it is that league's own
   // year, so the disjunct admits it) and then discarded HERE in favour of
-  // `league.year`. The route's `loadWeeklyRecap` call still scopes to 1999, so
-  // one response carries a feed and a recap describing different seasons.
+  // `league.year`. The route's `loadTimelyContent` call still scopes to 1999, so
+  // one response carries a feed and timely content describing different seasons.
   //
   // NOT introduced by the bound, and not worsened by it: the identical state is
   // reachable with NO `?year=` at all, because `resolveLeagueOperatingYear`

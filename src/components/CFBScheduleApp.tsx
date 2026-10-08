@@ -14,6 +14,8 @@ import WeekViewTabs, { type WeekViewMode } from './WeekViewTabs';
 import PostseasonPanel from './PostseasonPanel';
 import RankingsPageContent from './RankingsPageContent';
 import RecapTile from './recap/RecapTile';
+import ForwardLookTile from './recap/ForwardLookTile';
+import { selectVisibleForwardLook } from '../lib/selectors/forwardLook';
 import StandingsPanel from './StandingsPanel';
 import OverviewPanel from './OverviewPanel';
 import OwnerPanel from './OwnerPanel';
@@ -1072,12 +1074,14 @@ export default function CFBScheduleApp({
     insights: engineInsights,
     lifecycleState: insightsLifecycleState,
     weeklyRecap: weeklyRecapResponse,
-    refreshInsights,
+    forwardLook: forwardLookResponse,
+    establishResultBaseline,
   } = useInsightsFeed({
     leagueSlug,
     seasonYear: selectedSeason,
     leagueStatus,
     games,
+    scoresByKey,
     scheduleLoaded,
     nowTick: liveStaleClock,
     enabled: primarySurfaceKind === 'overview',
@@ -1090,10 +1094,10 @@ export default function CFBScheduleApp({
   // derivation and no upstream provider fetch (PLATFORM-075 preserved).
   const handleGamesFinalized = useCallback(() => {
     router.refresh();
-    refreshInsights();
-  }, [refreshInsights, router]);
+  }, [router]);
 
   const { liveScoreObservation } = useLiveRefresh({
+    onScoreBaseline: establishResultBaseline,
     selectedSeason,
     selectedTab,
     selectedWeek,
@@ -1148,6 +1152,17 @@ export default function CFBScheduleApp({
     );
     return state === 'recap' ? weeklyRecapResponse : null;
   }, [leagueStatus, liveStaleClock, selectedSeason, weeklyRecapResponse]);
+
+  const forwardLook = useMemo(() => {
+    if (
+      !leagueSlug ||
+      liveStaleClock === 0 ||
+      forwardLookResponse?.seasonYear !== selectedSeason ||
+      !isWeeklyRecapActiveSeason({ leagueStatus, seasonYear: selectedSeason })
+    )
+      return null;
+    return selectVisibleForwardLook(forwardLookResponse, new Date(liveStaleClock));
+  }, [leagueSlug, leagueStatus, liveStaleClock, selectedSeason, forwardLookResponse]);
 
   const gameDayConfidence = useMemo(
     () =>
@@ -1718,7 +1733,13 @@ export default function CFBScheduleApp({
           bootstrap is unavailable. Keep this timely-content slot outside the
           schedule-dependent primary-surface gate; when Overview can render it
           still precedes the podium in normal flow. */}
-      {primarySurfaceKind === 'overview' && weeklyRecap ? <RecapTile recap={weeklyRecap} /> : null}
+      {primarySurfaceKind === 'overview' ? (
+        forwardLook ? (
+          <ForwardLookTile key={forwardLook.target.week} look={forwardLook} />
+        ) : weeklyRecap ? (
+          <RecapTile recap={weeklyRecap} />
+        ) : null
+      ) : null}
 
       {canRenderPrimarySurface && (
         <>

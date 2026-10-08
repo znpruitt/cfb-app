@@ -11,6 +11,7 @@ import ScoreboardTeamName from '../ScoreboardTeamName';
 type RecapHeaderProps = Pick<AvailableWeeklyRecapViewModel, 'headline' | 'weekLabel'> & {
   headingId: string;
   compact?: boolean;
+  eyebrow?: string;
 };
 
 export function RecapHeader({
@@ -18,6 +19,7 @@ export function RecapHeader({
   weekLabel,
   headingId,
   compact = false,
+  eyebrow = 'Weekly recap',
 }: RecapHeaderProps): React.ReactElement {
   return (
     <header>
@@ -30,7 +32,7 @@ export function RecapHeader({
           aria-hidden={headline ? undefined : 'true'}
           className="text-xs font-semibold uppercase tracking-[0.08em] text-zinc-400"
         >
-          Weekly recap
+          {eyebrow}
         </p>
         <p className="shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-zinc-400">
           {weekLabel}
