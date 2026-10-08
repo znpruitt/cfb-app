@@ -98,6 +98,33 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   **Collapsing the zone because a selector returned an empty list reproduces the exact defect this
   occupant was added to fix**, and it would do so on precisely the quiet weeks a member most needs
   orientation. At minimum the tile names the week ahead.
+- **A PREVIEW ROW INVERTS THE STATUS-ROW ORDER — reason and stake lead, logistics are right-aligned
+  and demoted.** Owner decision 2026-10-08, recorded in `item-87-followon-week-preview.md` §4 and
+  carried as INDEX row 73. **A per-surface variation, not drift.**
+  **It extends the rule below rather than carving an exception.** A weekly-recap mini scoreboard is
+  already "compact evidence, not a game card", and Forward Look is the recap's mirror — so a preview
+  row's game is **evidence for the claim**, not the subject. A Schedule row's primary content is the
+  game; a preview row's is the reason it is listed at all.
+  **A reviewer reading the shared row contract will otherwise report this as a divergence**, which is
+  precisely what the #672 audit exists to flag — hence the INDEX row.
+- **A MERGED PREVIEW ROW IS STILL CAPPED.** When one game proves several facts, merge the true
+  category labels keyed on canonical game identity rather than repeating the game — the existing recap
+  rule, extended. **But the two-tag cap still applies to the merged row**, and `prioritizeGameTags`
+  chooses which survive. **Recorded because "merge rather than pick a primary" reads as uncapped and
+  is not**; a row proving three facts shows two.
+  **The defect this closes shipped:** `composeForwardLook` has no cross-family dedup, so a game
+  qualifying under two families renders twice. Merging is the fix; the cap is what the merge does not
+  change.
+- **THE GAMES-IN-PLAY STRIP SHOWS EVERY OWNER, IN STANDINGS ORDER.** Owner decision 2026-10-08, after
+  measurement. **Sorting by games played reads as a leaderboard when it is a bye-week artifact** —
+  measured 2026-10-08 across weeks 7 and 8: all **15** owners have games every week, counts run 9 down
+  to 5, and that spread sorted descending looks like a ranking of nothing. Ordering carries meaning
+  whether or not it is intended, so the count is a column and the standings supply the order.
+  **No cut.** A cut at six would hide nine owners; fifteen single-digit counts fit.
+  **And the owner-vs-owner COUNT is not shown.** It was proposed as a zero-sum fact with no recap
+  analog, mocked at "7 are owner vs owner". **Measured: 52 and 50 of ~56** — nearly every game, because
+  ~135 of ~136 FBS teams are drafted. **A count that is the default is not a fact.** If anything on
+  that axis is notable it is the inverse: how few games are not.
 - **FORWARD LOOK RENDERS NARRATIVE LINES, NOT A SECOND GAME LIST — and it expands, as the recap does.**
   Owner decisions 2026-10-06. It mirrors the recap's shape because it mirrors the recap's job: the
   recap says what the week DID, Forward Look says what the week is FOR. Reuse the recap's line
