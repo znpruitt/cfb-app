@@ -137,7 +137,9 @@ These consolidate recurring historical observations, not new project-governance 
   request; later finals cause a second. Removing baseline seeding fails only the mount assertion,
   leaving steady-state green. The slice adds 28 tests, none removed/weakened. Frozen-code gates passed:
   lint, types, build and 5,646 tests, zero skips. Only documentation changed after review, including
-  main's mechanism lesson; the source-tree hash is unchanged.
+  main's mechanism lesson; the source-tree hash is unchanged. Timeout diagnosis timed every changed
+  file below 2.4s; 150 watchlist runs/arm yielded main 0 failures, branch 5 in one power-log-confirmed
+  sleep interval. These failures remain recorded, not replaced by a passing rerun.
   [Evidence, race and four-round table](campaigns/insights-026c-forward-look-verification.md).
 - Status: Owner-approved for merge — [PR #887](https://github.com/znpruitt/cfb-app/pull/887), pending merge.
 

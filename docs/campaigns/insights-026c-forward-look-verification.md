@@ -357,6 +357,119 @@ review. The `src` tree hash at the reviewed commit and the integrated branch is 
 changed. Main was pulled before writing this closeout and will be pulled again after its branch
 commit; final comparison and gate results are reported with the merge.
 
+## Merge-gate timeout diagnosis — 2026-10-08
+
+The first response misdiagnosed from summary counts and reran without isolating the cause. The
+owner required file attribution, per-file timing, then a fixed alternating A/B following #875.
+No timeout, assertion, runtime file or test file was changed during this investigation.
+
+### Named failures, not summary counts
+
+The final failed full-suite TAP contained 22 file-level `testTimeoutFailure` records; all 22 files
+are unchanged between main `7c4b62c6` and branch `c7ab0495`. Exit was 1 despite `fail 0`:
+5,423 passed, 22 cancelled, 5,445 reported. The table pairs those observed timeout durations with
+a single-file measurement using the unchanged repository runner and its 30-second file budget.
+An isolated green measurement is timing evidence, not a reliability claim.
+
+| File | Failed-run duration (s) | Isolated file time (s) |
+| --- | ---: | ---: |
+| `src/app/api/odds/__tests__/odds-quota-guard.test.ts` | 116.754 | 0.495 |
+| `src/app/api/odds/__tests__/payload-boundary.test.ts` | 116.709 | 0.694 |
+| `src/app/api/odds/__tests__/route.test.ts` | 116.473 | 1.478 |
+| `src/app/api/odds/__tests__/writer-convergence.test.ts` | 116.268 | 0.441 |
+| `src/components/__tests__/OverviewWatchlist.browser.test.tsx` | 30.004 | 9.755 |
+| `src/components/admin/__tests__/ScoreAttachmentRecoveryPanel.test.tsx` | 947.186 | 1.105 |
+| `src/components/admin/__tests__/maintenanceActionWiring.test.tsx` | 946.890 | 1.351 |
+| `src/components/admin/systemHealth/__tests__/AutomationSafetyControls.test.tsx` | 946.525 | 1.028 |
+| `src/components/admin/systemHealth/__tests__/gameStatsTargetSummary.test.ts` | 946.308 | 0.155 |
+| `src/lib/__tests__/bootstrap.test.ts` | 927.235 | 2.904 |
+| `src/lib/__tests__/insights-cache.test.ts` | 926.174 | 0.308 |
+| `src/lib/__tests__/insights-context-aliases.test.ts` | 926.144 | 0.260 |
+| `src/lib/__tests__/insights-lifecycle-awareness.test.ts` | 926.086 | 0.225 |
+| `src/lib/api/__tests__/fetchUpstreamBodyDeadline.test.ts` | 710.926 | 3.629 |
+| `src/lib/gameStats/__tests__/durableMerge.test.ts` | 710.173 | 0.258 |
+| `src/lib/gameStats/__tests__/ingestionCoordinator.test.ts` | 710.082 | 0.245 |
+| `src/lib/gameStats/__tests__/manageGameStatsSchedule.test.ts` | 709.985 | 0.167 |
+| `src/lib/schedule/__tests__/fullSeasonScheduleRefresh.test.ts` | 1019.148 | 4.345 |
+| `src/lib/schedule/__tests__/inlinePresentationCallers.test.ts` | 1019.127 | 6.177 |
+| `src/lib/server/__tests__/appStateBoundedWaits.test.ts` | 1015.206 | 0.482 |
+| `src/lib/server/__tests__/appStateKeyTransaction.test.ts` | 1014.980 | 0.250 |
+| `src/lib/server/__tests__/scheduleReadEnumeration.test.ts` | 970.019 | 8.958 |
+
+### Time the slice itself
+
+Every added/modified test file was timed independently at `c7ab0495`, one run each; all exited 0.
+The total file measurement includes startup, rather than summing only completed assertions.
+
+| Slice test file | File time (s) | Sum of reported test durations (s) |
+| --- | ---: | ---: |
+| `src/app/api/insights/[slug]/__tests__/route.test.ts` | 0.635 | 0.069 |
+| `src/components/__tests__/CFBScheduleAppRecap.test.tsx` | 2.038 | 0.579 |
+| `src/components/hooks/__tests__/useInsightsFeed.test.tsx` | 1.169 | 0.418 |
+| `src/components/recap/__tests__/ForwardLookTile.browser.test.tsx` | 2.372 | 1.892 |
+| `src/components/recap/__tests__/ForwardLookTile.test.tsx` | 0.824 | 0.122 |
+| `src/lib/recap/__tests__/loadTimelyContent.test.ts` | 0.126 | 0.010 |
+| `src/lib/selectors/__tests__/forwardLook.test.ts` | 0.179 | 0.014 |
+
+The largest slice file took 2.372 seconds, so these measurements do not support the hypothesis
+that the added tests sum beyond 30 seconds in their own file. They do not exclude contention.
+
+### Independent host evidence
+
+The failed run lasted 2026-10-07 17:08:38–18:28:16 America/Chicago (TAP: 4,777.429 seconds).
+`pmset -g log` records sleep intervals within that exact window:
+
+| Sleep began (local) | Recorded sleep (s) | Corresponding TAP timeout cohort (s, approximately) |
+| --- | ---: | ---: |
+| 17:09:06 | 118 | 117 |
+| 17:11:49 | 948 | 947 |
+| 17:27:39 | 929 | 926 |
+| 17:43:10 | 713 | 710 |
+| 17:55:08 | 1,017 | 1,019 |
+| 18:12:11 | 964 | 970 |
+
+This is measured suspension evidence for the long cohorts, not an inference from cancelled counts.
+The watchlist timeout at 30.004 seconds is a separate case and is the target of the A/B below.
+
+### Alternating A/B
+
+An initial diagnostic pilot mistakenly ran five multi-file cohorts concurrently (up to 20 file
+workers). Main failed 5/5 with watchlist, inline-presentation and schedule-enumeration timeouts.
+The driver was stopped; those overloaded pilot results are retained separately and excluded from
+the corrected experiment. They cannot establish a branch regression.
+
+The corrected experiment used isolated archives of main `7c4b62c6` and branch `c7ab0495`, the same
+Node v22.19.0 and dependencies, and **only** `OverviewWatchlist.browser.test.tsx`: 30 paired
+batches, five independent file processes per batch, 150 runs per arm. Even pairs ran main then
+branch; odd pairs reversed the order. Each process used the unchanged `scripts/run-tests.mjs`
+and 30-second file timeout. This is 300 runs of the named browser file, not 300 full suites.
+
+| Arm | Runs | Exit zero | Nonzero | Passing TAP file-time range (s) | Median passing time (s) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Main `7c4b62c6` | 150 | 150 | 0 | 18.345–29.070 | 22.813 |
+| Branch `c7ab0495` | 150 | 145 | 5 | 19.346–28.517 | 22.990 |
+
+Every exit-zero run completed all five tests with zero skips/cancellations. All five nonzero runs
+were the same branch batch, zero-based runs 85–89. TAP reports DevTools socket closure (1006),
+`Runtime.evaluate` timeout and the file-level timeout; file durations were 154.543–154.600 seconds.
+Those runs began at 11:24:29 America/Chicago on October 8 and their TAP was written at 11:27:04.
+The power log records **Idle Sleep at 11:24:45, wake at 11:27:03, 138 seconds**. The following main
+batch ran after wake. The failures are retained, not discarded, replaced or relabelled green.
+
+**Instrument correction:** the driver's field named `wall_s` used Python `time.monotonic()` and
+reported only 18.55–18.58 seconds for that batch. On this host it omitted the suspended interval.
+The table above uses TAP's total-file duration; start timestamps plus TAP-write timestamps also
+measure 154.67–154.70 seconds. A clock's behavior during suspension is part of its measurement.
+
+**Conclusion and limits:** the slice's added file time does not explain the failures. Host sleep
+explains the long timeout cohorts and the reproduced five-run failure cluster by independent
+power-event evidence. The existing watchlist file has limited headroom under five concurrent file
+processes on BOTH arms. Its original 30.004-second full-suite timeout was not independently
+reproduced while awake; this focused experiment does not prove whole-suite reliability or rule out
+latent contention sensitivity. No fixture, timeout or production code was patched. The next full
+suite is a separately reported merge gate after diagnosis, not a replacement observation for any
+failed run. The known application snapshot race remains separately accepted under #888.
+
 ## Preview
 
 The canonical alias is [cfb-app-preview.vercel.app](https://cfb-app-preview.vercel.app/league/tsc),
