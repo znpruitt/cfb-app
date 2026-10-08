@@ -622,7 +622,7 @@ number.**
 | **37** | [#598](https://github.com/znpruitt/cfb-app/issues/598) | `NoClaim` can count toward confirmation eligibility |
 | **38** | [#636](https://github.com/znpruitt/cfb-app/issues/636) | retire `partial-roster` and restore selector ownership |
 | **39** | [#646](https://github.com/znpruitt/cfb-app/issues/646) | draft-board walkthrough follow-ups |
-| **42** | [#637](https://github.com/znpruitt/cfb-app/issues/637) | INSIGHTS-026 notable results, stored event source, and Forward Look (In progre |
+| **42** | [#637](https://github.com/znpruitt/cfb-app/issues/637) | INSIGHTS-026 — **portion 3 (Forward Look) is DONE**, split to #886 and merged `db292b28` 2026-10-08. **Two portions remain: notable results, and the stored artifact/event source.** Splitting portion 3 out is what unstuck it — it had sat since before the 2026-09-10 migration because nobody takes a third of an issue, and all three portions sat together. **Split the other two as well before dispatching either.** Residue [#888](https://github.com/znpruitt/cfb-app/issues/888) (re-derive the invalidation mechanism) |
 | **43** | [#607](https://github.com/znpruitt/cfb-app/issues/607) | new preseason generators |
 | **45** | [#599](https://github.com/znpruitt/cfb-app/issues/599) | PLATFORM-092 setup residue |
 | **46** | [#626](https://github.com/znpruitt/cfb-app/issues/626) | deletion/adoption policy must precede external commissioners |
@@ -872,6 +872,7 @@ Acceptance boundary:
 This is the canonical deferral register. These items are explicitly not scheduled. Resolved entries
 are removed rather than retained with strikethrough; their outcomes live in `docs/completed-work.md`.
 
+- **Per-file test-budget headroom — [#889](https://github.com/znpruitt/cfb-app/issues/889).** `OverviewWatchlist.browser.test.tsx` runs at **29.07s against a 30s per-file budget on `main`** — 97% consumed, 0.93s of headroom, and it hit 30.004s once. **Third instance of this failure** after #872 and #875, each diagnosed independently at real cost. Nothing measures the budget; it is discovered by crossing it, and adding one test to a healthy file is enough.
 - **Forward Look invalidation re-derivation — [#888](https://github.com/znpruitt/cfb-app/issues/888).**
   Owner accepted the bootstrap snapshot race for merge; server-authoritative re-derivation awaits
   its own dispatch decision.
