@@ -1,0 +1,150 @@
+# INSIGHTS-888 — re-derive Forward Look's invalidation: the server stamps what it composed against
+
+```text
+PROMPT_ID: INSIGHTS-888-INVALIDATION-REDERIVE-CODEX-v1
+PURPOSE: Forward Look detects "a result changed" by diffing a client-held baseline against a
+         client-held score snapshot. Those are two independently-fetched async sources with no
+         ordering between them, and four remediation rounds each fixed one ordering case and left
+         the next reachable. Replace the mechanism: the server stamps the result set it composed
+         against, and the client compares that given value to the one it observes.
+SCOPE:   The `ForwardLook` payload type and its composer, `/api/insights/[slug]`'s response, and
+         `useInsightsFeed`'s invalidation (`:272-287`). DO NOT change the three content families,
+         the tile, the rendering, the changeover off `selectWeeklyRecapTileState`, or
+         `loadRecapContextForSeasonScope`'s gather — all correct across four review passes.
+CARRIES: From AGENTS.md's reconstruction rule, amended 2026-10-06 out of this very branch:
+         **"wrong model" means the MECHANISM, not the concept.** The concept here — compose forward
+         stories, invalidate when results change — was right from round zero and stays. **This slice
+         rebuilds exactly the component that earned it and nothing else.**
+
+         Three standing obligations bind, from AGENTS.md:
+         - A claim in a comment needs a test asserting the same behaviour.
+         - Every claim needs a mutation that reddens its OWN named assertion, and you say which
+           assertion fired.
+         - A measurement claim states the population it was taken over.
+```
+
+---
+
+## Why this is a re-derivation and not a fifth round
+
+**Four rounds produced four P2s, each inside the mechanism the previous round added:**
+
+| round | fix | what review then found |
+| --- | --- | --- |
+| 0 | the tile | forward claims go stale when a result lands |
+| 1 | expiry + family isolation | the held payload kept a broken streak |
+| 2 | invalidate on results changing | an empty baseline reads every existing final as new |
+| 3 | record a baseline at mount | a final landing between two fetches is absorbed into that baseline |
+
+**Not four bugs. One wrong mechanism surfacing one layer in each time.** Planning overrode the
+reconstruction trigger after round 2 — arguing the model was right and the bug was local — and round 3
+disproved that. The rule in `AGENTS.md` was amended because of it.
+
+## The mechanism as shipped
+
+| citation | what it does |
+| --- | --- |
+| `useLiveRefresh.ts:489` | on bootstrap only, calls `onScoreBaseline(nextScores)` — *"live polls must not reseed it"* |
+| `useInsightsFeed.ts:278-287` | `establishResultBaseline` sets `{ scope, key: selectCompletedResultsKey(scores) }` |
+| `useInsightsFeed.ts:278` | `completedResultsKey = observedResultsKey === baselineKey ? 'baseline' : observedResultsKey` |
+
+**The race, stated precisely:** the Insights payload and the score bootstrap are fetched
+independently. A final landing between them is present in the bootstrap's `nextScores`, so it enters
+the baseline as "already known" — while the Insights payload, composed before it, does not reflect it.
+Baseline says known; payload is stale; nothing refreshes.
+
+**There is no instant at which the client knows it holds a consistent pair.** That is why each round
+closed one ordering and opened the next.
+
+## The direction — and it kills all four by construction
+
+**The server stamps the result set it composed against into the payload.** `ForwardLook`
+(`forwardLook.ts:26-32`) has `seasonYear`, `recapTarget`, `target`, `weekLabel`, `lines` — **no
+version field. Add one.**
+
+The client then compares **one value it was given** against **one value it observes**. A total order,
+not a reconciliation of two timelines. Check it against the regression list:
+
+| round's defect | why the new mechanism cannot have it |
+| --- | --- |
+| 0 — claims go stale | observed ≠ stamped → refresh |
+| 1 — held payload keeps a broken streak | same |
+| 2 — empty baseline reads existing finals as new | **there is no baseline to seed**; the payload supplies the reference |
+| 3 — a final between fetches is absorbed | the stamp is fixed at compose time, so a later final makes observed ≠ stamped → refresh |
+
+**If your design does not dissolve all four this way, it is a patch wearing a rebuild's name. Say so
+rather than shipping it.**
+
+## THE NEW RISK, and it is the first thing to establish
+
+**The server's compose-time scores and the client's observed scores come from different fetches.** If
+the two keys are not computed over the same population by the same rule, `observed ≠ stamped` fires on
+differences that are not new results — and **a spurious refresh is round 2's cost bug reappearing in
+the replacement.**
+
+`/api/insights/[slug]` was measured at **~3.3s per invocation, the most expensive route in the app**.
+Re-derive that figure rather than inheriting it; it predates this tile.
+
+**So the stamp must be computed over a quantity both sides see identically** — most likely the set of
+game keys carrying a final score, not a hash of score packs whose shape or freshness can differ.
+Establish this before designing anything else.
+
+## The cost constraint, unchanged
+
+**No clock-driven requests.** Invalidation fires when results change, never when time passes. That
+property is correct in the shipped code and must survive the rebuild — pin it.
+
+## The window has never been measured
+
+Planning called the race's window "narrow" and never derived it. **Measure it**: how long between the
+Insights response resolving and the score bootstrap completing, on a real page load. It decides whether
+this was a rare annoyance or a routine Saturday one, and the issue's stated priority rests on a number
+nobody has taken.
+
+## Acceptance
+
+1. **Invalidation does not depend on the client reconciling two independently-fetched sources.** The
+   reference value arrives with the payload.
+2. **A final landing at ANY point relative to page bootstrap triggers exactly one refresh** — pinned at
+   the boundaries, not only in the steady state. The four-round table is the regression list and each
+   row gets a test.
+3. **No clock-driven requests**, pinned.
+4. **Mount with existing finals produces exactly ONE Insights request**; a final arriving after mount
+   produces a second. This is round 2/3's assertion pair and it survives verbatim.
+5. **The stamp is computed over a population both sides see identically**, stated and tested — a
+   fixture where the two sides' score data differs in shape but not in completed results must NOT
+   trigger a refresh.
+6. **The window measurement is reported with its population**, whatever the outcome.
+7. **Nothing outside the invalidation changes.** The three families, the tile, the rendering and the
+   changeover are untouched, each pinned.
+
+## Testing requirements
+
+**Every claim needs a mutation that reddens its OWN named assertion, and you must say which assertion
+fired.**
+
+**Acceptance 5 is the likely false green.** A test where both sides are built from the same fixture
+object proves nothing about two independently-fetched sources. Construct them separately, with
+differences that are not new results, and assert silence.
+
+**Acceptance 2's boundary cases are the whole point.** A steady-state test passes under the shipped
+mechanism too — it passed four times. The boundaries are where every round died.
+
+---
+
+## STOP — read receipt before writing any code
+
+1. **Are the server's compose-time scores and the client's observed scores computed over the same
+   population, by the same rule?** If not, say what quantity IS common to both. **Answer this first;
+   it decides the design.**
+2. **Where does the stamp belong** — `ForwardLook`, the enclosing insights payload, or a response
+   header? Say what each costs if the payload is cached or shared.
+3. **What is the measured window** between the Insights response and the score bootstrap, on a real
+   load?
+4. **Does anything else consume `establishResultBaseline` or `selectCompletedResultsKey`?** Enumerate;
+   this slice removes or repurposes both.
+5. **Does your design dissolve all four rows of the regression table by construction**, or does it
+   close them one at a time? Answer honestly — the second is what this issue exists to stop.
+6. **What in this prompt contradicts what you found in the files?**
+
+Do not start until the receipt is answered and it has been ruled on.

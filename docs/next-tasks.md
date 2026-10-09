@@ -873,7 +873,7 @@ This is the canonical deferral register. These items are explicitly not schedule
 are removed rather than retained with strikethrough; their outcomes live in `docs/completed-work.md`.
 
 - **Per-file test-budget headroom — [#889](https://github.com/znpruitt/cfb-app/issues/889).** `OverviewWatchlist.browser.test.tsx` runs at **29.07s against a 30s per-file budget on `main`** — 97% consumed, 0.93s of headroom, and it hit 30.004s once. **Third instance of this failure** after #872 and #875, each diagnosed independently at real cost. Nothing measures the budget; it is discovered by crossing it, and adding one test to a healthy file is enough.
-- **Forward Look invalidation re-derivation — [#888](https://github.com/znpruitt/cfb-app/issues/888).**
+- **Forward Look invalidation re-derivation — [#888](https://github.com/znpruitt/cfb-app/issues/888). DISPATCHED 2026-10-09.** Four rounds, four P2s, each inside the mechanism the last added — one wrong mechanism, not four bugs. The client diffs a held baseline against a held score snapshot: two independently-fetched async sources with no ordering, so there is no instant at which it knows it holds a consistent pair. **Direction: the server stamps the result set it composed against, and the client compares one value it was GIVEN to one it OBSERVES.** The design's test is that it dissolves all four rounds by construction, not one at a time. Kickoff: [`docs/prompts/insights-888-invalidation-rederive-codex-v1.md`](prompts/insights-888-invalidation-rederive-codex-v1.md).
   Owner accepted the bootstrap snapshot race for merge; server-authoritative re-derivation awaits
   its own dispatch decision.
 - **Team-record reconciliation log volume.** Persistent equal-time score conflicts or participant
