@@ -1,0 +1,177 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forward Look — redesign</title>
+<style>
+  :root{--bg:#0a0a0a;--tile:#161616;--hair:rgba(255,255,255,.09);
+    --t1:#f4f4f5;--t2:#a1a1aa;--t3:#71717a;--bronze:#dbc190;--bronze-b:rgba(201,166,107,.40)}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--t1);
+    font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:28px}
+  .page{max-width:1180px;margin:0 auto}
+  .lbl{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);
+    margin:34px 0 10px;padding-top:16px;border-top:1px solid rgba(255,255,255,.16)}
+  .lbl:first-child{border:0;padding:0;margin-top:0}
+
+  /* ---------- card ---------- */
+  .card{background:var(--tile);border-radius:10px;padding:20px 22px}
+  .eyebrow{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--t3)}
+  .strip{display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;margin-top:16px}
+  .st{min-width:46px}
+  .sv{font-size:19px;font-weight:600}
+  .sl{font-size:11.5px;color:var(--t3);margin-top:1px}
+  .st.dim .sv{color:var(--t2);font-weight:500}
+  .st.more{align-self:center}
+  .st.more a{color:#60a5fa;font-size:12.5px;text-decoration:none}
+  .striplbl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);
+    margin:8px 0 2px;padding-bottom:14px;border-bottom:1px solid var(--hair)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 22px;margin-top:14px}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}}
+
+  /* ---------- row ---------- */
+  .fl{background:rgba(255,255,255,.022);border-radius:5px;padding:7px 10px}
+  .fl-status{display:flex;align-items:center;gap:7px;margin-bottom:4px;
+    font-size:12px;color:var(--t3);white-space:nowrap}
+  .stake{flex:none;color:var(--t2)}
+  .logistics{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  /* A — reason leads: tag and stake first, logistics pushed right and demoted */
+  body[data-m="0"] .tag{order:1}
+  body[data-m="0"] .stake{order:2;color:var(--t1);font-weight:550}
+  body[data-m="0"] .logistics{order:3;margin-left:auto;text-align:right;color:var(--t3)}
+  /* B — contract order: logistics left, tag pinned right, stake promoted in place */
+  body[data-m="1"] .logistics{order:1}
+  body[data-m="1"] .stake{order:2;color:var(--t1);font-weight:550}
+  body[data-m="1"] .stake::before{content:"\00b7 ";color:var(--t3);font-weight:400}
+  body[data-m="1"] .tag{order:3;margin-left:auto}
+  /* C — as shipped: stake tertiary, tag right */
+  body[data-m="2"] .logistics{order:1}
+  body[data-m="2"] .stake{order:2}
+  body[data-m="2"] .stake::before{content:"\00b7 ";color:var(--t3)}
+  body[data-m="2"] .tag{order:3;margin-left:auto}
+  .tag{flex:none;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--bronze);border:.5px solid var(--bronze-b);border-radius:3px;padding:1px 5px}
+  .ln{display:flex;align-items:baseline;justify-content:space-between;
+    font-size:14px;padding:1px 0 1px 15px;position:relative;isolation:isolate}
+  .tc{position:absolute;left:0;top:2px;bottom:2px;width:8px;border-radius:2px;
+    background:var(--tcol);opacity:.72}
+  .who{display:flex;align-items:baseline;gap:6px;overflow:hidden;white-space:nowrap;margin-right:12px}
+  .who>span{overflow:hidden;text-overflow:ellipsis}
+  .owner{color:var(--t3);font-size:12.5px}
+  .num{font-variant-numeric:tabular-nums}
+  .anchor{color:var(--t2)}
+  .lead .anchor{color:var(--t1);font-weight:600}
+
+  /* ---------- the old version, for comparison ---------- */
+  .old{border-bottom:1px solid var(--hair);padding:12px 0}
+  .old:last-child{border:0}
+  .old-head{display:flex;justify-content:space-between;gap:20px;align-items:baseline}
+  .old-t{font-size:15px}
+  .old-v{color:var(--t2);font-size:13px;white-space:nowrap}
+  .old-d{color:var(--t3);font-size:13px;margin-top:3px}
+  .hl{font-size:22px;font-weight:600;margin:10px 0 0}
+  .rule{height:1px;background:var(--hair);margin:16px 0}
+  .lnk{color:#60a5fa;font-size:13px;margin-top:14px;display:inline-block}
+  .note{color:var(--t3);font-size:12.5px;margin-top:10px;line-height:1.6}
+  .eyebrow b{font-weight:600}
+  .tag b{font-weight:600}
+</style></head><body data-m="0"><div class="page">
+
+<div class="lbl">Redesigned — the matchup is the row; each slot says one thing</div>
+
+<div style="margin-bottom:14px">
+  <button style="border:1px dashed #4a4a4a;border-radius:6px;padding:6px 12px;background:none;color:#a8a8a8;font:inherit;font-size:13px;cursor:pointer"
+    onclick="var L=['Reason: leads the row (click)','Reason: promoted in place (click)','Reason: as previous pass (click)'];var i=(parseInt(document.body.dataset.m||'0')+1)%3;document.body.dataset.m=i;this.textContent=L[i];">
+    Reason: leads the row (click)</button>
+</div>
+<div class="card">
+  <div class="eyebrow">Week 6 Preview</div>
+  <div class="strip">
+    <div class="st"><div class="sv num">9</div><div class="sl">BHooper</div></div>
+    <div class="st"><div class="sv num">8</div><div class="sl">Pruitt</div></div>
+    <div class="st"><div class="sv num">9</div><div class="sl">Chamness</div></div>
+    <div class="st"><div class="sv num">7</div><div class="sl">Whited</div></div>
+    <div class="st"><div class="sv num">9</div><div class="sl">Gladney</div></div>
+    <div class="st"><div class="sv num">8</div><div class="sl">Maleski</div></div>
+    <div class="st"><div class="sv num">7</div><div class="sl">Surowiec</div></div>
+    <div class="st"><div class="sv num">9</div><div class="sl">Ciprys</div></div>
+    <div class="st"><div class="sv num">8</div><div class="sl">Schmitt</div></div>
+    <div class="st"><div class="sv num">7</div><div class="sl">Jackson</div></div>
+    <div class="st"><div class="sv num">9</div><div class="sl">Ballard</div></div>
+    <div class="st"><div class="sv num">8</div><div class="sl">LHooper</div></div>
+    <div class="st"><div class="sv num">7</div><div class="sl">Jordan</div></div>
+    <div class="st"><div class="sv num">7</div><div class="sl">Stevens</div></div>
+    <div class="st"><div class="sv num">6</div><div class="sl">Shambaugh</div></div>
+  </div>
+  <div class="striplbl">Games in play &middot; standings order</div>
+
+  <div class="grid">
+
+    <div class="fl">
+      <div class="fl-status"><span class="tag">Tiebreaker</span><span class="stake">Tied at 29 wins</span><span class="logistics">Sat 3:30 PM &middot; <span style="color:var(--t2)">ABC</span></span></div>
+      <div class="ln" style="--tcol:#4A8FE0"><span class="tc"></span><span class="who"><span>UCLA</span><span class="owner">BHooper</span></span><span class="anchor num">4&ndash;1</span></div>
+      <div class="ln" style="--tcol:#3F9B72"><span class="tc"></span><span class="who"><span>Oregon</span><span class="owner">Chamness</span></span><span class="anchor num">5&ndash;0</span></div>
+    </div>
+
+    <div class="fl">
+      <div class="fl-status"><span class="tag">Tiebreaker</span><span class="stake">Tied at 29 wins</span><span class="logistics">Sat 7:00 PM &middot; <span style="color:var(--t2)">SEC</span></span></div>
+      <div class="ln" style="--tcol:#C25050"><span class="tc"></span><span class="who"><span>Ole Miss</span><span class="owner">BHooper</span></span><span class="anchor num">4&ndash;1</span></div>
+      <div class="ln" style="--tcol:#D8C68C"><span class="tc"></span><span class="who"><span>Vanderbilt</span><span class="owner">Whited</span></span><span class="anchor num">3&ndash;2</span></div>
+    </div>
+
+    <div class="fl">
+      <div class="fl-status"><span class="tag">Long shot</span><span class="stake">Leader +15.5</span><span class="logistics">Sat 12:00 PM &middot; <span style="color:var(--t2)">FOX</span></span></div>
+      <div class="ln" style="--tcol:#4A8FE0"><span class="tc"></span><span class="who"><span>Kansas</span><span class="owner">BHooper</span></span><span class="anchor num">2&ndash;3</span></div>
+      <div class="ln" style="--tcol:#C25050"><span class="tc"></span><span class="who"><span>Utah</span><span class="owner">Pruitt</span></span><span class="anchor num">5&ndash;0</span></div>
+    </div>
+
+    <div class="fl">
+      <div class="fl-status"><span class="tag">Long shot</span><span class="stake">Leader +11.5</span><span class="logistics">Sat 3:30 PM &middot; <span style="color:var(--t2)">ABC</span></span></div>
+      <div class="ln" style="--tcol:#4A8FE0"><span class="tc"></span><span class="who"><span>UCLA</span><span class="owner">BHooper</span></span><span class="anchor num">4&ndash;1</span></div>
+      <div class="ln" style="--tcol:#3F9B72"><span class="tc"></span><span class="who"><span>Oregon</span><span class="owner">Chamness</span></span><span class="anchor num">5&ndash;0</span></div>
+    </div>
+
+    <div class="fl">
+      <div class="fl-status"><span class="tag">Rivalry</span><span class="stake">Series even 5&ndash;5</span><span class="logistics">Sat 6:30 PM &middot; <span style="color:var(--t2)">ESPN</span></span></div>
+      <div class="ln" style="--tcol:#C4506B"><span class="tc"></span><span class="who"><span>Virginia Tech</span><span class="owner">Surowiec</span></span><span class="anchor num">3&ndash;2</span></div>
+      <div class="ln" style="--tcol:#5578B5"><span class="tc"></span><span class="who"><span>California</span><span class="owner">Ciprys</span></span><span class="anchor num">2&ndash;3</span></div>
+    </div>
+
+  </div>
+  <a class="lnk" href="#">Collapse &uarr;</a>
+</div>
+
+<div class="lbl">The title</div>
+<div class="note">
+  <strong>Week 6 Preview.</strong> Plainer than anything I proposed, and it does something none of mine did: it pairs with the recap.<br><br>
+  The recap card is currently <em>Weekly Recap</em>. Rename it <strong>Week 5 Recap</strong> and the two editorial cards become one convention &mdash; <em>recap</em> and <em>preview</em> are the standard sports pairing, and numbering both makes the relationship legible without explaining it. One covers the week just finished, one the week ahead.<br><br>
+  <strong>It also sidesteps the collision I was designing around.</strong> I ruled out "what to watch" names because <em>Upcoming watchlist</em> sits a few sections down. "Preview" does not compete with it &mdash; a preview is a weekly editorial summary, a watchlist is a running list of games. Different kinds of object, so no confusion.<br><br>
+  <strong>One thing to resolve before renaming:</strong> the recap tile was specified as a <em>two-state persistent slot</em> &mdash; state 1 recap through Wednesday, state 2 upcoming weekend from Thursday 06:00 ET. State 2 is a preview. If this card is that state, they are one slot and the naming is automatic. If it is a second card, the two-state design needs revisiting, because the page would carry a preview card and a recap tile that becomes a preview.
+</div>
+
+<div class="lbl">Games in play &mdash; corrected against the data</div>
+<div class="note">
+  <strong>All fifteen owners, standings order.</strong> Measured weeks 7 and 8 show every owner with games every week, counts in a 5&ndash;9 band. Sorting by count read as a leaderboard when the spread is a bye-week artifact; standings order makes the count a column rather than a rank. The cut at six hid nine owners for no reason the data supports.<br><br>
+  <strong>The owner-vs-owner count is dropped.</strong> Measured collisions are 52 and 50 per week &mdash; nearly every game. A count that is the default is not a fact, and "52 are owner vs owner" tells a member nothing they could act on. The interesting inverse, if any, is how few games are <em>not</em>.<br><br>
+  <strong>It remains the movement ceiling, with no modelling.</strong> Two wins back with nine games against the leader's nine is arithmetic the member can do. The recap's <em>movement</em> section has no honest forward analog, because predicting standings change needs outcome modelling the campaign already ruled would mislead.
+</div>
+
+<div class="lbl">Long shot &mdash; the framing restored</div>
+<div class="note">
+  Stake reads <strong>Leader +15.5</strong>, not <em>Kansas +15.5</em>. Without the standing position the row says a team is an underdog, which is a national fact the watchlist already ranks on. With it, it is a league-stakes claim &mdash; which is what this card exists to make. The owner name is on the row, so "Leader" needs no further qualification.
+</div>
+
+<div class="lbl">Making the reason prominent &mdash; three positions</div>
+<div class="note">
+  <strong>Leads the row</strong> &mdash; tag first, stake beside it in primary weight, kickoff and broadcast demoted to the right edge in tertiary. The eye lands on <em>why this game is here</em> before anything else. Costs the status-row contract: elsewhere metadata is left and the tag is pinned right, and this inverts both.<br><br>
+  <strong>Promoted in place</strong> &mdash; keeps the contract exactly, and promotes only the stake text from tertiary to primary weight. Cheaper, consistent, and weaker: the tag is still a small pill at the far edge, so the reason is split across two ends of the row.<br><br>
+  <strong>As previous pass</strong> &mdash; for comparison.<br><br>
+  <strong>The argument for breaking the contract here:</strong> a Schedule row's primary content is the game, and the tag is a note about it. A preview row's primary content <em>is</em> the reason &mdash; the game is the vehicle. If that is true, the inversion is the row saying what it is for rather than a deviation. If it is not, "promoted in place" is the safe answer and the contract holds everywhere.
+</div>
+
+<div class="lbl">What the last pass changed</div>
+<div class="note">
+  <strong>The stake moved out of the anchors and into the status row.</strong> It is a property of the game, not of each team &mdash; rendering <code>+15.5 / &minus;15.5</code> on two lines was the same fact twice, and <code>29 / 29</code> read as a score on a game that has not been played. Stated once, it stops competing with the row anatomy.<br><br>
+  <strong>The anchors go back to the team record</strong>, which is what the scoreboard contract already specifies for a scheduled row. Nothing special-cased, and no number on the row means something different here than it does everywhere else.<br><br>
+  <strong>Both owners render.</strong> The source copy dropped the second one &mdash; Kansas&ndash;Utah almost certainly has an owner on each side, and a league app omitting one is surprising. Ownership is the row's job; the tag says why the game is here.<br><br>
+  <strong>Upside &rarr; Long shot.</strong> Parallel with Tiebreaker and Rivalry: all three are nouns naming what kind of game this is, rather than describing a state or an outcome. <em>Upside</em> was the odd one &mdash; it named a benefit to one owner rather than a property of the game.
+</div>
+</div></body></html>
