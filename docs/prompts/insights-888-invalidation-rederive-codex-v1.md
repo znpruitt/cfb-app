@@ -25,6 +25,71 @@ CARRIES: From AGENTS.md's reconstruction rule, amended 2026-10-06 out of this ve
 
 ---
 
+## ADJUDICATED 2026-10-10 — direction holds; three rulings, and the standings allowance is DENIED
+
+### 1. Preparation boundary — ACCEPTED as you recommend
+
+Prepare reusable schedule and history inputs once per context change; compose from current scores on
+change. **Your measurement is the argument:** standings derivation ~0.2ms against rivalry evaluation
+12.2ms in the same case, so the expensive work is the part that does NOT depend on scores.
+
+**Your caveat binds: the split needs its own measurement.** Do not carry the unchanged-composer
+numbers across to the split design.
+
+**"Stable" means reusable between explicit context updates, not frozen for the mount** — your
+correction, and it is right. Schedule rebuilds, postseason overrides, roster reloads and odds
+hydration all move those inputs.
+
+**And do not serialize whole `SeasonArchive` objects.** 9,594,557 bytes across six archives is a
+decisive number; compact historical preparation is mandatory, not an optimisation.
+
+### 2. Snapshot freshness — ACCEPTED, and planning's rationale was WRONG
+
+I justified the recap asymmetry with "its claims cannot go stale." **False, and you disproved it on a
+fixture:** a correction to a reported game changes recap winners, records and points, and the composer
+explicitly supports incomplete recaps that later complete. A LATER UNRELATED game cannot invalidate
+the recap; a CORRECTION to one of its own games can. Those are different claims and I conflated them.
+
+**Your wording is adopted verbatim as the decision:**
+
+> Forward Look follows displayed client scores immediately. Recap and ordinary Insights remain server
+> snapshots, updated by their retained fetch triggers; removing result-triggered fetching means
+> corrections and late completions can wait until the next such fetch.
+
+**The collateral is accepted with it:** today the completed-result dependency refetches the entire
+response, so removing it also removes recap and ordinary-Insights freshness updates. That delay is
+acceptable for backward-looking content. **If it later proves not to be, their refresh policy is
+separate work and must not recreate Forward Look's reconciliation mechanism** — your line, kept.
+
+### 3. Standings allowance — DENIED, and you should not need it
+
+**Do not carve an exception in the Standings Ownership Invariants, and do not call `deriveStandings`
+client-side.** Two precedents say why, and the second is one planning ruled on itself:
+
+- **Rule 3 exists because render-time merging of canonical and live data caused the NoClaim-at-#1 bug
+  and took EIGHT remediation rounds** before the current architecture replaced it.
+- **#827 fixed "one screen presents two leaders"** — a podium and a table disagreeing because they
+  read standings from different moments. **A Forward Look deriving its own standings would reproduce
+  exactly that**: the tile saying "now tied" while the condensed table two inches below still shows
+  them one apart.
+
+**Rule 2 already provides the sanctioned path.** *"Client owns only the liveDelta overlay. In-progress
+game annotations and computed per-owner pending stats live in `LiveDelta`, computed by
+`selectLiveDelta` / `useLiveDelta`."* Overview already consumes it — `selectOwnerPendingDelta` yields
+per-owner pending wins and losses.
+
+**So the question to answer before anyone proposes an exception: are Forward Look's standings facts
+expressible as canonical standings plus the liveDelta overlay?** If they are, the tile is exactly as
+fresh as the standings table and **cannot disagree with it**, which is a stronger property than the
+freshness this whole issue has been chasing. If they are not, say precisely which fact resists it —
+that is a real finding and planning will rule again.
+
+### Noted
+
+**The approval guard refusing to export production records into `/tmp` was correct**, and using
+synthetic data plus a count-only census was the right response rather than an obstacle to route
+around.
+
 ## DIRECTION CHANGED 2026-10-09 (owner) — COMPOSE OVER THE SCORES THE CLIENT ALREADY HAS
 
 **The owner asked why the tile does not draw from the same score data as the schedule, and that
