@@ -25,6 +25,66 @@ CARRIES: From AGENTS.md's reconstruction rule, amended 2026-10-06 out of this ve
 
 ---
 
+## RECEIPT ADJUDICATED 2026-10-09 — item 5 is correct and it REFUTES the direction above
+
+**"A total order, not a reconciliation of two timelines" was wrong.** A content signature establishes
+EQUALITY, not order. The receipt's reverse case is the proof: the client reads results **A**, the
+server composes against newer **B**, and `A ≠ B` refreshes an already-current payload. **That is
+round 2's spurious-refresh cost bug, reappearing inside its replacement** — and declining to claim the
+design was sufficient was the right call. Calling an inequality check sufficient would have repeated
+the mechanism mistake exactly.
+
+### The direction, corrected: the stamp needs an ORDERING component as well as a content one
+
+Two questions, two quantities:
+
+- **"Did anything differ?"** — the content signature. The receipt's answer stands: sorted
+  `[canonical game key, home score, away score]` tuples for usable finals, which is what
+  `selectCompletedResultsKey` already computes. **Planning's "game keys alone" suggestion was wrong
+  and is withdrawn** — it loses score-correction invalidation.
+- **"Which side is newer?"** — currently unanswered, and the whole of item 5.
+
+**Do NOT reach for a clock.** The two sides read different catalogs — the public scores route uses the
+bundled catalog, the server build the synced one — so their instants are not established as
+comparable, and a skew would produce exactly the spurious refresh being designed out.
+
+**The candidate planning would look at first: the COUNT of usable finals is monotonic within a
+season.** Finals accumulate; they do not un-happen. It is derivable from the same tuples already
+established as common, so it needs no new quantity and inherits the comparability the receipt proved.
+A strictly greater client count means the client is strictly ahead. Equal counts with differing
+content is a score correction, which is a separate case and needs its own answer.
+
+**That is a candidate, not the ruling.** **Derive the comparison rule and bring it back** — planning
+was wrong about the last one and is not going to dictate this one from a distance. State what each
+ordering case does and why, including equal-count-differing-content, and show the four-round table
+still dissolving under it.
+
+### Other corrections, all accepted
+
+- **The stamp belongs on `ForwardLook`, computed from the exact context that composed its lines**, and
+  **a retained or cached payload keeps its original stamp.** The receipt's reason is the load-bearing
+  one: *refreshing the stamp independently would falsely certify old claims.* `parseForwardLook:41`
+  reconstructs the object, so it must preserve and validate the field.
+- **"No clock-driven requests" was too absolute.** The 06:00 ET eligibility boundary IS a fetch
+  dependency (`useInsightsFeed.ts:347`) and is deliberate. The rule is: **ordinary ticks do not
+  refetch; crossing the eligibility boundary does.** Acceptance 3 below means the former.
+- **"A final at ANY point triggers exactly one refresh" was wrong.** A final already present in the
+  initial composition requires **zero** additional refreshes. Acceptance 2 is corrected.
+- **Scope widens, as it must.** Removing the baseline touches `useLiveRefresh` and `CFBScheduleApp`;
+  transporting the stamp touches `parseForwardLook`. That is the mechanism's real surface and the
+  SCOPE line above understated it.
+
+### The window: measure it LOCALLY, not in production
+
+Production returned the password gate on both probes — **zero authenticated Overview loads, so neither
+probe measured the requested interval**, which the receipt stated rather than estimating around.
+Correct, and planning should have anticipated it.
+
+**Use the `verify` skill**: seed the file-fallback durable store and boot the dev server without a
+database. A real page load with real timing is what the acceptance wants; it does not have to be
+production. If the local interval is not representative, say why rather than reporting it as if it
+were.
+
 ## Why this is a re-derivation and not a fifth round
 
 **Four rounds produced four P2s, each inside the mechanism the previous round added:**
@@ -62,8 +122,10 @@ closed one ordering and opened the next.
 (`forwardLook.ts:26-32`) has `seasonYear`, `recapTarget`, `target`, `weekLabel`, `lines` — **no
 version field. Add one.**
 
-The client then compares **one value it was given** against **one value it observes**. A total order,
-not a reconciliation of two timelines. Check it against the regression list:
+The client then compares **one value it was given** against **one value it observes**. **The original
+version of this line called that "a total order" and it is not — see the adjudication above; a content
+signature gives equality only, and the ordering component is still to be derived.** The table below
+holds for the content half, which is why the direction survives the correction:
 
 | round's defect | why the new mechanism cannot have it |
 | --- | --- |
@@ -82,12 +144,18 @@ the two keys are not computed over the same population by the same rule, `observ
 differences that are not new results — and **a spurious refresh is round 2's cost bug reappearing in
 the replacement.**
 
-`/api/insights/[slug]` was measured at **~3.3s per invocation, the most expensive route in the app**.
-Re-derive that figure rather than inheriting it; it predates this tile.
+**CORRECTED at the receipt: the 3.33s figure is ACTIVE CPU, not response latency** — derived from 10
+CPU-seconds across three invocations in a single 12-hour window on 2026-09-01
+(`vercel-active-cpu.md:170`), with the dashboard rounding to whole minutes above 60s. Planning has
+repeated it as latency in several places and it is not. **It has not been re-measured, and "the most
+expensive route in the app" has not been re-established.** Treat it as an order-of-magnitude reason to
+avoid needless invocations, not as a number to reason from.
 
-**So the stamp must be computed over a quantity both sides see identically** — most likely the set of
-game keys carrying a final score, not a hash of score packs whose shape or freshness can differ.
-Establish this before designing anything else.
+**ESTABLISHED AT THE RECEIPT:** the common quantity is sorted
+`[canonical game key, home score, away score]` tuples for usable finals in the selected season — which
+`selectCompletedResultsKey` already computes. **Planning's "game keys alone" guess was wrong and is
+withdrawn: it loses score-correction invalidation.** An unloaded or incomplete observation must not be
+treated as an authoritative empty result set.
 
 ## The cost constraint, unchanged
 
@@ -105,10 +173,11 @@ nobody has taken.
 
 1. **Invalidation does not depend on the client reconciling two independently-fetched sources.** The
    reference value arrives with the payload.
-2. **A final landing at ANY point relative to page bootstrap triggers exactly one refresh** — pinned at
-   the boundaries, not only in the steady state. The four-round table is the regression list and each
-   row gets a test.
-3. **No clock-driven requests**, pinned.
+2. **A final already present in the initial composition triggers ZERO refreshes; a final arriving
+   after it triggers exactly one.** Pinned at the boundaries, not only in the steady state. The
+   four-round table is the regression list and each row gets a test.
+3. **Ordinary ticks do not refetch**, pinned. The 06:00 ET eligibility boundary remains a deliberate
+   fetch dependency and is not what this means.
 4. **Mount with existing finals produces exactly ONE Insights request**; a final arriving after mount
    produces a second. This is round 2/3's assertion pair and it survives verbatim.
 5. **The stamp is computed over a population both sides see identically**, stated and tested — a
