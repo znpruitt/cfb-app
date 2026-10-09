@@ -25,6 +25,69 @@ CARRIES: From AGENTS.md's reconstruction rule, amended 2026-10-06 out of this ve
 
 ---
 
+## DIRECTION CHANGED 2026-10-09 (owner) — COMPOSE OVER THE SCORES THE CLIENT ALREADY HAS
+
+**The owner asked why the tile does not draw from the same score data as the schedule, and that
+question dissolves the problem rather than solving it.** Planning had just been about to recommend
+accepting the race as a measured residual. Withdrawn.
+
+### Why there is a gap at all
+
+The tile's claims are composed SERVER-side from the server's read of scores; the scoreboard renders
+the CLIENT's separately-polled scores. Two reads of the same underlying facts, arriving at different
+times through different paths. **Every defect in the four-round table lives in that gap.** Five rounds
+have tried to reconcile the two arrivals; none removed the second one.
+
+### The split, from the inputs
+
+`WeeklyRecapContext` (`loadRecapContext.ts:15-27`) plus `ForwardLookInputs` (`forwardLook.ts:33-40`):
+
+| input | changes during a session? |
+| --- | --- |
+| `scoresByKey` | **yes — this is the whole problem** |
+| `standings` | **yes — derived from scores** |
+| `games` (schedule) | no |
+| `rosterByTeam` (the draft) | no |
+| `odds` | slowly; already carries a 24h expiry |
+| `records` — archives + historical rosters | no, prior seasons are immutable |
+
+**Only the score-dependent inputs move. Everything else is stable for the life of a page.**
+
+### The direction
+
+**The server supplies the STABLE context — draft, odds, archives. The client composes the claims over
+the scores it already holds and already renders.**
+
+Then the tile's claims and the scoreboard's numbers come from **one source by construction**. No
+second arrival, so no gap, no ordering question, and **no revision authority to invent** — which the
+receipt correctly established does not exist and would reach score writers and snapshot transport to
+build.
+
+**And it likely removes the refresh request entirely.** A new final recomposes locally instead of
+re-fetching Insights. The expensive call we spent four rounds trying not to trigger spuriously stops
+being part of the mechanism.
+
+**Check the regression table against it before anything else:** all four rows should be
+*unreachable*, not *handled*. If any row still needs a rule, say so — that is the signal this is
+another managed reconciliation rather than a removed one.
+
+### Four things to establish BEFORE building. This is the receipt
+
+1. **What does composing cost on the client?** Selectors over a few hundred games — likely small,
+   entirely unmeasured. Measure it; a slow compose on every score tick is a worse trade than the
+   race.
+2. **Does anything else depend on server-side composition?** The Insights page renders the full
+   recap and may share plumbing. Enumerate the consumers before moving the seam.
+3. **What happens to the payload and `parseForwardLook`?** The wire shape becomes stable context
+   rather than composed lines. Say what the new contract is.
+4. **The recap stays server-composed — is that asymmetry acceptable?** It is defensible, because the
+   recap's claims are about finished games and cannot go stale. **But it must be a stated decision
+   with that reason, not a side effect**, and planning will record it in `DESIGN.md` if so.
+
+**If any of the four says no, report it.** This direction is planning's third on this mechanism and
+the previous two were wrong — the receipt killed both with evidence from the repo. **Treat it as a
+proposal to falsify, not an instruction.**
+
 ## RECEIPT ADJUDICATED 2026-10-09 — item 5 is correct and it REFUTES the direction above
 
 **"A total order, not a reconciliation of two timelines" was wrong.** A content signature establishes
