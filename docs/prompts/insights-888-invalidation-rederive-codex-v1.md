@@ -25,6 +25,61 @@ CARRIES: From AGENTS.md's reconstruction rule, amended 2026-10-06 out of this ve
 
 ---
 
+## SETTLED 2026-10-10 — build it. Canonical rows, pending kept separate, narrower freshness claim
+
+**All three open questions are answered and the design is ruled. Implement.**
+
+### Canonical rows directly — and planning's `liveDelta` suggestion was half wrong
+
+**Accepted: every Forward Look standings fact is expressible from `canonicalStandings.rows`** — wins,
+the gap, games back, and rank as array position. The same snapshot the podium and condensed table use.
+**No allowance, no `deriveStandings` client-side, and the #827 disagreement cannot arise** because
+there is one source.
+
+**And the correction planning needed:** I suggested canonical **plus the liveDelta overlay**.
+`selectLiveDelta` (`liveDelta.ts:113`) counts in-progress leads and **explicitly excludes finals**, so
+folding pending wins into these facts would turn *"currently leading a game"* into *"has won a game"*
+— a false claim in a tile whose entire job is claims. **Pending annotations stay separate from the
+facts.** None of the existing wording needs the projection.
+
+### The freshness statement is NARROWER than planning promised, and the narrower one is right
+
+> **Forward Look's standings claims follow the displayed canonical standings. Its game eligibility and
+> rivalry claims follow displayed client scores.**
+
+That replaces "every claim follows client scores immediately", which was planning's wording and was
+too broad. The worked case: canonical wins 10-9, a client-observed final levelling the trailing owner,
+**both table and tile stay at 10-9 until refreshed canonical rows arrive, then both move to 10-10.**
+
+**Behind together is the property we wanted.** A tile that is fresher than the table is the #827
+defect; a tile that matches it is correct even while both wait.
+
+### The bootstrap race is RELOCATED, not eliminated — and that is the right outcome
+
+`detectScoreFinalizations` (`useLiveRefresh.ts:193-194`) deliberately suppresses first-seen finals, so
+a final landing between the server's canonical read and the client's first poll leaves **every**
+canonical-derived surface behind the scoreboard.
+
+**That is not Forward Look's to fix, and fixing it there would rebuild the separate authority this
+issue removed.** Declining to was the correct call. **Filed as
+[#890](https://github.com/znpruitt/cfb-app/issues/890)** against the shared path, where both sources
+are load-bearing and cannot be collapsed.
+
+**And the five-case revision contract derived earlier in this issue is not wasted — #890 is its
+home.** Distinguishing a genuinely new first-seen final from one already in the server's read needs
+exactly the ordering it specifies.
+
+### Scorecard against the four-round table
+
+| row | status under this design |
+| --- | --- |
+| 0 — claims go stale | **unreachable**: claims and table move together |
+| 1 — held broken streak | **unreachable**: rivalry follows client scores, nothing is held |
+| 2 — duplicate generation | **unreachable**: no result-triggered request exists |
+| 3 — bootstrap absorbs a final | **relocated** to #890, as a whole-screen property rather than a tile defect |
+
+**Three removed, one moved to where it actually lives.** That is the outcome a re-derivation is for.
+
 ## ADJUDICATED 2026-10-10 — direction holds; three rulings, and the standings allowance is DENIED
 
 ### 1. Preparation boundary — ACCEPTED as you recommend
