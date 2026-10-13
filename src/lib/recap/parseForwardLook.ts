@@ -1,48 +1,51 @@
-import type { ForwardLook, ForwardLookLine } from '../selectors/forwardLook.ts';
+import type { ForwardLookHistory, RivalrySummary } from '../selectors/forwardLookRivalries.ts';
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function target(value: unknown): value is ForwardLook['target'] {
-  return (
-    record(value) &&
-    Number.isInteger(value.week) &&
-    typeof value.latestGameDate === 'string' &&
-    /^\d{4}-\d{2}-\d{2}$/.test(value.latestGameDate) &&
-    Number.isFinite(Date.parse(value.latestGameDate))
-  );
+function count(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
 }
 
-export function parseForwardLook(value: unknown): ForwardLook | null {
-  if (
-    !record(value) ||
-    !Number.isInteger(value.seasonYear) ||
-    !target(value.recapTarget) ||
-    !target(value.target) ||
-    value.target.week <= value.recapTarget.week ||
-    typeof value.weekLabel !== 'string' ||
-    !Array.isArray(value.lines)
-  )
-    return null;
-  const lines = value.lines.filter(
-    (line): line is ForwardLookLine =>
-      record(line) &&
-      ['standings', 'rivalry', 'upset'].includes(String(line.family)) &&
-      ['id', 'storyKey', 'gameKey', 'title', 'detail', 'value'].every(
-        (key) => typeof line[key] === 'string'
-      ) &&
-      typeof line.priorityScore === 'number' &&
-      Number.isFinite(line.priorityScore) &&
-      typeof line.expiresAt === 'number' &&
-      Number.isFinite(line.expiresAt)
-  );
-  if (lines.length !== value.lines.length) return null;
-  return {
-    seasonYear: value.seasonYear as number,
-    recapTarget: value.recapTarget,
-    target: value.target,
-    weekLabel: value.weekLabel,
-    lines,
-  };
+export function parseForwardLook(value: unknown): ForwardLookHistory | null {
+  if (!record(value) || !Number.isInteger(value.seasonYear)) return null;
+  if (value.rivalries === null) return { seasonYear: value.seasonYear as number, rivalries: null };
+  if (!Array.isArray(value.rivalries)) return null;
+  const rivalries: RivalrySummary[] = [];
+  const seen = new Set<string>();
+  for (const pair of value.rivalries) {
+    if (
+      !record(pair) ||
+      !Array.isArray(pair.owners) ||
+      pair.owners.length !== 2 ||
+      !pair.owners.every((owner) => typeof owner === 'string' && owner.length > 0) ||
+      pair.owners[0] >= pair.owners[1] ||
+      !Array.isArray(pair.wins) ||
+      pair.wins.length !== 2 ||
+      !pair.wins.every(count)
+    )
+      return null;
+    const key = JSON.stringify(pair.owners);
+    if (seen.has(key)) return null;
+    seen.add(key);
+    let streak: RivalrySummary['streak'] = null;
+    if (pair.streak !== null) {
+      if (
+        !record(pair.streak) ||
+        !pair.owners.includes(pair.streak.owner) ||
+        !count(pair.streak.count) ||
+        pair.streak.count === 0 ||
+        pair.streak.count > pair.wins[pair.owners.indexOf(pair.streak.owner)]
+      )
+        return null;
+      streak = { owner: pair.streak.owner as string, count: pair.streak.count };
+    }
+    rivalries.push({
+      owners: [pair.owners[0], pair.owners[1]],
+      wins: [pair.wins[0], pair.wins[1]],
+      streak,
+    });
+  }
+  return { seasonYear: value.seasonYear as number, rivalries };
 }

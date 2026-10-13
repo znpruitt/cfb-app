@@ -6,7 +6,7 @@ import { build } from 'esbuild';
 import postcss from 'postcss';
 import tailwindcss from '@tailwindcss/postcss';
 import { withBrowserFixture } from '../../../test/browserFixture';
-import { composeForwardLook } from '../../../lib/recap/composeForwardLook';
+import { composeFixtureForwardLook as composeForwardLook } from '../../../test/forwardLookFixtures';
 import {
   addRivalry,
   forwardContext,

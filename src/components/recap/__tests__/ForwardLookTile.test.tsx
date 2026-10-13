@@ -1,10 +1,11 @@
+import { selectFixtureForwardLookInputs as selectForwardLookInputs } from '../../../test/forwardLookFixtures';
 import assert from 'node:assert/strict';
 import test, { afterEach } from 'node:test';
 import React from 'react';
 import { JSDOM } from 'jsdom';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import ForwardLookTile from '../ForwardLookTile';
-import { composeForwardLook } from '../../../lib/recap/composeForwardLook';
+import { composeFixtureForwardLook as composeForwardLook } from '../../../test/forwardLookFixtures';
 import {
   addRivalry,
   forwardContext,
@@ -12,7 +13,6 @@ import {
   FORWARD_SCOPE,
 } from '../../../test/forwardLookFixtures';
 import {
-  selectForwardLookInputs,
   selectForwardStandings,
   selectForwardUpsets,
   mergeForwardLookLines,

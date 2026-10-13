@@ -1,11 +1,16 @@
 import { displayOwner, getGameOwners } from '../gameOwnership.ts';
-import { classifyStatusLabel, hasUsableFinalScore } from '../gameStatus.ts';
-import type { WeeklyRecapContext } from '../recap/loadRecapContext.ts';
+import { classifyStatusLabel } from '../gameStatus.ts';
+import type { CombinedOdds } from '../odds.ts';
+import {
+  prepareRivalryGames,
+  type ForwardLookHistory,
+  type RivalryGame,
+} from './forwardLookRivalries.ts';
+import { buildWeekLabelMap } from '../weekLabel.ts';
 import type { AppGame } from '../schedule.ts';
 import type { ScorePack } from '../scores.ts';
-import { deriveStandings, type OwnerStandingsRow } from '../standings.ts';
+import type { OwnerStandingsRow } from '../standings.ts';
 import {
-  selectWeeklyRecapTargetWeek,
   selectWeeklyRecapTileState,
   selectWeeklyRecapWeekTargets,
   type WeeklyRecapTargetWeek,
@@ -31,7 +36,8 @@ export type ForwardLook = {
   lines: ForwardLookLine[];
 };
 export type ForwardLookInputs = {
-  context: WeeklyRecapContext;
+  context: PreparedForwardLook;
+  scoresByKey: Record<string, ScorePack>;
   now: Date;
   recapTarget: WeeklyRecapTargetWeek;
   target: WeeklyRecapTargetWeek;
@@ -44,27 +50,45 @@ export const FORWARD_LOOK_FAMILY_CAP = 2;
 // One day's price, not a season-opening line. Boundary: "Forward Look odds expire at 24 hours".
 export const FORWARD_LOOK_ODDS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-export function selectCompletedResultsKey(scoresByKey: Record<string, ScorePack>): string {
-  return JSON.stringify(
-    Object.entries(scoresByKey)
-      .filter(([, score]) => hasUsableFinalScore(score))
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, score]) => [key, score.home.score, score.away.score])
-  );
+export type PreparedForwardLook = {
+  seasonYear: number;
+  games: AppGame[];
+  rosterByTeam: Map<string, string>;
+  odds:
+    | { status: 'available'; byGameKey: Record<string, CombinedOdds> }
+    | { status: 'unavailable' };
+  history: ForwardLookHistory;
+  rivalryGames: RivalryGame[];
+  targets: WeeklyRecapTargetWeek[];
+  labels: ReturnType<typeof buildWeekLabelMap>;
+};
+
+export function prepareForwardLook(
+  args: Pick<PreparedForwardLook, 'games' | 'rosterByTeam' | 'odds' | 'history'>
+): PreparedForwardLook {
+  return {
+    ...args,
+    seasonYear: args.history.seasonYear,
+    rivalryGames: prepareRivalryGames(args.games, args.rosterByTeam),
+    targets: selectWeeklyRecapWeekTargets(args.games),
+    labels: buildWeekLabelMap(args.games),
+  };
 }
 
 export function selectForwardLookInputs(
-  context: WeeklyRecapContext,
+  context: PreparedForwardLook,
+  scoresByKey: Record<string, ScorePack>,
+  standings: OwnerStandingsRow[],
   now: Date
 ): ForwardLookInputs | null {
-  const recapTarget = selectWeeklyRecapTargetWeek(context.games, now);
-  if (!recapTarget) return null;
-  const target = selectWeeklyRecapWeekTargets(context.games).find(
-    (week) => week.week > recapTarget.week
+  const recapTarget = context.targets.findLast(
+    (week) => selectWeeklyRecapTileState(week, now) !== 'hidden'
   );
+  if (!recapTarget) return null;
+  const target = context.targets.find((week) => week.week > recapTarget.week);
   if (!target) return null;
   const games = context.games.filter((game) => {
-    const score = context.scoresByKey[game.key];
+    const score = scoresByKey[game.key];
     return (
       game.canonicalWeek === target.week &&
       !game.isPlaceholder &&
@@ -84,7 +108,8 @@ export function selectForwardLookInputs(
     recapTarget,
     target,
     games,
-    standings: deriveStandings(context.games, context.rosterByTeam, context.scoresByKey).rows,
+    standings,
+    scoresByKey,
   };
 }
 
@@ -127,10 +152,7 @@ export function selectForwardStandings(inputs: ForwardLookInputs): ForwardLookLi
 export function selectForwardUpsets(inputs: ForwardLookInputs): ForwardLookLine[] {
   const { context, now } = inputs;
   if (context.odds.status !== 'available') return [];
-  const recap = selectWeeklyRecapTargetWeek(context.games, now);
-  const immediate =
-    recap &&
-    selectWeeklyRecapWeekTargets(context.games).find((week) => week.week > recap.week)?.week;
+  const immediate = context.targets.find((week) => week.week > inputs.recapTarget.week)?.week;
   if (inputs.target.week !== immediate) return [];
   const oddsByKey = context.odds.byGameKey;
   return inputs.games.flatMap((game) => {

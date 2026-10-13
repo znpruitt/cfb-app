@@ -9,12 +9,11 @@ import CFBScheduleApp from '../CFBScheduleApp';
 import { OVERVIEW_SCOREBOARD_GRID_STYLE } from '../OverviewPanel';
 import { AppContextProviders } from './_setup/renderWithAppContext';
 import { deriveStandings } from '../../lib/standings';
-import { composeForwardLook } from '../../lib/recap/composeForwardLook';
+import { prepareForwardLookPayload } from '../../lib/recap/composeForwardLook';
 import { composeWeeklyRecap } from '../../lib/recap/composeWeeklyRecap';
 import {
   forwardContext,
   forwardGame,
-  forwardScore,
   addRivalry,
   FORWARD_NOW,
   FORWARD_SCOPE,
@@ -95,6 +94,19 @@ function installFetch(
         ? jsonResponse({ error: 'unavailable' }, 503)
         : jsonResponse({ items: scheduleItems, meta: { source: 'cache' } });
     }
+    if (url.startsWith('/api/scores'))
+      return jsonResponse({
+        items: (scheduleItems ?? []).map((raw) => {
+          const game = raw as Record<string, unknown>;
+          return {
+            ...game,
+            time: null,
+            home: { team: game.homeTeam, score: game.completed ? 21 : null },
+            away: { team: game.awayTeam, score: game.completed ? 14 : null },
+          };
+        }),
+        meta: { source: 'cache' },
+      });
     if (url.startsWith('/api/aliases')) return jsonResponse({ map: {} });
     if (url.startsWith('/api/owners')) {
       return jsonResponse({ year: 2026, csvText: ownersCsv, hasStoredValue: ownersCsv !== null });
@@ -158,11 +170,21 @@ test('Overview replaces the recap at the real cutoff and keeps an empty Forward 
   const payload = {
     ...recapPayload,
     weeklyRecap: composeWeeklyRecap(result, before, FORWARD_SCOPE),
-    forwardLook: composeForwardLook(result, before, FORWARD_SCOPE),
+    forwardLook: prepareForwardLookPayload(result, FORWARD_SCOPE),
   };
   Date.now = () => before.getTime();
   installFetch(
     [
+      {
+        id: 'prior',
+        week: 5,
+        seasonType: 'regular',
+        startDate: '2026-10-03T19:00:00Z',
+        homeTeam: 'Alabama',
+        awayTeam: 'Georgia',
+        status: 'final',
+        completed: true,
+      },
       {
         id: 'next',
         week: 6,
@@ -219,9 +241,19 @@ test('Forward Look leaves the watchlist, Insights panel and scoreboard grid unch
       },
     ],
     weeklyRecap: composeWeeklyRecap(result, FORWARD_NOW, FORWARD_SCOPE),
-    forwardLook: composeForwardLook(result, FORWARD_NOW, FORWARD_SCOPE),
+    forwardLook: prepareForwardLookPayload(result, FORWARD_SCOPE),
   };
   const schedule = [
+    {
+      id: 'prior',
+      week: 5,
+      seasonType: 'regular',
+      startDate: '2026-10-03T19:00:00Z',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
+      status: 'final',
+      completed: true,
+    },
     {
       id: 'upcoming',
       week: 6,
@@ -319,9 +351,9 @@ test('Overview keeps the recap tile before its podium when the schedule succeeds
     },
   ]);
   const rendered = renderApp();
-
   await waitFor(() => {
     assert.ok(rendered.getByText('League summary'));
+    assert.ok(rendered.getByText('Weekly recap'));
   });
   const tile = rendered.getByText('Weekly recap').closest('section');
   const podium = rendered.getByText('League summary').closest('section');
@@ -349,11 +381,8 @@ test('Overview keeps the recap tile before its podium when the schedule succeeds
 });
 
 for (const existingFinal of [true, false]) {
-  test(
-    existingFinal
-      ? 'Overview seeds existing finals at mount and refreshes for a later final'
-      : 'Overview refreshes Forward Look once when its live poll completes an earlier game',
-    async (t) => {
+  for (const historyFirst of [true, false]) {
+    test(`Overview composes from client results and canonical rows (initial final=${existingFinal}, history first=${historyFirst})`, async (t) => {
       let now = new Date('2026-10-10T19:00:00Z');
       Date.now = () => now.getTime();
       const oldVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
@@ -366,37 +395,32 @@ for (const existingFinal of [true, false]) {
       context.games[0] = forwardGame('prior', 5, '2026-10-03T19:00:00Z', 'Unowned', 'Other');
       context.games[1].date = '2026-10-10T16:00:00Z';
       context.games.push(forwardGame('repeat', 6, '2026-10-10T23:00:00Z'));
-      context.scoresByKey = {};
-      if (existingFinal) {
-        context.games.push(forwardGame('baseline-final', 6, '2026-10-10T14:00:00Z'));
-        context.scoresByKey['baseline-final'] = forwardScore(7, 21);
-      }
       addRivalry(context, Array(5).fill('Alice'));
-      const schedule = context.games
-        .filter((game) => game.canonicalWeek === 6)
-        .map((game) => ({
-          id: game.key,
-          week: 6,
-          seasonType: 'regular',
-          startDate: game.date,
-          homeTeam: 'Texas',
-          awayTeam: 'Georgia',
-          homeConference: 'SEC',
-          awayConference: 'SEC',
-          status: 'scheduled',
-          completed: false,
-          neutralSite: false,
-          conferenceGame: true,
-        }));
+      const historyPayload = prepareForwardLookPayload(
+        { status: 'available', context },
+        FORWARD_SCOPE
+      );
+      const schedule = context.games.map((game) => ({
+        id: game.key,
+        week: game.canonicalWeek,
+        seasonType: 'regular',
+        startDate: game.date,
+        homeTeam: game.canHome,
+        awayTeam: game.canAway,
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        completed: false,
+        neutralSite: false,
+        conferenceGame: true,
+      }));
       installFetch(schedule, recapPayload, 'team,owner\nTexas,Alice\nGeorgia,Bob\n');
       const fallback = globalThis.fetch;
       let scoreCalls = 0;
       let insightCalls = 0;
-      let final = false;
-      let resolveBootstrap: ((response: Response) => void) | undefined;
-      let bootstrapResponse: Response | undefined;
-      let resolveRefresh: ((response: Response) => void) | undefined;
-      let freshResponse: Response | undefined;
+      let phase = existingFinal ? 'win' : 'live';
+      let releaseScores: (() => void) | undefined;
+      let releaseHistory: (() => void) | undefined;
       globalThis.fetch = (async (input, init) => {
         const url = String(input);
         if (url.startsWith('/api/teams'))
@@ -410,93 +434,139 @@ for (const existingFinal of [true, false]) {
           scoreCalls++;
           const response = jsonResponse({
             items: [
-              ...(existingFinal
-                ? [
-                    {
-                      id: 'baseline-final',
-                      week: 6,
-                      seasonType: 'regular',
-                      startDate: '2026-10-10T14:00:00Z',
-                      status: 'final',
-                      time: null,
-                      home: { team: 'Texas', score: 7 },
-                      away: { team: 'Georgia', score: 21 },
-                    },
-                  ]
-                : []),
               {
                 id: 'collision',
                 week: 6,
                 seasonType: 'regular',
-                startDate: schedule[0].startDate,
-                status: final ? 'final' : 'inprogress',
+                startDate: context.games[1].date,
+                status: phase === 'live' ? 'inprogress' : 'final',
                 time: null,
-                home: { team: 'Texas', score: existingFinal && final ? 21 : 7 },
-                away: { team: 'Georgia', score: existingFinal && final ? 7 : 21 },
+                home: { team: 'Texas', score: phase === 'win' ? 21 : 7 },
+                away: { team: 'Georgia', score: phase === 'win' ? 7 : 21 },
               },
             ],
             meta: { source: 'cache', cache: 'hit' },
           });
-          if (scoreCalls === 1) {
-            bootstrapResponse = response;
+          if (scoreCalls === 1)
             return new Promise<Response>((resolve) => {
-              resolveBootstrap = resolve;
+              releaseScores = () => resolve(response);
             });
-          }
           return response;
         }
         if (url.startsWith('/api/insights/')) {
           insightCalls++;
-          const response = jsonResponse({
-            ...recapPayload,
-            forwardLook: composeForwardLook({ status: 'available', context }, now, FORWARD_SCOPE),
-          });
-          if (insightCalls === 1) return response;
-          freshResponse = response;
           return new Promise<Response>((resolve) => {
-            resolveRefresh = resolve;
+            releaseHistory = () =>
+              resolve(jsonResponse({ ...recapPayload, forwardLook: historyPayload }));
           });
         }
         return fallback(input, init);
       }) as typeof fetch;
-      const rendered = renderApp();
-      await waitFor(() => assert.equal(scoreCalls, 1));
-      await act(async () => resolveBootstrap!(bootstrapResponse!));
+      const baseRows = deriveStandings(context.games, context.rosterByTeam, {}).rows;
+      const canonical = {
+        slug: 'tsc',
+        year: 2026,
+        source: 'live' as const,
+        lifecycle: 'mid_season' as const,
+        rows: baseRows.map((row) => ({
+          ...row,
+          wins: row.owner === 'Alice' ? 10 : 9,
+          gamesBack: row.owner === 'Alice' ? 0 : 1,
+        })),
+        noClaimRow: null,
+        ownerColorOrder: ['Alice', 'Bob'],
+        standingsHistory: null,
+        coverage: { state: 'complete' as const, message: null },
+        ownersRosterSource: 'csv' as const,
+        archiveYearResolved: null,
+        inferredSeasonStart: null,
+        generatedAt: now.toISOString(),
+      };
+      const rendered = renderApp([], {
+        canonicalStandings: canonical,
+        leagueStatus: FORWARD_SCOPE.leagueStatus,
+      });
+      await waitFor(() =>
+        assert.equal(Boolean(releaseScores && releaseHistory), true, 'both reads started')
+      );
+      await act(async () => (historyFirst ? releaseHistory!() : releaseScores!()));
+      assert.equal(
+        rendered.queryByText('Forward look') === null,
+        true,
+        'claims wait for both context and initial score observation'
+      );
+      await act(async () => (historyFirst ? releaseScores!() : releaseHistory!()));
+      const tile = () => rendered.getByText('Forward look').closest('section')!;
+      await waitFor(() => assert.match(tile().textContent!, /meet one win apart/));
+      assert.match(
+        tile().textContent!,
+        /Bob 9 wins, Alice 10 wins/,
+        'facts use canonical wins, excluding pending wins'
+      );
+      assert.equal(
+        /6-game rivalry streak/.test(tile().textContent!),
+        existingFinal,
+        'initial finals are composed directly when both inputs arrive'
+      );
+      assert.equal(insightCalls, 1, 'bootstrap finals cause zero additional Insights requests');
+      const poll = async (next: string) => {
+        phase = next;
+        now = new Date(now.getTime() + 3 * 60_000);
+        const before = scoreCalls;
+        act(() => window.dispatchEvent(new dom.window.Event('focus')));
+        await waitFor(() => assert.equal(scoreCalls, before + 1));
+      };
+      await poll('win');
+      await waitFor(() => assert.match(tile().textContent!, /6-game rivalry streak/));
+      assert.match(
+        tile().textContent!,
+        /Bob 9 wins, Alice 10 wins/,
+        'new final does not outrun the table'
+      );
+      await poll('loss');
+      await waitFor(() =>
+        assert.equal(
+          /rivalry streak/.test(tile().textContent!),
+          false,
+          'correction removes broken streak without waiting for a response'
+        )
+      );
       assert.equal(
         insightCalls,
         1,
-        existingFinal
-          ? 'existing finals at mount produce exactly one Insights request'
-          : 'nonfinal bootstrap does not duplicate the Insights request'
+        'finals and corrections cause zero additional Insights requests'
       );
-      const oldHeading = existingFinal ? /meet one win apart/ : /can break their wins tie/;
-      const newHeading = existingFinal ? /can break their wins tie/ : /meet one win apart/;
-      await waitFor(() => assert.ok(rendered.getByRole('heading', { name: oldHeading })));
-      final = true;
-      context.scoresByKey.collision = existingFinal ? forwardScore(21, 7) : forwardScore(7, 21);
-      now = new Date('2026-10-10T19:03:00Z');
-      act(() => window.dispatchEvent(new dom.window.Event('focus')));
-      await waitFor(() => assert.equal(scoreCalls, 2));
+      const updated = {
+        ...canonical,
+        rows: canonical.rows.map((row) => ({ ...row, wins: 10, gamesBack: 0 })),
+      };
+      rendered.rerender(
+        <CFBScheduleApp
+          leagueSlug="tsc"
+          leagueYear={2026}
+          leagueStatus={FORWARD_SCOPE.leagueStatus}
+          canonicalStandings={updated}
+        />
+      );
       await waitFor(() =>
-        assert.equal(
-          insightCalls,
-          2,
-          'the completed-result signal uses exactly one existing refresh'
+        assert.match(
+          tile().textContent!,
+          /can break their wins tie/,
+          'canonical row update changes the tile with the table'
         )
       );
-      await waitFor(() => assert.ok(rendered.getByRole('heading', { name: 'Week 6 ahead' })));
-      assert.equal(
-        rendered.queryByRole('heading', { name: oldHeading }) === null,
-        true,
-        'live result invalidates the old claim before the response'
+      const table = [...rendered.container.querySelectorAll('p')].find(
+        (p) => p.textContent === 'Standings'
+      )!.parentElement!.parentElement!;
+      const records = [...table.querySelectorAll('button')].map(
+        (button) => button.parentElement!.nextElementSibling!.textContent
       );
-      await act(async () => resolveRefresh!(freshResponse!));
-      await waitFor(() => assert.ok(rendered.getByRole('heading', { name: newHeading })));
-      assert.equal(
-        insightCalls,
-        2,
-        'finalization callback does not issue a second Insights refresh'
+      assert.deepEqual(
+        records,
+        ['10–0', '10–0'],
+        'table and tile receive the same updated canonical wins'
       );
-    }
-  );
+      assert.equal(insightCalls, 1, 'canonical row changes do not request Insights');
+    });
+  }
 }

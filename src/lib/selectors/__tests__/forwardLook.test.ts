@@ -1,6 +1,8 @@
+import { selectFixtureForwardLookInputs as selectForwardLookInputs } from '../../../test/forwardLookFixtures.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { composeForwardLook } from '../../recap/composeForwardLook.ts';
+import { composeFixtureForwardLook as composeForwardLook } from '../../../test/forwardLookFixtures.ts';
+import { prepareForwardLookHistory } from '../forwardLookRivalries.ts';
 import { parseForwardLook } from '../../recap/parseForwardLook.ts';
 import { composeWeeklyRecap } from '../../recap/composeWeeklyRecap.ts';
 import {
@@ -14,8 +16,6 @@ import {
 } from '../../../test/forwardLookFixtures.ts';
 import {
   mergeForwardLookLines,
-  selectCompletedResultsKey,
-  selectForwardLookInputs,
   selectForwardStandings,
   selectForwardUpsets,
   selectVisibleForwardLook,
@@ -159,12 +159,20 @@ test('Forward Look ranks an unranked close collision above a nationally ranked l
 test('Forward Look odds expire at 24 hours and refuse later weeks, future stamps and closing lines', () => {
   const context = forwardContext();
   const inputs = selectForwardLookInputs(context, FORWARD_NOW)!;
-  assert.equal(selectForwardUpsets(inputs).length, 1, 'fresh immediate-week odds produce a line');
+  assert.equal(
+    selectForwardUpsets(selectForwardLookInputs(context, FORWARD_NOW)!).length,
+    1,
+    'fresh immediate-week odds produce a line'
+  );
   context.odds = {
     status: 'available',
     byGameKey: { collision: forwardOdds('2026-10-07T10:00:00.001Z') },
   };
-  assert.equal(selectForwardUpsets(inputs).length, 1, 'just inside the freshness window');
+  assert.equal(
+    selectForwardUpsets(selectForwardLookInputs(context, FORWARD_NOW)!).length,
+    1,
+    'just inside the freshness window'
+  );
   for (const capturedAt of [
     '2026-10-07T10:00:00Z',
     '2026-09-05T13:00:00Z',
@@ -172,10 +180,18 @@ test('Forward Look odds expire at 24 hours and refuse later weeks, future stamps
     'invalid',
   ]) {
     context.odds.byGameKey.collision = forwardOdds(capturedAt);
-    assert.deepEqual(selectForwardUpsets(inputs), [], `reject ${capturedAt}`);
+    assert.deepEqual(
+      selectForwardUpsets(selectForwardLookInputs(context, FORWARD_NOW)!),
+      [],
+      `reject ${capturedAt}`
+    );
   }
   context.odds.byGameKey.collision = { ...forwardOdds(), lineSourceStatus: 'closing' };
-  assert.deepEqual(selectForwardUpsets(inputs), [], 'closing prices are not upcoming prices');
+  assert.deepEqual(
+    selectForwardUpsets(selectForwardLookInputs(context, FORWARD_NOW)!),
+    [],
+    'closing prices are not upcoming prices'
+  );
   context.odds.byGameKey.collision = forwardOdds();
   assert.deepEqual(
     selectForwardUpsets({ ...inputs, target: { ...inputs.target, week: 8 } }),
@@ -368,19 +384,25 @@ test('Forward Look client expiry removes kicked games and stale prices while ret
   assert.equal(kicked.weekLabel, 'Week 6');
 });
 
-test('Forward Look payload parsing isolates malformed lines from the recap transport', () => {
-  const look = composeForwardLook(
-    { status: 'available', context: forwardContext() },
-    FORWARD_NOW,
-    FORWARD_SCOPE
-  )!;
-  assert.deepEqual(parseForwardLook(JSON.parse(JSON.stringify(look))), look);
-  assert.equal(
-    parseForwardLook({ ...look, lines: [{ ...look.lines[0], expiresAt: 'tomorrow' }] }),
-    null
-  );
-  assert.equal(parseForwardLook({ ...look, target: look.recapTarget }), null);
-  assert.equal(parseForwardLook(undefined), null);
+test('Forward Look payload parsing accepts compact history and rejects malformed or legacy claims', () => {
+  const context = forwardContext();
+  addRivalry(context, ['Bob', 'Alice', 'Alice']);
+  const history = prepareForwardLookHistory(context);
+  assert.deepEqual(parseForwardLook(JSON.parse(JSON.stringify(history))), history);
+  for (const invalid of [
+    undefined,
+    { seasonYear: 2026, lines: [] },
+    { ...history, rivalries: [{ ...history.rivalries![0], wins: [-1, 2] }] },
+    {
+      ...history,
+      rivalries: [{ ...history.rivalries![0], streak: { owner: 'Alice', count: 99 } }],
+    },
+    { ...history, rivalries: [...history.rivalries!, ...history.rivalries!] },
+  ]) {
+    assert.equal(parseForwardLook(invalid), null);
+  }
+  assert.deepEqual(Object.keys(history).sort(), ['rivalries', 'seasonYear']);
+  assert.deepEqual(Object.keys(history.rivalries![0]).sort(), ['owners', 'streak', 'wins']);
 });
 
 test('Forward Look backfills expired stories and deduplicates repeated owner pairs before capping', () => {
@@ -396,7 +418,7 @@ test('Forward Look backfills expired stories and deduplicates repeated owner pai
     context.games.push(forwardGame(`other-${i}`, 6, '2026-10-10T23:00:00Z', home, away));
   }
   const look = composeForwardLook({ status: 'available', context }, FORWARD_NOW, FORWARD_SCOPE)!;
-  assert.equal(look.lines.length, 6, 'transport retains candidates beyond the display cap');
+  assert.equal(look.lines.length, 6, 'composition retains candidates beyond the display cap');
   const first = selectVisibleForwardLook(look, FORWARD_NOW)!;
   assert.equal(first.lines.length, 2);
   assert.equal(
@@ -500,35 +522,52 @@ test('Forward Look family failures leave the other families and the week frame a
   assert.equal(selectVisibleForwardLook(fewer, FORWARD_NOW)?.weekLabel, 'Week 6');
 });
 
-test('completed result keys depend on final identities and scores, not arrival order or metadata', () => {
-  const scores = { a: forwardScore(), b: forwardScore(7, 21) };
-  const original = selectCompletedResultsKey(scores);
-  assert.equal(
-    selectCompletedResultsKey({
-      b: { ...scores.b, status: 'Final/OT', time: 'new' },
-      a: { ...scores.a },
-    }),
-    original,
-    'reordered equivalent finals keep the same key'
-  );
-  assert.equal(
-    selectCompletedResultsKey({ ...scores, live: { ...forwardScore(), status: 'inprogress' } }),
-    original,
-    'live scores do not change the completed set'
-  );
-  assert.notEqual(
-    selectCompletedResultsKey({ a: scores.a }),
-    original,
-    'removing a completed result changes the key'
-  );
-  assert.notEqual(
-    selectCompletedResultsKey({ ...scores, b: forwardScore(21, 7) }),
-    original,
-    'corrected final scores change the key'
-  );
-  assert.notEqual(
-    selectCompletedResultsKey({ ...scores, c: forwardScore() }),
-    original,
-    'adding a completed result changes the key'
-  );
+test('compact history preserves rivalry totals and streaks across every four-meeting result sequence', () => {
+  const outcomes = ['Alice', 'Bob', 'unknown', 'canceled'] as const;
+  for (let code = 0; code < 256; code++) {
+    const sequence = Array.from({ length: 4 }, (_, i) => outcomes[(code >> (i * 2)) & 3]);
+    const context = forwardContext();
+    const archive = addRivalry(context, ['Alice', 'Alice']);
+    context.games = [
+      forwardGame('c0', 5, '2026-10-02T19:00:00Z'),
+      forwardGame('c1', 5, '2026-10-03T19:00:00Z'),
+      forwardGame('collision'),
+    ];
+    context.scoresByKey = {};
+    sequence.forEach((outcome, i) => {
+      const scores = i < 2 ? archive.scoresByKey : context.scoresByKey;
+      const key = i < 2 ? `history-${i}` : `c${i - 2}`;
+      if (outcome === 'unknown') delete scores[key];
+      else
+        scores[key] = {
+          ...forwardScore(outcome === 'Alice' ? 21 : 7),
+          status: outcome === 'canceled' ? 'canceled' : 'final',
+        };
+    });
+    const counted = sequence.filter((outcome) => outcome !== 'canceled');
+    const alice = counted.filter((outcome) => outcome === 'Alice').length;
+    const bob = counted.filter((outcome) => outcome === 'Bob').length;
+    const latest = counted.at(-1);
+    let run = 0;
+    if (latest === 'Alice' || latest === 'Bob') {
+      for (const outcome of [...counted].reverse()) {
+        if (outcome !== latest) break;
+        run++;
+      }
+    }
+    const expected =
+      run >= 3
+        ? `${run} straight`
+        : alice + bob >= 4 && Math.abs(alice - bob) <= 1
+          ? `${bob}–${alice}`
+          : null;
+    const lines = selectForwardRivalries(selectForwardLookInputs(context, FORWARD_NOW)!);
+    assert.equal(lines[0]?.value ?? null, expected, `sequence ${sequence.join(',')}`);
+    if (lines.length)
+      assert.match(
+        lines[0].detail,
+        new RegExp(`Bob ${bob}–${alice} Alice`),
+        'split composition preserves all known wins'
+      );
+  }
 });

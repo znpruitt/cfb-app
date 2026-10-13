@@ -4,8 +4,8 @@ import {
   loadRecapContextForSeasonScope,
   type WeeklyRecapContextResult,
 } from './loadRecapContext.ts';
-import { composeForwardLook } from './composeForwardLook.ts';
-import type { ForwardLook } from '../selectors/forwardLook.ts';
+import { prepareForwardLookPayload } from './composeForwardLook.ts';
+import type { ForwardLookHistory } from '../selectors/forwardLookRivalries.ts';
 
 /**
  * Load and compose one request-time recap without coupling its failure to the
@@ -17,13 +17,13 @@ export async function loadTimelyContent(args: {
   seasonYear: number;
   leagueStatus: LeagueStatus | undefined;
   now: Date;
-}): Promise<{ weeklyRecap: WeeklyRecapViewModel; forwardLook: ForwardLook | null }> {
+}): Promise<{ weeklyRecap: WeeklyRecapViewModel; forwardLook: ForwardLookHistory | null }> {
   try {
     const recapContext = await loadRecapContextForSeasonScope(args);
     if (!recapContext) return { weeklyRecap: { status: 'inactive' }, forwardLook: null };
-    let forwardLook: ForwardLook | null = null;
+    let forwardLook: ForwardLookHistory | null = null;
     try {
-      forwardLook = composeForwardLook(recapContext, args.now, args);
+      forwardLook = prepareForwardLookPayload(recapContext, args);
     } catch {
       // The recap remains available if the preview cannot be assembled.
     }

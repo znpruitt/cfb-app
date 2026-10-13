@@ -12,7 +12,10 @@ import { __resetTeamDatabaseStoreForTests } from '@/lib/server/teamDatabaseStore
 
 import { GET } from '../route';
 import { parseInsightsPayload } from '@/components/hooks/useInsightsFeed';
-import { selectVisibleForwardLook } from '@/lib/selectors/forwardLook';
+import { prepareForwardLook, selectVisibleForwardLook } from '@/lib/selectors/forwardLook';
+import { composeForwardLook } from '@/lib/recap/composeForwardLook';
+import { forwardContext, FORWARD_SCOPE } from '@/test/forwardLookFixtures';
+import { getCanonicalStandings } from '@/lib/selectors/leagueStandings';
 
 const SLUG = 'weekly-recap-api';
 const YEAR = 2024;
@@ -87,13 +90,20 @@ test('Insights transports the immediate-week Forward Look through the client par
   assert.equal(response.status, 200);
   const payload = parseInsightsPayload(await response.json());
   assert.equal(payload.weeklyRecap.status, 'available', 'recap transport remains intact');
-  const look = selectVisibleForwardLook(payload.forwardLook, now);
-  assert.equal(
-    look?.weekLabel,
-    'Week 6',
-    'gather, composer, response and client parser preserve the target'
+  assert.deepEqual(
+    payload.forwardLook,
+    { seasonYear: 2026, rivalries: [] },
+    'wire contains history, not current scores or claims'
   );
-  assert.equal(look?.lines[0]?.family, 'standings', 'derived standings survive the route');
+  const client = forwardContext();
+  const canonical = await getCanonicalStandings({ slug, year: 2026, currentDate: now });
+  const prepared = prepareForwardLook({ ...client, history: payload.forwardLook! });
+  const look = selectVisibleForwardLook(
+    composeForwardLook(prepared, client.scoresByKey, canonical.rows, now, FORWARD_SCOPE),
+    now
+  );
+  assert.equal(look?.weekLabel, 'Week 6', 'client schedule supplies the immediate target');
+  assert.equal(look?.lines[0]?.family, 'standings', 'canonical standings supply the client claim');
 });
 
 test('authenticated Insights response attaches the authoritative request-time recap', async () => {

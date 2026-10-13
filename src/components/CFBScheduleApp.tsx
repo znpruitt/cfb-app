@@ -15,7 +15,6 @@ import PostseasonPanel from './PostseasonPanel';
 import RankingsPageContent from './RankingsPageContent';
 import RecapTile from './recap/RecapTile';
 import ForwardLookTile from './recap/ForwardLookTile';
-import { selectVisibleForwardLook } from '../lib/selectors/forwardLook';
 import StandingsPanel from './StandingsPanel';
 import OverviewPanel from './OverviewPanel';
 import OwnerPanel from './OwnerPanel';
@@ -87,7 +86,7 @@ import {
 import { createRankingsRequestGuard } from '../lib/rankingsRequestGuard';
 import { buildOwnerColorMap, isDarkTheme } from '../lib/ownerColors';
 import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
-import { useInsightsFeed } from './hooks/useInsightsFeed';
+import { useForwardLook, useInsightsFeed } from './hooks/useInsightsFeed';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
 import { useOddsHydration } from './hooks/useOddsHydration';
 import { useLiveDelta } from './hooks/useLiveDelta';
@@ -1075,14 +1074,10 @@ export default function CFBScheduleApp({
     lifecycleState: insightsLifecycleState,
     weeklyRecap: weeklyRecapResponse,
     forwardLook: forwardLookResponse,
-    establishResultBaseline,
   } = useInsightsFeed({
     leagueSlug,
     seasonYear: selectedSeason,
     leagueStatus,
-    games,
-    scoresByKey,
-    scheduleLoaded,
     nowTick: liveStaleClock,
     enabled: primarySurfaceKind === 'overview',
   });
@@ -1097,7 +1092,6 @@ export default function CFBScheduleApp({
   }, [router]);
 
   const { liveScoreObservation } = useLiveRefresh({
-    onScoreBaseline: establishResultBaseline,
     selectedSeason,
     selectedTab,
     selectedWeek,
@@ -1153,16 +1147,19 @@ export default function CFBScheduleApp({
     return state === 'recap' ? weeklyRecapResponse : null;
   }, [leagueStatus, liveStaleClock, selectedSeason, weeklyRecapResponse]);
 
-  const forwardLook = useMemo(() => {
-    if (
-      !leagueSlug ||
-      liveStaleClock === 0 ||
-      forwardLookResponse?.seasonYear !== selectedSeason ||
-      !isWeeklyRecapActiveSeason({ leagueStatus, seasonYear: selectedSeason })
-    )
-      return null;
-    return selectVisibleForwardLook(forwardLookResponse, new Date(liveStaleClock));
-  }, [leagueSlug, leagueStatus, liveStaleClock, selectedSeason, forwardLookResponse]);
+  const forwardLook = useForwardLook({
+    history: forwardLookResponse,
+    games,
+    rosterByTeam,
+    oddsByKey,
+    scoresByKey,
+    standings: canonicalRows,
+    seasonYear: selectedSeason,
+    leagueStatus,
+    nowTick: liveStaleClock,
+    scheduleLoaded,
+    scoresObserved: scoresObservedAt !== null,
+  });
 
   const gameDayConfidence = useMemo(
     () =>

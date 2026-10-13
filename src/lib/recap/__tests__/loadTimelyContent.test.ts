@@ -7,7 +7,7 @@ import { build } from 'esbuild';
 import type { loadTimelyContent, loadWeeklyRecap } from '../loadWeeklyRecap.ts';
 import { FORWARD_NOW, FORWARD_SCOPE } from '../../../test/forwardLookFixtures.ts';
 
-test('timely loader isolates composer failures and the recap page never composes a preview', async () => {
+test('timely loader isolates family preparation failures and the recap page never prepares Forward Look history', async () => {
   const bundle = await build({
     entryPoints: [fileURLToPath(new URL('../loadWeeklyRecap.ts', import.meta.url))],
     bundle: true,
@@ -21,7 +21,7 @@ test('timely loader isolates composer failures and the recap page never composes
           const exports: Record<string, string> = {
             loadRecapContext: 'loadRecapContextForSeasonScope',
             composeWeeklyRecap: 'composeWeeklyRecap',
-            composeForwardLook: 'composeForwardLook',
+            composeForwardLook: 'prepareForwardLookPayload',
           };
           builder.onLoad(
             { filter: /\/(loadRecapContext|composeWeeklyRecap|composeForwardLook)\.ts$/ },
@@ -31,7 +31,7 @@ test('timely loader isolates composer failures and the recap page never composes
                 contents: `export function ${exports[name]}() {
           globalThis.calls.push('${name}');
           if (globalThis.fault === '${name}') throw new Error('injected ${name} failure');
-          return ${name === 'loadRecapContext' ? '{}' : name === 'composeWeeklyRecap' ? "{status:'available'}" : "{weekLabel:'Week 6'}"};
+          return ${name === 'loadRecapContext' ? '{}' : name === 'composeWeeklyRecap' ? "{status:'available'}" : '{seasonYear:2026,rivalries:[]}'};
         }`,
               };
             }
@@ -56,7 +56,7 @@ test('timely loader isolates composer failures and the recap page never composes
   const args = { ...FORWARD_SCOPE, now: FORWARD_NOW, leagueSlug: 'test' };
   const healthy = await bundledModule.exports.loadTimelyContent(args);
   assert.equal(healthy.weeklyRecap.status, 'available');
-  assert.equal(healthy.forwardLook?.weekLabel, 'Week 6');
+  assert.equal(healthy.forwardLook?.seasonYear, 2026);
   assert.equal(
     sandbox.calls.filter((call) => call === 'loadRecapContext').length,
     1,
@@ -74,8 +74,8 @@ test('timely loader isolates composer failures and the recap page never composes
   const recapFailure = await bundledModule.exports.loadTimelyContent(args);
   assert.equal(recapFailure.weeklyRecap.status, 'unavailable');
   assert.equal(
-    recapFailure.forwardLook?.weekLabel,
-    'Week 6',
+    recapFailure.forwardLook?.seasonYear,
+    2026,
     'recap assembly failure preserves preview'
   );
   sandbox.calls.length = 0;
@@ -84,6 +84,6 @@ test('timely loader isolates composer failures and the recap page never composes
   assert.equal(
     sandbox.calls.includes('composeForwardLook'),
     false,
-    'recap-only page never composes the preview'
+    'recap-only page never prepares Forward Look history'
   );
 });

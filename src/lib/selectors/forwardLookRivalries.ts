@@ -2,11 +2,26 @@ import { displayOwner, getGameOwners } from '../gameOwnership.ts';
 import { hasUsableFinalScore, isCanceledStatusLabel } from '../gameStatus.ts';
 import type { AppGame } from '../schedule.ts';
 import type { ScorePack } from '../scores.ts';
+import type { WeeklyRecapContext } from '../recap/loadRecapContext.ts';
 import {
   forwardLookCollision,
   type ForwardLookInputs,
   type ForwardLookLine,
 } from './forwardLook.ts';
+
+export type RivalrySummary = {
+  owners: [string, string];
+  wins: [number, number];
+  streak: { owner: string; count: number } | null;
+};
+export type ForwardLookHistory = { seasonYear: number; rivalries: RivalrySummary[] | null };
+export type RivalryGame = {
+  key: string;
+  week: number;
+  kickoff: number;
+  home: string;
+  away: string;
+};
 
 type Meeting = { year: number; week: number; kickoff: number; winner: string | null };
 
@@ -14,7 +29,10 @@ function pairKey(a: string, b: string): string {
   return JSON.stringify([a, b].sort());
 }
 
-function liveStreak(meetings: Meeting[]): { owner: string; count: number } | null {
+function liveStreak(
+  meetings: Meeting[],
+  previous: RivalrySummary['streak'] = null
+): RivalrySummary['streak'] {
   const weeks = new Map<string, Meeting[]>();
   for (const meeting of meetings) {
     const key = `${meeting.year}:${meeting.week}`;
@@ -42,75 +60,126 @@ function liveStreak(meetings: Meeting[]): { owner: string; count: number } | nul
       count += group.length;
     }
   }
+  if (previous && (!owner || owner === previous.owner)) {
+    return { owner: previous.owner, count: count + previous.count };
+  }
   return owner ? { owner, count } : null;
 }
 
-export function selectForwardRivalries(inputs: ForwardLookInputs): ForwardLookLine[] {
-  if (inputs.context.records.status !== 'available') return [];
-  const meetingsByPair = new Map<string, Meeting[]>();
+export function prepareRivalryGames(games: AppGame[], roster: Map<string, string>): RivalryGame[] {
   const seen = new Set<string>();
-  const collect = (
-    year: number,
-    games: AppGame[],
-    scores: Record<string, ScorePack>,
-    roster: Map<string, string>
-  ) => {
-    for (const game of games) {
-      const score = scores[game.key];
-      if (
-        game.isPlaceholder ||
-        [game.status, game.rawStatus, score?.status].some(isCanceledStatusLabel) ||
-        (year === inputs.context.seasonYear &&
-          !(Date.parse(game.date ?? '') <= inputs.now.getTime()))
-      )
-        continue;
-      const { homeOwner, awayOwner } = getGameOwners(game, roster);
-      const home = displayOwner(homeOwner);
-      const away = displayOwner(awayOwner);
-      if (!home || !away || home === away || seen.has(`${year}:${game.key}`)) continue;
-      seen.add(`${year}:${game.key}`);
-      const winner =
-        hasUsableFinalScore(score) &&
-        Number.isFinite(score.home.score) &&
-        Number.isFinite(score.away.score) &&
-        score.home.score !== score.away.score
-          ? score.home.score! > score.away.score!
-            ? home
-            : away
-          : null;
-      const key = pairKey(home, away);
-      meetingsByPair.set(key, [
-        ...(meetingsByPair.get(key) ?? []),
-        {
-          year,
-          week: game.canonicalWeek,
-          kickoff: Date.parse(game.date ?? ''),
-          winner,
-        },
-      ]);
-    }
-  };
-  for (const archive of inputs.context.records.archives) {
-    const roster = inputs.context.records.historicalRosters[archive.year];
-    if (archive.year < inputs.context.seasonYear && roster)
-      collect(archive.year, archive.games, archive.scoresByKey, roster);
-  }
-  collect(
-    inputs.context.seasonYear,
-    inputs.context.games,
-    inputs.context.scoresByKey,
-    inputs.context.rosterByTeam
-  );
+  return games.flatMap((game) => {
+    if (game.isPlaceholder || [game.status, game.rawStatus].some(isCanceledStatusLabel)) return [];
+    const owners = getGameOwners(game, roster);
+    const home = displayOwner(owners.homeOwner);
+    const away = displayOwner(owners.awayOwner);
+    if (!home || !away || home === away || seen.has(game.key)) return [];
+    seen.add(game.key);
+    return [
+      { key: game.key, week: game.canonicalWeek, kickoff: Date.parse(game.date ?? ''), home, away },
+    ];
+  });
+}
 
+function meetingWinner(game: RivalryGame, score: ScorePack | undefined): string | null {
+  return score &&
+    hasUsableFinalScore(score) &&
+    Number.isFinite(score.home.score) &&
+    Number.isFinite(score.away.score) &&
+    score.home.score !== score.away.score
+    ? score.home.score! > score.away.score!
+      ? game.home
+      : game.away
+    : null;
+}
+
+export function prepareForwardLookHistory(context: WeeklyRecapContext): ForwardLookHistory {
+  const result: ForwardLookHistory = { seasonYear: context.seasonYear, rivalries: null };
+  try {
+    if (context.records.status !== 'available') return result;
+    const pairs = new Map<string, { owners: [string, string]; meetings: Meeting[] }>();
+    const seen = new Set<string>();
+    for (const archive of context.records.archives) {
+      const roster = context.records.historicalRosters[archive.year];
+      if (archive.year >= context.seasonYear || !roster) continue;
+      for (const game of prepareRivalryGames(archive.games, roster)) {
+        const score = archive.scoresByKey[game.key];
+        const identity = `${archive.year}:${game.key}`;
+        if (isCanceledStatusLabel(score?.status) || seen.has(identity)) continue;
+        seen.add(identity);
+        const key = pairKey(game.home, game.away);
+        let pair = pairs.get(key);
+        if (!pair) {
+          pair = { owners: [game.home, game.away].sort() as [string, string], meetings: [] };
+          pairs.set(key, pair);
+        }
+        pair.meetings.push({
+          year: archive.year,
+          week: game.week,
+          kickoff: game.kickoff,
+          winner: meetingWinner(game, score),
+        });
+      }
+    }
+    result.rivalries = [...pairs.values()].map(({ owners, meetings }) => ({
+      owners,
+      wins: owners.map(
+        (owner) => meetings.filter((meeting) => meeting.winner === owner).length
+      ) as [number, number],
+      streak: liveStreak(meetings),
+    }));
+  } catch {
+    result.rivalries = null;
+  }
+  return result;
+}
+
+export function selectForwardRivalries(inputs: ForwardLookInputs): ForwardLookLine[] {
+  if (inputs.context.history.rivalries === null) return [];
+  const history = new Map(
+    inputs.context.history.rivalries.map((pair) => [pairKey(...pair.owners), pair])
+  );
+  const meetingsByPair = new Map<string, Meeting[]>();
+  for (const game of inputs.context.rivalryGames) {
+    const score = inputs.scoresByKey[game.key];
+    if (!(game.kickoff <= inputs.now.getTime()) || isCanceledStatusLabel(score?.status)) continue;
+    const key = pairKey(game.home, game.away);
+    const meetings = meetingsByPair.get(key) ?? [];
+    meetings.push({
+      year: inputs.context.seasonYear,
+      week: game.week,
+      kickoff: game.kickoff,
+      winner: meetingWinner(game, score),
+    });
+    meetingsByPair.set(key, meetings);
+  }
+
+  const evaluated = new Map<string, RivalrySummary>();
   return inputs.games.flatMap((game) => {
     const owners = forwardLookCollision(game, inputs);
     if (!owners) return [];
-    const meetings = meetingsByPair.get(pairKey(owners.home, owners.away)) ?? [];
-    const homeWins = meetings.filter((meeting) => meeting.winner === owners.home).length;
-    const awayWins = meetings.filter((meeting) => meeting.winner === owners.away).length;
+    const key = pairKey(owners.home, owners.away);
+    let summary = evaluated.get(key);
+    if (!summary) {
+      const meetings = meetingsByPair.get(key) ?? [];
+      const prior = history.get(key);
+      const pair: [string, string] = [owners.home, owners.away];
+      summary = {
+        owners: pair,
+        wins: pair.map(
+          (owner) =>
+            (prior ? prior.wins[prior.owners.indexOf(owner)] : 0) +
+            meetings.filter((meeting) => meeting.winner === owner).length
+        ) as [number, number],
+        streak: liveStreak(meetings, prior?.streak),
+      };
+      evaluated.set(key, summary);
+    }
+    const homeWins = summary.wins[summary.owners.indexOf(owners.home)];
+    const awayWins = summary.wins[summary.owners.indexOf(owners.away)];
     const total = homeWins + awayWins;
     const tight = total >= 4 && Math.abs(homeWins - awayWins) <= 1;
-    const streak = liveStreak(meetings);
+    const streak = summary.streak;
     const running = streak && streak.count >= 3 ? streak : null;
     if (!tight && !running) return [];
     const record = `${owners.away} ${awayWins}–${homeWins} ${owners.home}`;
