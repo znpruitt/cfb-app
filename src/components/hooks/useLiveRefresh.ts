@@ -127,7 +127,6 @@ type UseLiveRefreshParams = {
    * records/ranks update.
    */
   onGamesFinalized?: () => void;
-  onScoreBaseline?: (scores: Record<string, ScorePack>) => void;
 };
 
 /**
@@ -257,7 +256,6 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     setLoadingLive,
     isDebug,
     onGamesFinalized,
-    onScoreBaseline,
   } = params;
 
   const liveRefreshInFlightRef = useRef<boolean>(false);
@@ -485,8 +483,6 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
                 : null
             );
           }
-          // Bootstrap establishes the starting result set; live polls must not reseed it.
-          if (stampAutoPollClockOnSuccess) onScoreBaseline?.(nextScores);
           setScoresByKey((prev) => {
             const retained: Record<string, ScorePack> = {};
             for (const game of games) {
@@ -568,7 +564,6 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       isDebug,
       oddsUsage,
       onGamesFinalized,
-      onScoreBaseline,
       scoreScopeGames,
       selectedSeason,
       selectedTab,

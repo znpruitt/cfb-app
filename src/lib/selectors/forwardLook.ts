@@ -1,11 +1,16 @@
 import { displayOwner, getGameOwners } from '../gameOwnership.ts';
-import { classifyStatusLabel, hasUsableFinalScore } from '../gameStatus.ts';
-import type { WeeklyRecapContext } from '../recap/loadRecapContext.ts';
+import { classifyStatusLabel } from '../gameStatus.ts';
+import type { CombinedOdds } from '../odds.ts';
+import {
+  prepareRivalryGames,
+  forwardLookCollision,
+  type ForwardLookHistory,
+} from './forwardLookRivalries.ts';
+import { buildWeekLabelMap } from '../weekLabel.ts';
 import type { AppGame } from '../schedule.ts';
 import type { ScorePack } from '../scores.ts';
-import { deriveStandings, type OwnerStandingsRow } from '../standings.ts';
+import type { OwnerStandingsRow } from '../standings.ts';
 import {
-  selectWeeklyRecapTargetWeek,
   selectWeeklyRecapTileState,
   selectWeeklyRecapWeekTargets,
   type WeeklyRecapTargetWeek,
@@ -31,7 +36,7 @@ export type ForwardLook = {
   lines: ForwardLookLine[];
 };
 export type ForwardLookInputs = {
-  context: WeeklyRecapContext;
+  context: ForwardLookContext;
   now: Date;
   recapTarget: WeeklyRecapTargetWeek;
   target: WeeklyRecapTargetWeek;
@@ -44,25 +49,44 @@ export const FORWARD_LOOK_FAMILY_CAP = 2;
 // One day's price, not a season-opening line. Boundary: "Forward Look odds expire at 24 hours".
 export const FORWARD_LOOK_ODDS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-export function selectCompletedResultsKey(scoresByKey: Record<string, ScorePack>): string {
-  return JSON.stringify(
-    Object.entries(scoresByKey)
-      .filter(([, score]) => hasUsableFinalScore(score))
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, score]) => [key, score.home.score, score.away.score])
+export function prepareForwardLook(
+  games: AppGame[],
+  rosterByTeam: Map<string, string>,
+  seasonYear: number
+) {
+  return {
+    games,
+    rosterByTeam,
+    seasonYear,
+    rivalryGames: prepareRivalryGames(games, rosterByTeam),
+    targets: selectWeeklyRecapWeekTargets(games),
+    labels: buildWeekLabelMap(games),
+  };
+}
+export type PreparedForwardLook = ReturnType<typeof prepareForwardLook>;
+export type ForwardLookContext = PreparedForwardLook & {
+  scoresByKey: Record<string, ScorePack>;
+  oddsByKey: Record<string, CombinedOdds>;
+  history: ForwardLookHistory | null;
+  canonicalRows: OwnerStandingsRow[];
+};
+
+export function selectForwardLookTargets(prepared: PreparedForwardLook, now: Date) {
+  const eligible = prepared.targets.filter(
+    (week) => selectWeeklyRecapTileState(week, now) !== 'hidden'
   );
+  const recapTarget = eligible.at(-1);
+  const target = recapTarget && prepared.targets.find((week) => week.week > recapTarget.week);
+  return recapTarget && target ? { recapTarget, target } : null;
 }
 
 export function selectForwardLookInputs(
-  context: WeeklyRecapContext,
-  now: Date
+  context: ForwardLookContext,
+  now: Date,
+  targets = selectForwardLookTargets(context, now)
 ): ForwardLookInputs | null {
-  const recapTarget = selectWeeklyRecapTargetWeek(context.games, now);
-  if (!recapTarget) return null;
-  const target = selectWeeklyRecapWeekTargets(context.games).find(
-    (week) => week.week > recapTarget.week
-  );
-  if (!target) return null;
+  if (!targets) return null;
+  const { recapTarget, target } = targets;
   const games = context.games.filter((game) => {
     const score = context.scoresByKey[game.key];
     return (
@@ -84,15 +108,8 @@ export function selectForwardLookInputs(
     recapTarget,
     target,
     games,
-    standings: deriveStandings(context.games, context.rosterByTeam, context.scoresByKey).rows,
+    standings: context.canonicalRows,
   };
-}
-
-export function forwardLookCollision(game: AppGame, inputs: ForwardLookInputs) {
-  const owners = getGameOwners(game, inputs.context.rosterByTeam);
-  const home = displayOwner(owners.homeOwner);
-  const away = displayOwner(owners.awayOwner);
-  return home && away && home !== away ? { home, away } : null;
 }
 
 export function selectForwardStandings(inputs: ForwardLookInputs): ForwardLookLine[] {
@@ -126,15 +143,9 @@ export function selectForwardStandings(inputs: ForwardLookInputs): ForwardLookLi
 
 export function selectForwardUpsets(inputs: ForwardLookInputs): ForwardLookLine[] {
   const { context, now } = inputs;
-  if (context.odds.status !== 'available') return [];
-  const recap = selectWeeklyRecapTargetWeek(context.games, now);
-  const immediate =
-    recap &&
-    selectWeeklyRecapWeekTargets(context.games).find((week) => week.week > recap.week)?.week;
-  if (inputs.target.week !== immediate) return [];
-  const oddsByKey = context.odds.byGameKey;
+  const oddsByKey = context.oddsByKey;
   return inputs.games.flatMap((game) => {
-    if (game.canonicalWeek !== immediate) return [];
+    if (game.canonicalWeek !== inputs.target.week) return [];
     const odds = oddsByKey[game.key];
     if (!odds || odds.lineSourceStatus !== 'latest') return [];
     const capturedAt = Date.parse(odds.capturedAt ?? '');
@@ -193,14 +204,19 @@ export function mergeForwardLookLines(families: ForwardLookLine[][]): ForwardLoo
 }
 
 export function selectVisibleForwardLook(value: ForwardLook | null, now: Date): ForwardLook | null {
-  if (
-    !value ||
-    selectWeeklyRecapTileState(value.recapTarget, now) !== 'upcoming' ||
-    selectWeeklyRecapTileState(value.target, now) !== 'hidden'
-  )
-    return null;
+  if (!value || !isForwardLookVisible(value, now)) return null;
   return {
     ...value,
     lines: mergeForwardLookLines([value.lines.filter((line) => line.expiresAt > now.getTime())]),
   };
+}
+
+export function isForwardLookVisible(
+  targets: { recapTarget: WeeklyRecapTargetWeek; target: WeeklyRecapTargetWeek },
+  now: Date
+): boolean {
+  return (
+    selectWeeklyRecapTileState(targets.recapTarget, now) === 'upcoming' &&
+    selectWeeklyRecapTileState(targets.target, now) === 'hidden'
+  );
 }

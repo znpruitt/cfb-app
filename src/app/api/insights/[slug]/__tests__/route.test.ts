@@ -12,7 +12,6 @@ import { __resetTeamDatabaseStoreForTests } from '@/lib/server/teamDatabaseStore
 
 import { GET } from '../route';
 import { parseInsightsPayload } from '@/components/hooks/useInsightsFeed';
-import { selectVisibleForwardLook } from '@/lib/selectors/forwardLook';
 
 const SLUG = 'weekly-recap-api';
 const YEAR = 2024;
@@ -23,7 +22,7 @@ test.beforeEach(async () => {
   __resetTeamDatabaseStoreForTests();
 });
 
-test('Insights transports the immediate-week Forward Look through the client parser at cutoff', async (t) => {
+test('Insights transports compact historical context without server-composed current claims', async (t) => {
   const now = new Date('2026-10-08T10:00:00Z');
   t.mock.timers.enable({ apis: ['Date'], now });
   const slug = 'forward-look-api';
@@ -87,13 +86,11 @@ test('Insights transports the immediate-week Forward Look through the client par
   assert.equal(response.status, 200);
   const payload = parseInsightsPayload(await response.json());
   assert.equal(payload.weeklyRecap.status, 'available', 'recap transport remains intact');
-  const look = selectVisibleForwardLook(payload.forwardLook, now);
-  assert.equal(
-    look?.weekLabel,
-    'Week 6',
-    'gather, composer, response and client parser preserve the target'
+  assert.deepEqual(
+    payload.forwardLook,
+    { seasonYear: 2026, rivalries: [] },
+    'route and parser preserve compact history without current claims'
   );
-  assert.equal(look?.lines[0]?.family, 'standings', 'derived standings survive the route');
 });
 
 test('authenticated Insights response attaches the authoritative request-time recap', async () => {

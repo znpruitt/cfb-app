@@ -9,11 +9,10 @@ import CFBScheduleApp from '../CFBScheduleApp';
 import { OVERVIEW_SCOREBOARD_GRID_STYLE } from '../OverviewPanel';
 import { AppContextProviders } from './_setup/renderWithAppContext';
 import { deriveStandings } from '../../lib/standings';
-import { composeForwardLook } from '../../lib/recap/composeForwardLook';
+import { prepareForwardLookHistory } from '../../lib/selectors/forwardLookRivalries';
 import { composeWeeklyRecap } from '../../lib/recap/composeWeeklyRecap';
 import {
   forwardContext,
-  forwardGame,
   forwardScore,
   addRivalry,
   FORWARD_NOW,
@@ -158,11 +157,12 @@ test('Overview replaces the recap at the real cutoff and keeps an empty Forward 
   const payload = {
     ...recapPayload,
     weeklyRecap: composeWeeklyRecap(result, before, FORWARD_SCOPE),
-    forwardLook: composeForwardLook(result, before, FORWARD_SCOPE),
+    forwardLook: prepareForwardLookHistory(result.context),
   };
   Date.now = () => before.getTime();
   installFetch(
     [
+      priorScheduleRow(),
       {
         id: 'next',
         week: 6,
@@ -219,9 +219,10 @@ test('Forward Look leaves the watchlist, Insights panel and scoreboard grid unch
       },
     ],
     weeklyRecap: composeWeeklyRecap(result, FORWARD_NOW, FORWARD_SCOPE),
-    forwardLook: composeForwardLook(result, FORWARD_NOW, FORWARD_SCOPE),
+    forwardLook: prepareForwardLookHistory(result.context),
   };
   const schedule = [
+    priorScheduleRow(),
     {
       id: 'upcoming',
       week: 6,
@@ -295,7 +296,11 @@ test('Overview keeps a fetched recap visible when client schedule bootstrap fail
   const rendered = renderApp(['CFBD schedule load failed: upstream returned 503']);
 
   await waitFor(() => {
-    assert.ok(rendered.getByRole('heading', { name: 'Alice takes the week at 1–0' }));
+    assert.equal(
+      rendered.queryByRole('heading', { name: 'Alice takes the week at 1–0' }) !== null,
+      true,
+      'recap renders despite failed client bootstrap'
+    );
   });
   assert.match(rendered.container.textContent ?? '', /schedule isn.t available right now/);
   assert.equal(calls.insightsCalls(), 1);
@@ -348,55 +353,75 @@ test('Overview keeps the recap tile before its podium when the schedule succeeds
   );
 });
 
-for (const existingFinal of [true, false]) {
+function priorScheduleRow() {
+  return {
+    id: 'prior',
+    week: 5,
+    seasonType: 'regular',
+    startDate: '2026-10-03T19:00:00Z',
+    homeTeam: 'Unowned',
+    awayTeam: 'Other',
+    homeConference: 'SEC',
+    awayConference: 'SEC',
+    status: 'scheduled',
+    completed: false,
+    neutralSite: false,
+    conferenceGame: true,
+  };
+}
+
+for (const bootstrapFails of [false, true]) {
   test(
-    existingFinal
-      ? 'Overview seeds existing finals at mount and refreshes for a later final'
-      : 'Overview refreshes Forward Look once when its live poll completes an earlier game',
+    bootstrapFails
+      ? 'a clean narrow poll reveals Forward Look after a thrown bootstrap'
+      : 'mounted Forward Look follows canonical table rows and corrects rivalry without an Insights refetch',
     async (t) => {
-      let now = new Date('2026-10-10T19:00:00Z');
-      Date.now = () => now.getTime();
+      let now = Date.parse('2026-10-10T19:00:00Z');
+      Date.now = () => now;
       const oldVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
       t.after(() => {
         if (oldVisibility) Object.defineProperty(document, 'visibilityState', oldVisibility);
-        else delete (document as unknown as Record<string, unknown>).visibilityState;
       });
       const context = forwardContext();
-      context.games[0] = forwardGame('prior', 5, '2026-10-03T19:00:00Z', 'Unowned', 'Other');
-      context.games[1].date = '2026-10-10T16:00:00Z';
-      context.games.push(forwardGame('repeat', 6, '2026-10-10T23:00:00Z'));
-      context.scoresByKey = {};
-      if (existingFinal) {
-        context.games.push(forwardGame('baseline-final', 6, '2026-10-10T14:00:00Z'));
-        context.scoresByKey['baseline-final'] = forwardScore(7, 21);
-      }
       addRivalry(context, Array(5).fill('Alice'));
-      const schedule = context.games
-        .filter((game) => game.canonicalWeek === 6)
-        .map((game) => ({
-          id: game.key,
+      const canonicalStandings = {
+        slug: 'tsc',
+        year: 2026,
+        source: 'live' as const,
+        lifecycle: 'mid_season' as const,
+        rows: deriveStandings(context.games, context.rosterByTeam, context.scoresByKey).rows,
+        noClaimRow: null,
+        ownerColorOrder: ['Alice', 'Bob'],
+        standingsHistory: null,
+        coverage: { state: 'complete' as const, message: null },
+        ownersRosterSource: 'csv' as const,
+        archiveYearResolved: null,
+        inferredSeasonStart: null,
+        generatedAt: FORWARD_NOW.toISOString(),
+      };
+      const schedule = [
+        priorScheduleRow(),
+        ...[
+          { id: 'collision', startDate: '2026-10-10T16:00:00Z' },
+          { id: 'repeat', startDate: '2026-10-10T23:00:00Z' },
+        ].map((game) => ({
+          ...priorScheduleRow(),
+          ...game,
           week: 6,
-          seasonType: 'regular',
-          startDate: game.date,
           homeTeam: 'Texas',
           awayTeam: 'Georgia',
-          homeConference: 'SEC',
-          awayConference: 'SEC',
-          status: 'scheduled',
-          completed: false,
-          neutralSite: false,
-          conferenceGame: true,
-        }));
-      installFetch(schedule, recapPayload, 'team,owner\nTexas,Alice\nGeorgia,Bob\n');
+        })),
+      ];
+      installFetch(
+        schedule,
+        { ...recapPayload, forwardLook: prepareForwardLookHistory(context) },
+        'team,owner\nTexas,Alice\nGeorgia,Bob\n'
+      );
       const fallback = globalThis.fetch;
-      let scoreCalls = 0;
-      let insightCalls = 0;
-      let final = false;
-      let resolveBootstrap: ((response: Response) => void) | undefined;
-      let bootstrapResponse: Response | undefined;
-      let resolveRefresh: ((response: Response) => void) | undefined;
-      let freshResponse: Response | undefined;
+      const scoreRequests: string[] = [];
+      let insightsCalls = 0;
+      let corrected = false;
       globalThis.fetch = (async (input, init) => {
         const url = String(input);
         if (url.startsWith('/api/teams'))
@@ -406,96 +431,117 @@ for (const existingFinal of [true, false]) {
               { school: 'Georgia', subdivision: 'fbs', conference: 'SEC' },
             ],
           });
+        if (url.startsWith('/api/insights/')) insightsCalls++;
         if (url.startsWith('/api/scores')) {
-          scoreCalls++;
-          const response = jsonResponse({
+          scoreRequests.push(url);
+          if (bootstrapFails && scoreRequests.length === 1)
+            throw new Error('bootstrap network failure');
+          return jsonResponse({
             items: [
-              ...(existingFinal
-                ? [
-                    {
-                      id: 'baseline-final',
-                      week: 6,
-                      seasonType: 'regular',
-                      startDate: '2026-10-10T14:00:00Z',
-                      status: 'final',
-                      time: null,
-                      home: { team: 'Texas', score: 7 },
-                      away: { team: 'Georgia', score: 21 },
-                    },
-                  ]
-                : []),
               {
                 id: 'collision',
                 week: 6,
                 seasonType: 'regular',
-                startDate: schedule[0].startDate,
-                status: final ? 'final' : 'inprogress',
-                time: null,
-                home: { team: 'Texas', score: existingFinal && final ? 21 : 7 },
-                away: { team: 'Georgia', score: existingFinal && final ? 7 : 21 },
+                startDate: '2026-10-10T16:00:00Z',
+                ...forwardScore(corrected ? 7 : 21, corrected ? 21 : 7),
               },
             ],
             meta: { source: 'cache', cache: 'hit' },
           });
-          if (scoreCalls === 1) {
-            bootstrapResponse = response;
-            return new Promise<Response>((resolve) => {
-              resolveBootstrap = resolve;
-            });
-          }
-          return response;
-        }
-        if (url.startsWith('/api/insights/')) {
-          insightCalls++;
-          const response = jsonResponse({
-            ...recapPayload,
-            forwardLook: composeForwardLook({ status: 'available', context }, now, FORWARD_SCOPE),
-          });
-          if (insightCalls === 1) return response;
-          freshResponse = response;
-          return new Promise<Response>((resolve) => {
-            resolveRefresh = resolve;
-          });
         }
         return fallback(input, init);
       }) as typeof fetch;
-      const rendered = renderApp();
-      await waitFor(() => assert.equal(scoreCalls, 1));
-      await act(async () => resolveBootstrap!(bootstrapResponse!));
-      assert.equal(
-        insightCalls,
-        1,
-        existingFinal
-          ? 'existing finals at mount produce exactly one Insights request'
-          : 'nonfinal bootstrap does not duplicate the Insights request'
-      );
-      const oldHeading = existingFinal ? /meet one win apart/ : /can break their wins tie/;
-      const newHeading = existingFinal ? /can break their wins tie/ : /meet one win apart/;
-      await waitFor(() => assert.ok(rendered.getByRole('heading', { name: oldHeading })));
-      final = true;
-      context.scoresByKey.collision = existingFinal ? forwardScore(21, 7) : forwardScore(7, 21);
-      now = new Date('2026-10-10T19:03:00Z');
+      const view = renderApp([], { canonicalStandings, leagueStatus: FORWARD_SCOPE.leagueStatus });
+      await waitFor(() => assert.equal(scoreRequests.length, 1));
+      await waitFor(() => assert.equal(insightsCalls, 1));
+      if (bootstrapFails) {
+        await waitFor(() =>
+          assert.equal(
+            view.queryByText('Forward look') === null,
+            true,
+            'failed bootstrap leaves tile in loading state'
+          )
+        );
+      } else {
+        await waitFor(() =>
+          assert.equal(
+            view.queryByText(/6-game rivalry streak/) !== null,
+            true,
+            'initial final composes immediately'
+          )
+        );
+      }
+      corrected = true;
+      now += 180_000;
       act(() => window.dispatchEvent(new dom.window.Event('focus')));
-      await waitFor(() => assert.equal(scoreCalls, 2));
+      await waitFor(() => assert.equal(scoreRequests.length, 2));
+      assert.match(
+        scoreRequests[1],
+        /week=6/,
+        'recovery is a narrow week poll, not another full read'
+      );
       await waitFor(() =>
         assert.equal(
-          insightCalls,
-          2,
-          'the completed-result signal uses exactly one existing refresh'
+          view.queryByText('Forward look') !== null,
+          true,
+          'successful narrow poll reveals the tile'
         )
       );
-      await waitFor(() => assert.ok(rendered.getByRole('heading', { name: 'Week 6 ahead' })));
-      assert.equal(
-        rendered.queryByRole('heading', { name: oldHeading }) === null,
-        true,
-        'live result invalidates the old claim before the response'
+      await waitFor(() =>
+        assert.equal(
+          view.queryByText(/6-game rivalry streak/) === null,
+          true,
+          'displayed corrected final removes the old streak'
+        )
       );
-      await act(async () => resolveRefresh!(freshResponse!));
-      await waitFor(() => assert.ok(rendered.getByRole('heading', { name: newHeading })));
       assert.equal(
-        insightCalls,
-        2,
-        'finalization callback does not issue a second Insights refresh'
+        insightsCalls,
+        1,
+        'bootstrap and corrected final require zero Insights refreshes'
+      );
+      assert.equal(
+        view.queryByText(/Bob 0 wins, Alice 1 win/) !== null,
+        true,
+        'tile follows canonical wins despite opposite client winner'
+      );
+      const table = view.getByText('Movement').parentElement!;
+      const alice = Array.from(table.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Alice'
+      );
+      assert.ok(alice, 'canonical table row is rendered');
+      assert.equal(
+        alice.parentElement?.parentElement?.textContent?.includes('1–0'),
+        true,
+        'displayed table retains canonical Alice record'
+      );
+      const updated = {
+        ...canonicalStandings,
+        rows: canonicalStandings.rows.map((row) =>
+          row.owner === 'Bob' ? { ...row, wins: 1 } : row
+        ),
+      };
+      view.rerender(
+        <CFBScheduleApp
+          leagueSlug="tsc"
+          leagueYear={2026}
+          leagueStatus={FORWARD_SCOPE.leagueStatus}
+          canonicalStandings={updated}
+        />
+      );
+      await waitFor(() =>
+        assert.equal(
+          view.queryByRole('heading', { name: /can break their wins tie/ }) !== null,
+          true,
+          'canonical prop update changes tile standings facts'
+        )
+      );
+      const bob = Array.from(
+        view.getByText('Movement').parentElement!.querySelectorAll('button')
+      ).find((button) => button.textContent === 'Bob');
+      assert.equal(
+        bob?.parentElement?.parentElement?.textContent?.includes('1–1'),
+        true,
+        'same canonical update changes displayed table record'
       );
     }
   );

@@ -1,6 +1,9 @@
+import {
+  composeFixtureForwardLook,
+  selectFixtureForwardLookInputs,
+} from '../../../test/forwardLookFixtures.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { composeForwardLook } from '../../recap/composeForwardLook.ts';
 import { parseForwardLook } from '../../recap/parseForwardLook.ts';
 import { composeWeeklyRecap } from '../../recap/composeWeeklyRecap.ts';
 import {
@@ -14,14 +17,12 @@ import {
 } from '../../../test/forwardLookFixtures.ts';
 import {
   mergeForwardLookLines,
-  selectCompletedResultsKey,
-  selectForwardLookInputs,
   selectForwardStandings,
   selectForwardUpsets,
   selectVisibleForwardLook,
   type ForwardLookLine,
 } from '../forwardLook.ts';
-import { selectForwardRivalries } from '../forwardLookRivalries.ts';
+import { prepareForwardLookHistory, selectForwardRivalries } from '../forwardLookRivalries.ts';
 import { selectWeeklyRecapTileState } from '../weeklyRecapFacts.ts';
 import { selectOverviewViewModel } from '../overview.ts';
 
@@ -32,7 +33,7 @@ test('Forward Look changes over at the real Thursday boundary minute and ends at
   const recap = composeWeeklyRecap(result, before, FORWARD_SCOPE);
   assert.equal(recap.status, 'available');
   if (recap.status !== 'available') throw new Error('fixture must produce recap');
-  const look = composeForwardLook(result, before, FORWARD_SCOPE);
+  const look = composeFixtureForwardLook(result, before, FORWARD_SCOPE);
   assert.ok(look);
   assert.equal(
     selectWeeklyRecapTileState({ week: recap.week, latestGameDate: recap.latestGameDate }, before),
@@ -57,7 +58,7 @@ test('Forward Look changes over at the real Thursday boundary minute and ends at
     forwardGame('fall-prior', 10, '2026-11-07T19:00:00Z'),
     forwardGame('fall-next', 11, '2026-11-14T19:00:00Z'),
   ];
-  const winter = composeForwardLook(result, new Date('2026-11-12T10:59:00Z'), FORWARD_SCOPE);
+  const winter = composeFixtureForwardLook(result, new Date('2026-11-12T10:59:00Z'), FORWARD_SCOPE);
   assert.ok(winter);
   assert.equal(selectVisibleForwardLook(winter, new Date('2026-11-12T10:59:00Z')), null);
   assert.ok(
@@ -83,14 +84,14 @@ test('Forward Look excludes kicked, final, disrupted, unknown-time and placehold
     forwardGame('later', 8, '2026-10-24T19:00:00Z')
   );
   context.scoresByKey['score-final'] = forwardScore();
-  const inputs = selectForwardLookInputs(context, FORWARD_NOW)!;
+  const inputs = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
   assert.deepEqual(
     inputs.games.map((game) => game.key),
     ['collision'],
     'only the unstarted immediate-week game is eligible'
   );
   context.games = context.games.filter((game) => game.key !== 'collision');
-  const empty = selectForwardLookInputs(context, FORWARD_NOW)!;
+  const empty = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
   assert.equal(empty.target.week, 6, 'do not advance to week 8 to find a story');
   assert.deepEqual(empty.games, []);
 });
@@ -110,7 +111,7 @@ test('Forward Look ranks an unranked close collision above a nationally ranked l
     context.games.push(game);
     context.scoresByKey[game.key] = forwardScore();
   }
-  const inputs = selectForwardLookInputs(context, FORWARD_NOW)!;
+  const inputs = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
   assert.equal(
     inputs.standings.find((row) => row.owner === 'Carol')?.wins,
     4,
@@ -151,14 +152,14 @@ test('Forward Look ranks an unranked close collision above a nationally ranked l
   );
   context.scoresByKey.prior = forwardScore(7, 21);
   assert.match(
-    selectForwardStandings(selectForwardLookInputs(context, FORWARD_NOW)!)[0].detail,
+    selectForwardStandings(selectFixtureForwardLookInputs(context, FORWARD_NOW)!)[0].detail,
     /Bob 1 win, Alice 0 wins/
   );
 });
 
 test('Forward Look odds expire at 24 hours and refuse later weeks, future stamps and closing lines', () => {
   const context = forwardContext();
-  const inputs = selectForwardLookInputs(context, FORWARD_NOW)!;
+  const inputs = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
   assert.equal(selectForwardUpsets(inputs).length, 1, 'fresh immediate-week odds produce a line');
   context.odds = {
     status: 'available',
@@ -194,14 +195,14 @@ test('Forward Look odds expire at 24 hours and refuse later weeks, future stamps
 test('Forward Look upset risk reaches a single-owner game but never NoClaim or a self-matchup', () => {
   const context = forwardContext();
   context.rosterByTeam.set('Georgia', 'NoClaim');
-  let inputs = selectForwardLookInputs(context, FORWARD_NOW)!;
+  let inputs = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
   assert.deepEqual(selectForwardStandings(inputs), []);
   assert.equal(selectForwardUpsets(inputs)[0]?.title, 'Alice needs Texas to beat the odds');
   context.rosterByTeam.set('Texas', 'NoClaim');
-  assert.deepEqual(selectForwardUpsets(selectForwardLookInputs(context, FORWARD_NOW)!), []);
+  assert.deepEqual(selectForwardUpsets(selectFixtureForwardLookInputs(context, FORWARD_NOW)!), []);
   context.rosterByTeam.set('Texas', 'Alice');
   context.rosterByTeam.set('Georgia', 'Alice');
-  inputs = selectForwardLookInputs(context, FORWARD_NOW)!;
+  inputs = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
   assert.deepEqual(selectForwardStandings(inputs), []);
   assert.deepEqual(selectForwardUpsets(inputs), []);
 });
@@ -231,7 +232,7 @@ test('Forward Look rivalry tightness uses aggregate results and streaks use orde
     'Alice',
     'Bob',
   ]);
-  const lines = () => selectForwardRivalries(selectForwardLookInputs(context, FORWARD_NOW)!);
+  const lines = () => selectForwardRivalries(selectFixtureForwardLookInputs(context, FORWARD_NOW)!);
   assert.equal(lines()[0]?.value, '5–5', 'even aggregate earns a rivalry line');
   const archive = addRivalry(context, ['Bob', ...Array<'Alice'>(9).fill('Alice')]);
   assert.equal(lines()[0]?.value, '9 straight', 'nine consecutive wins earn a streak');
@@ -267,7 +268,7 @@ test('Forward Look rivalry tightness uses aggregate results and streaks use orde
 test('Forward Look rivalry incorporates current-season finals and refuses ambiguous latest ordering', () => {
   const context = forwardContext();
   const archive = addRivalry(context, ['Bob', 'Alice', 'Alice']);
-  const lines = () => selectForwardRivalries(selectForwardLookInputs(context, FORWARD_NOW)!);
+  const lines = () => selectForwardRivalries(selectFixtureForwardLookInputs(context, FORWARD_NOW)!);
   assert.equal(lines()[0]?.value, '3 straight', 'current-season win extends archived streak');
   context.scoresByKey.prior = forwardScore(7, 21);
   assert.equal(lines()[0]?.value, '2–2', 'current loss breaks streak and updates aggregate');
@@ -320,7 +321,7 @@ test('Forward Look preserves applicable empty weeks and hides inapplicable scope
   const context = forwardContext();
   context.rosterByTeam.clear();
   const result = { status: 'available' as const, context };
-  const look = composeForwardLook(result, FORWARD_NOW, FORWARD_SCOPE);
+  const look = composeFixtureForwardLook(result, FORWARD_NOW, FORWARD_SCOPE);
   assert.equal(
     selectVisibleForwardLook(look, FORWARD_NOW)?.weekLabel,
     'Week 6',
@@ -328,30 +329,30 @@ test('Forward Look preserves applicable empty weeks and hides inapplicable scope
   );
   assert.deepEqual(look?.lines, []);
   assert.equal(
-    composeForwardLook(result, FORWARD_NOW, {
+    composeFixtureForwardLook(result, FORWARD_NOW, {
       ...FORWARD_SCOPE,
       leagueStatus: { state: 'offseason' },
     }),
     null
   );
   assert.equal(
-    composeForwardLook(result, FORWARD_NOW, { ...FORWARD_SCOPE, leagueStatus: undefined }),
+    composeFixtureForwardLook(result, FORWARD_NOW, { ...FORWARD_SCOPE, leagueStatus: undefined }),
     null
   );
   assert.equal(
-    composeForwardLook(result, FORWARD_NOW, { ...FORWARD_SCOPE, seasonYear: 2025 }),
+    composeFixtureForwardLook(result, FORWARD_NOW, { ...FORWARD_SCOPE, seasonYear: 2025 }),
     null
   );
   assert.equal(
-    composeForwardLook({ status: 'absent', reason: 'schedule' }, FORWARD_NOW, FORWARD_SCOPE),
+    composeFixtureForwardLook({ status: 'absent', reason: 'schedule' }, FORWARD_NOW, FORWARD_SCOPE),
     null
   );
   context.games = [];
-  assert.equal(composeForwardLook(result, FORWARD_NOW, FORWARD_SCOPE), null);
+  assert.equal(composeFixtureForwardLook(result, FORWARD_NOW, FORWARD_SCOPE), null);
 });
 
 test('Forward Look client expiry removes kicked games and stale prices while retaining the week', () => {
-  const look = composeForwardLook(
+  const look = composeFixtureForwardLook(
     { status: 'available', context: forwardContext() },
     FORWARD_NOW,
     FORWARD_SCOPE
@@ -368,18 +369,33 @@ test('Forward Look client expiry removes kicked games and stale prices while ret
   assert.equal(kicked.weekLabel, 'Week 6');
 });
 
-test('Forward Look payload parsing isolates malformed lines from the recap transport', () => {
-  const look = composeForwardLook(
-    { status: 'available', context: forwardContext() },
-    FORWARD_NOW,
-    FORWARD_SCOPE
-  )!;
-  assert.deepEqual(parseForwardLook(JSON.parse(JSON.stringify(look))), look);
-  assert.equal(
-    parseForwardLook({ ...look, lines: [{ ...look.lines[0], expiresAt: 'tomorrow' }] }),
-    null
+test('compact history parsing isolates malformed rivalry data and rejects the old payload shape', () => {
+  const context = forwardContext();
+  addRivalry(context, ['Alice', 'Alice', 'Alice']);
+  const history = prepareForwardLookHistory(context);
+  assert.deepEqual(parseForwardLook(JSON.parse(JSON.stringify(history))), history);
+  for (const pair of [
+    { ...history.rivalries![0], owners: ['Bob', 'Alice'] },
+    { ...history.rivalries![0], streak: { owner: 'Alice', count: 4 } },
+    { ...history.rivalries![0], streak: undefined },
+  ])
+    assert.deepEqual(
+      parseForwardLook({ ...history, rivalries: [pair] }),
+      { seasonYear: 2026, rivalries: null },
+      'bad pair drops only history'
+    );
+  assert.deepEqual(
+    parseForwardLook({ ...history, rivalries: [...history.rivalries!, ...history.rivalries!] }),
+    { seasonYear: 2026, rivalries: null },
+    'duplicate pair is unavailable history'
   );
-  assert.equal(parseForwardLook({ ...look, target: look.recapTarget }), null);
+  assert.equal(
+    parseForwardLook(
+      composeFixtureForwardLook({ status: 'available', context }, FORWARD_NOW, FORWARD_SCOPE)
+    ),
+    null,
+    'old composed payload is not the compact payload'
+  );
   assert.equal(parseForwardLook(undefined), null);
 });
 
@@ -395,7 +411,11 @@ test('Forward Look backfills expired stories and deduplicates repeated owner pai
     context.rosterByTeam.set(away, `Owner A${i}`);
     context.games.push(forwardGame(`other-${i}`, 6, '2026-10-10T23:00:00Z', home, away));
   }
-  const look = composeForwardLook({ status: 'available', context }, FORWARD_NOW, FORWARD_SCOPE)!;
+  const look = composeFixtureForwardLook(
+    { status: 'available', context },
+    FORWARD_NOW,
+    FORWARD_SCOPE
+  )!;
   assert.equal(look.lines.length, 6, 'transport retains candidates beyond the display cap');
   const first = selectVisibleForwardLook(look, FORWARD_NOW)!;
   assert.equal(first.lines.length, 2);
@@ -418,7 +438,7 @@ test('Forward Look backfills expired stories and deduplicates repeated owner pai
 
   context.scoresByKey.prior = forwardScore();
   addRivalry(context, ['Bob', 'Alice', 'Alice']);
-  const rivalries = selectForwardRivalries(selectForwardLookInputs(context, FORWARD_NOW)!);
+  const rivalries = selectForwardRivalries(selectFixtureForwardLookInputs(context, FORWARD_NOW)!);
   assert.equal(rivalries.length, 2);
   assert.equal(
     mergeForwardLookLines([rivalries]).length,
@@ -431,7 +451,7 @@ test('Forward Look standings use the canonical final-score population even witho
   const context = forwardContext();
   context.games[0].date = null;
   context.games.push(forwardGame('dated-prior', 5, '2026-10-03T19:00:00Z', 'Unowned', 'Other'));
-  const inputs = selectForwardLookInputs(context, FORWARD_NOW)!;
+  const inputs = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
   assert.equal(
     inputs.standings.find((row) => row.owner === 'Alice')?.wins,
     1,
@@ -442,7 +462,7 @@ test('Forward Look standings use the canonical final-score population even witho
 test('Forward Look canceled meetings do not break streaks but unresolved meetings suppress live claims', () => {
   const context = forwardContext();
   const archive = addRivalry(context, ['Bob', 'Alice', 'Alice', 'Alice']);
-  const lines = () => selectForwardRivalries(selectForwardLookInputs(context, FORWARD_NOW)!);
+  const lines = () => selectForwardRivalries(selectFixtureForwardLookInputs(context, FORWARD_NOW)!);
   assert.equal(lines()[0]?.value, '4 straight');
   const canceled = forwardGame('canceled', 5, '2026-10-04T19:00:00Z');
   context.games.push(canceled);
@@ -477,10 +497,14 @@ test('Forward Look family failures leave the other families and the week frame a
     },
   });
   assert.doesNotThrow(
-    () => composeForwardLook({ status: 'available', context }, FORWARD_NOW, FORWARD_SCOPE),
+    () => composeFixtureForwardLook({ status: 'available', context }, FORWARD_NOW, FORWARD_SCOPE),
     'family exception does not abort composition'
   );
-  const look = composeForwardLook({ status: 'available', context }, FORWARD_NOW, FORWARD_SCOPE)!;
+  const look = composeFixtureForwardLook(
+    { status: 'available', context },
+    FORWARD_NOW,
+    FORWARD_SCOPE
+  )!;
   assert.deepEqual(
     look.lines.map((line) => line.family),
     ['standings', 'upset'],
@@ -491,7 +515,11 @@ test('Forward Look family failures leave the other families and the week frame a
       throw new Error('odds fault');
     },
   });
-  const fewer = composeForwardLook({ status: 'available', context }, FORWARD_NOW, FORWARD_SCOPE)!;
+  const fewer = composeFixtureForwardLook(
+    { status: 'available', context },
+    FORWARD_NOW,
+    FORWARD_SCOPE
+  )!;
   assert.deepEqual(
     fewer.lines.map((line) => line.family),
     ['standings'],
@@ -500,35 +528,295 @@ test('Forward Look family failures leave the other families and the week frame a
   assert.equal(selectVisibleForwardLook(fewer, FORWARD_NOW)?.weekLabel, 'Week 6');
 });
 
-test('completed result keys depend on final identities and scores, not arrival order or metadata', () => {
-  const scores = { a: forwardScore(), b: forwardScore(7, 21) };
-  const original = selectCompletedResultsKey(scores);
+for (const state of ['future', 'undated', 'postponed'] as const) {
+  test(`a ${state} meeting does not suppress a verified rivalry`, () => {
+    const context = forwardContext();
+    addRivalry(context, ['Alice', 'Alice', 'Alice']);
+    const meeting = forwardGame(
+      'uncertain',
+      6,
+      state === 'future' ? '2026-10-10T20:00:00Z' : '2026-10-04T19:00:00Z'
+    );
+    if (state === 'undated') meeting.date = null;
+    if (state === 'postponed') meeting.rawStatus = 'STATUS_POSTPONED';
+    context.games.push(meeting);
+    const inputs = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
+    assert.equal(
+      selectForwardRivalries(inputs).some((line) => line.value === '4 straight'),
+      true,
+      `${state} preserves verified streak`
+    );
+  });
+}
+
+test('required rivalry coverage withholds only the affected pair and recovers from current scores', () => {
+  const context = forwardContext();
+  const archive = addRivalry(context, ['Alice', 'Alice', 'Alice']);
+  context.rosterByTeam.set('Alabama', 'Carol');
+  context.rosterByTeam.set('Ohio State', 'Dan');
+  if (context.records.status !== 'available') throw new Error('fixture history');
+  context.records.historicalRosters[2025] = new Map(context.rosterByTeam);
+  for (let i = 0; i < 3; i++) {
+    const game = forwardGame(
+      `other-${i}`,
+      i + 1,
+      `2025-09-0${i + 1}T19:00:00Z`,
+      'Alabama',
+      'Ohio State'
+    );
+    archive.games.push(game);
+    archive.scoresByKey[game.key] = forwardScore();
+  }
+  context.games.push(
+    forwardGame('other-upcoming', 6, '2026-10-10T19:00:00Z', 'Alabama', 'Ohio State')
+  );
+  const inputs = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
+  const lines = () => selectForwardRivalries(inputs).filter((line) => line.gameKey === 'collision');
+  assert.equal(lines()[0]?.value, '4 straight', 'covered control');
+  delete inputs.context.scoresByKey.prior;
+  assert.deepEqual(lines(), [], 'missing past result withholds rather than invents aggregate');
   assert.equal(
-    selectCompletedResultsKey({
-      b: { ...scores.b, status: 'Final/OT', time: 'new' },
-      a: { ...scores.a },
-    }),
-    original,
-    'reordered equivalent finals keep the same key'
+    selectForwardRivalries(inputs).some((line) => line.gameKey === 'other-upcoming'),
+    true,
+    'missing pair does not suppress another verified pair'
+  );
+  inputs.context.scoresByKey.prior = forwardScore();
+  assert.equal(
+    lines()[0]?.value,
+    '4 straight',
+    'restored coverage restores the claim without a latch'
+  );
+  inputs.context.scoresByKey.prior = forwardScore(7, 21);
+  assert.deepEqual(lines(), [], 'correction removes a broken non-tight streak');
+});
+
+for (const date of [null, '2026-10-20T19:00:00Z']) {
+  test(`positive completion evidence requires a result with date ${date}`, () => {
+    const context = forwardContext();
+    addRivalry(context, ['Alice', 'Alice', 'Alice']);
+    context.games.push({ ...forwardGame('completed', 6), date, completed: true });
+    const inputs = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
+    assert.deepEqual(
+      selectForwardRivalries(inputs),
+      [],
+      'known completion requires usable result despite date'
+    );
+    inputs.context.scoresByKey.completed = forwardScore();
+    assert.equal(
+      selectForwardRivalries(inputs)[0]?.value,
+      '5 straight',
+      'usable completed result counts despite date'
+    );
+  });
+}
+
+test('client composition uses supplied canonical rows even when scores disagree; empty rows create no standings or upset facts', () => {
+  const context = forwardContext();
+  const inputs = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
+  inputs.context.scoresByKey = { prior: forwardScore(7, 21) };
+  assert.match(
+    selectForwardStandings(inputs)[0].detail,
+    /Bob 0 wins, Alice 1 win/,
+    'canonical wins override disagreeing client results'
+  );
+  inputs.standings = [];
+  assert.deepEqual(
+    selectForwardStandings(inputs),
+    [],
+    'empty canonical rows have no standings facts'
+  );
+  assert.deepEqual(
+    selectForwardUpsets(inputs),
+    [],
+    'empty canonical rows have no upset rank facts'
+  );
+});
+
+test('compact history preserves cross-archive dedup and round-trips all 256 four-meeting outcome combinations', () => {
+  for (let combination = 0; combination < 256; combination++) {
+    const context = forwardContext();
+    const archive = addRivalry(context, ['Alice', 'Alice', 'Alice', 'Alice']);
+    let value = combination;
+    for (const game of archive.games) {
+      const outcome = value % 4;
+      value = Math.floor(value / 4);
+      if (outcome === 0) delete archive.scoresByKey[game.key];
+      else
+        archive.scoresByKey[game.key] =
+          outcome === 1
+            ? forwardScore()
+            : outcome === 2
+              ? forwardScore(7, 21)
+              : { ...forwardScore(), status: 'inprogress' };
+    }
+    if (context.records.status !== 'available') throw new Error('fixture history');
+    const once = prepareForwardLookHistory(context);
+    context.records.archives.push(archive);
+    const history = prepareForwardLookHistory(context);
+    assert.deepEqual(history, once, 'duplicate archive does not double wins or streak');
+    assert.deepEqual(
+      parseForwardLook(JSON.parse(JSON.stringify(history))),
+      history,
+      `producer round-trip ${combination}`
+    );
+  }
+});
+
+test('composition never revisits archives after compact preparation', () => {
+  const context = forwardContext();
+  const archive = addRivalry(context, ['Alice', 'Alice', 'Alice']);
+  const inputs = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
+  Object.defineProperty(archive, 'games', {
+    get() {
+      throw new Error('archive reread');
+    },
+  });
+  assert.equal(
+    selectForwardRivalries(inputs)[0]?.value,
+    '4 straight',
+    'score composition consumes only compact history'
   );
   assert.equal(
-    selectCompletedResultsKey({ ...scores, live: { ...forwardScore(), status: 'inprogress' } }),
-    original,
-    'live scores do not change the completed set'
+    prepareForwardLookHistory(context).rivalries,
+    null,
+    'positive control: preparation still observes archive access'
   );
-  assert.notEqual(
-    selectCompletedResultsKey({ a: scores.a }),
-    original,
-    'removing a completed result changes the key'
+});
+
+test('two families cannot occupy five slots before odds arrive', () => {
+  const line = (family: ForwardLookLine['family'], n: number): ForwardLookLine => ({
+    id: `${family}:${n}`,
+    storyKey: `${family}:${n}`,
+    family,
+    gameKey: String(n),
+    title: '',
+    detail: '',
+    value: '',
+    priorityScore: n,
+    expiresAt: Infinity,
+  });
+  const families = ['standings', 'rivalry'].map((family) =>
+    Array.from({ length: 4 }, (_, n) => line(family as ForwardLookLine['family'], n))
   );
-  assert.notEqual(
-    selectCompletedResultsKey({ ...scores, b: forwardScore(21, 7) }),
-    original,
-    'corrected final scores change the key'
+  assert.equal(mergeForwardLookLines(families).length, 4, 'pre-odds family caps allow four lines');
+  assert.equal(
+    mergeForwardLookLines([...families, [line('upset', 10)]]).length,
+    5,
+    'positive control: odds can fill fifth slot'
   );
-  assert.notEqual(
-    selectCompletedResultsKey({ ...scores, c: forwardScore() }),
-    original,
-    'adding a completed result changes the key'
+});
+
+test('malformed wire participants are reconstructed; bypassing that boundary already fails the unchanged live overlay', async () => {
+  const { buildScheduleFromApi } = await import('../../schedule.ts');
+  const { selectLiveDelta } = await import('../liveDelta.ts');
+  const context = forwardContext();
+  const overlay = (games: typeof context.games) =>
+    selectLiveDelta({
+      canonical: null,
+      scoresByKey: {},
+      games,
+      rosterByTeam: context.rosterByTeam,
+      weekKey: '6',
+      lastFetchedAt: null,
+      now: FORWARD_NOW.getTime(),
+    });
+  assert.throws(
+    () => overlay([{ ...forwardGame('bad'), participants: null as never }]),
+    'live overlay already rejects bypassed invalid AppGame'
+  );
+  for (const participants of [null, {}, [], { home: null, away: null }]) {
+    const build = buildScheduleFromApi({
+      season: 2026,
+      teams: [],
+      aliasMap: {},
+      scheduleItems: [
+        {
+          id: 'wire',
+          week: 6,
+          seasonType: 'regular',
+          startDate: '2026-10-10T19:00:00Z',
+          homeTeam: 'Texas',
+          awayTeam: 'Georgia',
+          homeConference: 'SEC',
+          awayConference: 'SEC',
+          status: 'scheduled',
+          completed: false,
+          neutralSite: false,
+          conferenceGame: true,
+          participants,
+        } as Parameters<typeof buildScheduleFromApi>[0]['scheduleItems'][number],
+      ],
+    });
+    assert.equal(
+      build.games[0].participants.home.kind,
+      'team',
+      'wire home participant is reconstructed'
+    );
+    assert.equal(
+      build.games[0].participants.away.kind,
+      'team',
+      'wire away participant is reconstructed'
+    );
+    assert.doesNotThrow(
+      () => overlay(build.games),
+      'reconstructed game reaches live overlay safely'
+    );
+  }
+});
+
+test('pending annotations are in-progress leads and cannot be standings wins', async () => {
+  const { selectLiveDelta } = await import('../liveDelta.ts');
+  const context = forwardContext();
+  const args = {
+    canonical: null,
+    games: context.games,
+    rosterByTeam: context.rosterByTeam,
+    weekKey: '6',
+    lastFetchedAt: FORWARD_NOW.toISOString(),
+    now: FORWARD_NOW.getTime(),
+  };
+  const live = selectLiveDelta({
+    ...args,
+    scoresByKey: { collision: { ...forwardScore(), status: 'inprogress' } },
+  });
+  assert.equal(live.byOwner.Alice.pendingWins, 1, 'pending win means currently leading');
+  const final = selectLiveDelta({ ...args, scoresByKey: { collision: forwardScore() } });
+  assert.equal(final.byOwner.Alice, undefined, 'final is excluded from pending wins');
+});
+
+test('usable-final count decreases under authoritative manual replacement', async () => {
+  const { mergeManualPartition } = await import('../../scores/manualPartitionMerge.ts');
+  const { hasUsableFinalScore } = await import('../../gameStatus.ts');
+  const first = { ...forwardScore(), id: 'first', week: 6 };
+  const omitted = { ...forwardScore(), id: 'omitted', week: 6 };
+  const prior = {
+    at: 1000,
+    source: 'cfbd' as const,
+    cfbdFallbackReason: 'none' as const,
+    items: [first, omitted],
+  };
+  assert.equal(prior.items.filter(hasUsableFinalScore).length, 2, 'two-final positive control');
+  const merged = mergeManualPartition({ prior, manualItems: [first], now: 5000 });
+  assert.equal(
+    merged.items.filter(hasUsableFinalScore).length,
+    1,
+    'authoritative omission decreases final count'
+  );
+  const nonfinal = mergeManualPartition({
+    prior,
+    manualItems: [
+      {
+        ...first,
+        status: 'scheduled',
+        home: { team: 'Texas', score: null },
+        away: { team: 'Georgia', score: null },
+      },
+    ],
+    now: 5000,
+  });
+  assert.equal(
+    nonfinal.items.filter(hasUsableFinalScore).length,
+    0,
+    'authoritative nonfinal replacement also decreases count'
   );
 });

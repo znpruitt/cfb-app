@@ -1,3 +1,8 @@
+import { composeForwardLook } from '../lib/recap/composeForwardLook.ts';
+import { prepareForwardLook, selectForwardLookInputs } from '../lib/selectors/forwardLook.ts';
+import { prepareForwardLookHistory } from '../lib/selectors/forwardLookRivalries.ts';
+import { deriveStandings } from '../lib/standings.ts';
+import type { WeeklyRecapContextResult } from '../lib/recap/loadRecapContext.ts';
 import type { CombinedOdds } from '../lib/odds.ts';
 import type { WeeklyRecapContext } from '../lib/recap/loadRecapContext.ts';
 import type { AppGame } from '../lib/schedule.ts';
@@ -125,4 +130,30 @@ export function addRivalry(
     historicalRosters: { 2025: new Map(context.rosterByTeam) },
   };
   return archive;
+}
+
+export function fixtureForwardContext(context: WeeklyRecapContext) {
+  return {
+    ...prepareForwardLook(context.games, context.rosterByTeam, context.seasonYear),
+    scoresByKey: context.scoresByKey,
+    canonicalRows: deriveStandings(context.games, context.rosterByTeam, context.scoresByKey).rows,
+    history: prepareForwardLookHistory(context),
+    get oddsByKey() {
+      return context.odds.status === 'available' ? context.odds.byGameKey : {};
+    },
+  };
+}
+
+export function composeFixtureForwardLook(
+  result: WeeklyRecapContextResult,
+  now: Date,
+  scope: Parameters<typeof composeForwardLook>[2]
+) {
+  return result.status === 'available'
+    ? composeForwardLook(fixtureForwardContext(result.context), now, scope)
+    : null;
+}
+
+export function selectFixtureForwardLookInputs(context: WeeklyRecapContext, now: Date) {
+  return selectForwardLookInputs(fixtureForwardContext(context), now);
 }

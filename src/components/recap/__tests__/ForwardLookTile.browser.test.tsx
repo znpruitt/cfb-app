@@ -1,3 +1,4 @@
+import { composeFixtureForwardLook } from '../../../test/forwardLookFixtures';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -6,7 +7,6 @@ import { build } from 'esbuild';
 import postcss from 'postcss';
 import tailwindcss from '@tailwindcss/postcss';
 import { withBrowserFixture } from '../../../test/browserFixture';
-import { composeForwardLook } from '../../../lib/recap/composeForwardLook';
 import {
   addRivalry,
   forwardContext,
@@ -17,7 +17,11 @@ import {
 async function markup(): Promise<string> {
   const context = forwardContext();
   addRivalry(context, ['Bob', 'Alice', 'Alice']);
-  const look = composeForwardLook({ status: 'available', context }, FORWARD_NOW, FORWARD_SCOPE)!;
+  const look = composeFixtureForwardLook(
+    { status: 'available', context },
+    FORWARD_NOW,
+    FORWARD_SCOPE
+  )!;
   const bundle = await build({
     stdin: {
       contents: `import React from 'react'; import {createRoot} from 'react-dom/client';
