@@ -1,5 +1,10 @@
 import { displayOwner, getGameOwners } from '../gameOwnership.ts';
-import { hasUsableFinalScore, isCanceledStatusLabel } from '../gameStatus.ts';
+import {
+  classifyGameConclusionEvidence,
+  hasUsableFinalScore,
+  isCanceledOrPostponedStatusLabel,
+  isCanceledStatusLabel,
+} from '../gameStatus.ts';
 import type { AppGame } from '../schedule.ts';
 import type { ScorePack } from '../scores.ts';
 import type { WeeklyRecapContext } from '../recap/loadRecapContext.ts';
@@ -15,7 +20,7 @@ export type RivalrySummary = {
   streak: { owner: string; count: number } | null;
 };
 export type ForwardLookHistory = { seasonYear: number; rivalries: RivalrySummary[] | null };
-export type RivalryGame = {
+export type RivalryGame = Pick<AppGame, 'status' | 'rawStatus' | 'completed'> & {
   key: string;
   week: number;
   kickoff: number;
@@ -76,7 +81,16 @@ export function prepareRivalryGames(games: AppGame[], roster: Map<string, string
     if (!home || !away || home === away || seen.has(game.key)) return [];
     seen.add(game.key);
     return [
-      { key: game.key, week: game.canonicalWeek, kickoff: Date.parse(game.date ?? ''), home, away },
+      {
+        key: game.key,
+        week: game.canonicalWeek,
+        kickoff: Date.parse(game.date ?? ''),
+        home,
+        away,
+        status: game.status,
+        rawStatus: game.rawStatus,
+        completed: game.completed,
+      },
     ];
   });
 }
@@ -134,6 +148,20 @@ export function prepareForwardLookHistory(context: WeeklyRecapContext): ForwardL
   return result;
 }
 
+function requiresCurrentResult(
+  game: RivalryGame,
+  score: ScorePack | undefined,
+  now: number
+): boolean {
+  if (isCanceledStatusLabel(score?.status)) return false;
+  if (classifyGameConclusionEvidence(game, score) === 'score-required') return true;
+  if ([game.status, game.rawStatus, score?.status].some(isCanceledOrPostponedStatusLabel))
+    return false;
+  // A missing date supplies no evidence of play. See 'Forward Look requires
+  // result coverage only for meetings with past or completed evidence'.
+  return game.kickoff <= now;
+}
+
 export function selectForwardRivalries(inputs: ForwardLookInputs): ForwardLookLine[] {
   if (inputs.context.history.rivalries === null) return [];
   const history = new Map(
@@ -143,13 +171,13 @@ export function selectForwardRivalries(inputs: ForwardLookInputs): ForwardLookLi
   const uncoveredPairs = new Set<string>();
   for (const game of inputs.context.rivalryGames) {
     const score = inputs.scoresByKey[game.key];
-    if (isCanceledStatusLabel(score?.status) || game.kickoff > inputs.now.getTime()) continue;
+    if (!requiresCurrentResult(game, score, inputs.now.getTime())) continue;
     const key = pairKey(game.home, game.away);
     const winner = meetingWinner(game, score);
-    // A gap anywhere in this pair's current season invalidates the record, even
+    // A required result missing anywhere in this pair's season invalidates the record, even
     // when newer known wins form a streak. See 'Forward Look withholds even an
     // older gap without suppressing covered pairs or other families'.
-    if (!Number.isFinite(game.kickoff) || !winner) {
+    if (!winner) {
       uncoveredPairs.add(key);
       continue;
     }

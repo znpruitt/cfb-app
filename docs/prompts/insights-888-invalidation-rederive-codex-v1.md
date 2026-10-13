@@ -25,6 +25,74 @@ CARRIES: From AGENTS.md's reconstruction rule, amended 2026-10-06 out of this ve
 
 ---
 
+## Coverage predicate reconstruction — 2026-10-13 (confirming reviews pending)
+
+The owner approved reconstruction after the normal remediation at `f9880200` and the narrow,
+explicitly approved second remediation at `f3e5fbb6`. This follows AGENTS.md's reconstruction path;
+it is not a third remediation exception. Only the definition of a current-season rivalry meeting
+requiring result coverage is replaced. The predicate at `f3e5fbb6` is superseded and unshipped.
+The rest of the branch remains the execution record for the settled client composition design.
+
+The stopped predicate treated absence of a kickoff date as evidence of a missing past result.
+It also treated a postponed game's original kickoff as sufficient evidence that a result was
+missing. Neither establishes that the meeting changed the record. Reconstruction separates the
+population requiring results from the existing rule that withholds a pair with a missing required
+result. It reads only the existing schedule and client scores, using the shared conclusion/status
+classifiers. No completeness source, ordering authority, server payload change or fetch is added.
+
+The replacement's current-season population is:
+
+- Preserve cancellation exclusion, including a canceled client score over completed schedule data.
+- Positive final/completed evidence requires a usable result regardless of the date. A usable final
+  counts even if undated; the existing same-week ordering rules still apply. Final evidence also
+  supersedes a schedule postponement that has not yet been updated.
+- Without completion evidence, a postponed meeting requires no result.
+- Otherwise, a kickoff at or before the composition time requires coverage. A future or unknown
+  kickoff does not. A week number alone does not establish a played game.
+
+This is evaluated anew from each composition's inputs. Suppression lasts only while a required
+result remains unverifiable; there is no season-long latch. The tests cover an undated week-12
+meeting alongside a verified week-6 streak, postponement from either schedule or score status,
+later final evidence, rescheduling, and an undated completion whose score remains missing.
+
+### Carry-forward specification from the stopped history
+
+The implementation and both remediation commits were read along with their tests and review
+adjudications. Retain these accepted requirements:
+
+- Standings facts use canonical rows directly; game eligibility and rivalries use displayed client
+  scores. No client standings derivation or pending-win facts. No tile-specific reconciliation.
+- A season hydration flag is not a completeness certificate. A missing required meeting withholds
+  that pair, including an older gap behind newer known wins. Covered pairs and other families remain.
+- Same-scope history survives failed HTTP refetches. Scope changes cannot inherit another league's
+  history. Compact history, explicit context updates and reusable preparation remain intact.
+- Hidden windows skip score-dependent composition; odds changes reuse preparation. Ordinary ticks
+  and finals do not fetch Insights; the deliberate daily eligibility boundary remains.
+- The three families, tile, changeover, and accepted recap/ordinary-Insights snapshot freshness stay.
+
+Do not carry forward the all-undated-meetings withholding rule or replace it with skipping every
+undated final. The previous unknown-kickoff assertion is replaced with an assertion that a verified
+undated final counts; missing-result and older-gap withholding assertions are retained.
+
+Round-3 adjudication also established that the slot comment correctly describes the recap, which
+still renders after client schedule failure. Failed same-scope HTTP refetches retain history;
+malformed successful payloads are a different case. The cited invalid history pairs were not
+produced across 256 tested result combinations, including duplicate archive input. The new import
+cycle loads in either order today; it is a maintenance concern, not a demonstrated runtime failure.
+
+Out of scope: #892 owns rendering under incomplete coverage (including recap); #891 retains repeated
+target/visibility work, duplicate preparation and fixture-wrapper limitations; #890 owns the shared
+canonical/client race. Their disposition is unchanged.
+
+The read-only schedule-cache measurement found zero undated or postponed-status rows among 3,679
+games for 2026 and 3,831 for 2025. This bounds that snapshot's exposure only; it does not make ordinary
+future postponements safe. It did not measure transient score statuses.
+
+**Closeout record:** the round-3 review header claimed nine findings but supplied only eight,
+numbered 1–8. No ninth finding was supplied. Both confirming reviews must target the reconstructed
+commit and the true merge-base `7c5e1f98504bffde54777003d26fd734b1ea4990`. This record does not declare
+the slice complete or authorize a merge.
+
 ## SETTLED 2026-10-10 — build it. Canonical rows, pending kept separate, narrower freshness claim
 
 **All three open questions are answered and the design is ruled. Implement.**

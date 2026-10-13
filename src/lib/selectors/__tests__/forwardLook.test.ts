@@ -588,11 +588,81 @@ test('Forward Look withholds a rivalry record until every current meeting is ver
   context.scoresByKey.prior = forwardScore(7, 21);
   assert.equal(lines()[0]?.value, '3–3', 'verified correction restores the truthful record');
   context.scoresByKey.prior = { ...forwardScore(), status: 'STATUS_CANCELED' };
+  context.games[0].completed = true;
   assert.equal(lines()[0]?.value, '2–3', 'confirmed cancellation is not a missing meeting');
+  context.games[0].completed = false;
   context.scoresByKey.prior = forwardScore(7, 21);
   context.games[0].date = null;
   context.games.push(forwardGame('dated-prior', 5, '2026-10-03T19:00:00Z', 'Unowned', 'Other'));
-  assert.deepEqual(lines(), [], 'unknown kickoff cannot certify the set of past meetings');
+  assert.equal(lines()[0]?.value, '3–3', 'a verified final counts even without a kickoff date');
+});
+
+test('Forward Look requires result coverage only for meetings with past or completed evidence', () => {
+  const context = forwardContext();
+  addRivalry(context, ['Alice', 'Alice']);
+  const extra = forwardGame('extra', 12, '2026-11-21T19:00:00Z');
+  context.games.push(extra);
+  const value = () =>
+    selectForwardRivalries(selectForwardLookInputs(context, FORWARD_NOW)!)[0]?.value;
+  assert.equal(value(), '3 straight', 'a future meeting cannot change the past record');
+  extra.date = null;
+  assert.equal(value(), '3 straight', 'an undated future-week meeting is not a missing result');
+  extra.canonicalWeek = 4;
+  assert.equal(value(), '3 straight', 'a week number and missing date do not establish completion');
+  extra.date = '2026-09-26T19:00:00Z';
+  assert.equal(value(), undefined, 'a past kickoff with no result withholds the pair');
+  context.scoresByKey.extra = { ...forwardScore(), status: 'inprogress' };
+  assert.equal(value(), undefined, 'an unresolved past meeting cannot certify the record');
+  context.scoresByKey.extra = forwardScore();
+  assert.equal(value(), '4 straight', 'a final fills the gap on the next composition');
+  extra.date = '2026-11-21T19:00:00Z';
+  assert.equal(value(), '4 straight', 'final evidence does not depend on the schedule date');
+  delete context.scoresByKey.extra;
+  extra.date = null;
+  for (const evidence of ['completed', 'status', 'score'] as const) {
+    extra.completed = evidence === 'completed';
+    extra.status = evidence === 'status' ? 'final' : 'scheduled';
+    if (evidence === 'score')
+      context.scoresByKey.extra = { ...forwardScore(), home: { team: 'Texas', score: null } };
+    assert.equal(
+      value(),
+      undefined,
+      `${evidence} establishes an undated result that needs coverage`
+    );
+    delete context.scoresByKey.extra;
+  }
+});
+
+test('Forward Look excludes postponed meetings from records and streaks until their inputs change', () => {
+  for (const source of ['rawStatus', 'score'] as const) {
+    const context = forwardContext();
+    addRivalry(context, ['Bob', 'Alice', 'Alice']);
+    const postponed = forwardGame('postponed', 5, '2026-10-04T19:00:00Z');
+    context.games.push(postponed);
+    if (source === 'score')
+      context.scoresByKey.postponed = { ...forwardScore(), status: 'STATUS_POSTPONED' };
+    else postponed[source] = 'STATUS_POSTPONED';
+    const lines = () => selectForwardRivalries(selectForwardLookInputs(context, FORWARD_NOW)!);
+    assert.equal(
+      lines()[0]?.value,
+      '3 straight',
+      `${source}: postponement does not break a streak`
+    );
+    assert.match(lines()[0]!.detail, /Bob 1–3 Alice/, `${source}: postponement adds no win`);
+    context.scoresByKey.postponed = forwardScore(7, 21);
+    assert.equal(lines()[0]?.value, '2–3', `${source}: final evidence replaces postponement`);
+    delete context.scoresByKey.postponed;
+    postponed.status = 'scheduled';
+    postponed.rawStatus = 'scheduled';
+    assert.deepEqual(lines(), [], `${source}: an unresolved past meeting needs coverage again`);
+    postponed.date = '2026-11-21T19:00:00Z';
+    postponed.canonicalWeek = 12;
+    assert.equal(
+      lines()[0]?.value,
+      '3 straight',
+      `${source}: rescheduling restores the verified streak`
+    );
+  }
 });
 
 test('Forward Look withholds even an older gap without suppressing covered pairs or other families', () => {
