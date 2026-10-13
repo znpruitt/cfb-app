@@ -820,3 +820,60 @@ test('usable-final count decreases under authoritative manual replacement', asyn
     'authoritative nonfinal replacement also decreases count'
   );
 });
+
+test('a numeric final tie breaks the live streak without hiding a verified tight record', () => {
+  const context = forwardContext();
+  addRivalry(context, ['Bob', 'Bob', 'Bob', 'Alice', 'Alice', 'Alice']);
+  context.scoresByKey.prior = forwardScore(14, 14);
+  const inputs = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
+  const lines = selectForwardRivalries(inputs);
+  assert.equal(lines[0]?.value, '3–3', 'a known tie preserves the verified win totals');
+  assert.equal(lines[0]?.title.includes('streak'), false, 'a known tie breaks the archived streak');
+  delete inputs.context.scoresByKey.prior;
+  assert.deepEqual(selectForwardRivalries(inputs), [], 'missing evidence still withholds the pair');
+  inputs.context.scoresByKey.prior = forwardScore();
+  assert.equal(
+    selectForwardRivalries(inputs)[0]?.value,
+    '4 straight',
+    'supplying the missing result restores the pair'
+  );
+});
+
+for (const excluded of ['canceled', 'unowned'] as const) {
+  test(`a ${excluded} duplicate archive row cannot consume the played meeting key`, () => {
+    const context = forwardContext();
+    const archive = addRivalry(context, ['Alice', 'Alice', 'Alice']);
+    const played = archive.games[0];
+    const skipped =
+      excluded === 'canceled'
+        ? { ...played, rawStatus: 'STATUS_CANCELED' }
+        : { ...forwardGame(played.key, 1, played.date!, 'Alabama', 'Ohio State') };
+    archive.games.unshift(skipped);
+    archive.games.push({ ...played });
+    const history = prepareForwardLookHistory(context);
+    assert.deepEqual(
+      history.rivalries?.[0]?.wins,
+      [3, 0],
+      `${excluded} duplicate does not consume the played key`
+    );
+    assert.equal(
+      history.rivalries?.[0]?.streak?.count,
+      3,
+      `${excluded} duplicate preserves the streak exactly once`
+    );
+  });
+}
+
+test('current rivalry duplicates are counted once after eligibility filtering', () => {
+  const context = forwardContext();
+  addRivalry(context, ['Alice', 'Alice', 'Alice']);
+  const prior = context.games[0];
+  context.games.unshift({ ...prior, rawStatus: 'STATUS_CANCELED' });
+  context.games.push({ ...prior });
+  const inputs = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
+  assert.equal(
+    selectForwardRivalries(inputs)[0]?.value,
+    '4 straight',
+    'live duplicates count the eligible meeting exactly once'
+  );
+});

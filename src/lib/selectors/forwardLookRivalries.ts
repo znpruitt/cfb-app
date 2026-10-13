@@ -38,10 +38,8 @@ export function forwardLookCollision(game: AppGame, inputs: ForwardLookInputs) {
 }
 
 export function prepareRivalryGames(games: AppGame[], roster: Map<string, string>): RivalryGame[] {
-  const seen = new Set<string>();
   return games.flatMap((game) => {
-    if (game.isPlaceholder || seen.has(game.key)) return [];
-    seen.add(game.key);
+    if (game.isPlaceholder) return [];
     const owners = getGameOwners(game, roster);
     const home = displayOwner(owners.homeOwner);
     const away = displayOwner(owners.awayOwner);
@@ -146,6 +144,7 @@ export function selectForwardRivalries(inputs: ForwardLookInputs): ForwardLookLi
   );
   const meetingsByPair = new Map<string, Meeting[]>();
   const uncovered = new Set<string>();
+  const seen = new Set<string>();
   for (const meeting of inputs.context.rivalryGames) {
     const { game, kickoff, pair } = meeting;
     const score = inputs.context.scoresByKey[game.key];
@@ -157,8 +156,13 @@ export function selectForwardRivalries(inputs: ForwardLookInputs): ForwardLookLi
         !(kickoff <= inputs.now.getTime()))
     )
       continue;
-    const result = winner(meeting, score);
-    if (!result) {
+    if (seen.has(game.key)) continue;
+    seen.add(game.key);
+    if (
+      !hasUsableFinalScore(score) ||
+      !Number.isFinite(score!.home.score) ||
+      !Number.isFinite(score!.away.score)
+    ) {
       uncovered.add(pair);
       continue;
     }
@@ -167,7 +171,7 @@ export function selectForwardRivalries(inputs: ForwardLookInputs): ForwardLookLi
       year: inputs.context.seasonYear,
       week: game.canonicalWeek,
       kickoff,
-      winner: result,
+      winner: winner(meeting, score),
     });
     meetingsByPair.set(pair, meetings);
   }

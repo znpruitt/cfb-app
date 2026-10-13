@@ -587,3 +587,83 @@ test('client boundary contains preparation and composition faults, skips hidden 
   );
   assert.equal(view.queryByText('no look') !== null, true, 'unread empty scores remain loading');
 });
+
+test('the production hook changes over at both Eastern boundaries and recomposes expired games and prices', () => {
+  const client = fixtureForwardContext(forwardContext());
+  const args = {
+    ...client,
+    ...FORWARD_SCOPE,
+    scheduleLoaded: true,
+    scoresReady: true,
+    enabled: true,
+    nowTick: FORWARD_NOW.getTime() - 60_000,
+  };
+  const view = renderHook((input) => useForwardLook(input), { initialProps: args });
+  assert.equal(view.result.current === null, true, 'hook stays hidden before 06:00 ET');
+  view.rerender({ ...args, nowTick: FORWARD_NOW.getTime() });
+  assert.equal(view.result.current?.weekLabel, 'Week 6', 'hook reveals the preview at 06:00 ET');
+  assert.equal(
+    view.result.current?.lines.some((line) => line.family === 'upset'),
+    true,
+    'fresh price control renders'
+  );
+  view.rerender({ ...args, nowTick: Date.parse('2026-10-09T09:00:00Z') });
+  assert.equal(
+    view.result.current?.lines.some((line) => line.family === 'upset'),
+    false,
+    'hook removes a price at its exact expiry'
+  );
+  assert.equal(
+    view.result.current?.lines.some((line) => line.family === 'standings'),
+    true,
+    'price expiry retains the unstarted game'
+  );
+  view.rerender({ ...args, nowTick: Date.parse('2026-10-10T19:00:00Z') });
+  assert.deepEqual(view.result.current?.lines, [], 'hook removes all game claims at kickoff');
+  view.rerender({ ...args, nowTick: Date.parse('2026-10-11T10:00:00Z') });
+  assert.equal(
+    view.result.current === null,
+    true,
+    'hook ends the preview at next recap eligibility'
+  );
+});
+
+test('late or malformed history leaves healthy families available and a later history response recomposes', () => {
+  const context = forwardContext();
+  addRivalry(context, ['Alice', 'Alice', 'Alice', 'Alice', 'Alice']);
+  const client = fixtureForwardContext(context);
+  const args = {
+    ...client,
+    ...FORWARD_SCOPE,
+    scheduleLoaded: true,
+    scoresReady: true,
+    enabled: true,
+    nowTick: FORWARD_NOW.getTime(),
+  };
+  const view = renderHook((input) => useForwardLook(input), {
+    initialProps: { ...args, history: null as typeof client.history | null },
+  });
+  assert.deepEqual(
+    view.result.current?.lines.map((line) => line.family),
+    ['standings', 'upset'],
+    'history loading preserves the independent families'
+  );
+  const parsed = parseInsightsPayload({
+    forwardLook: {
+      ...client.history,
+      rivalries: [{ owners: ['Bob', 'Alice'], wins: [3, 0], streak: null }],
+    },
+  });
+  view.rerender({ ...args, history: parsed.forwardLook });
+  assert.deepEqual(
+    view.result.current?.lines.map((line) => line.family),
+    ['standings', 'upset'],
+    'malformed history suppresses only rivalries through parser and hook'
+  );
+  view.rerender(args);
+  assert.equal(
+    view.result.current?.lines.some((line) => line.value === '6 straight'),
+    true,
+    'later history adds the verified rivalry'
+  );
+});

@@ -7,7 +7,7 @@ import {
   prepareForwardLook,
   selectForwardLookTargets,
   isForwardLookVisible,
-  mergeForwardLookLines,
+  selectVisibleForwardLook,
   type ForwardLookContext,
 } from '../../lib/selectors/forwardLook.ts';
 import { isWeeklyRecapActiveSeason } from '../../lib/selectors/weeklyRecapFacts.ts';
@@ -78,7 +78,7 @@ export function useForwardLook(args: Args) {
         { seasonYear, leagueStatus },
         targets
       );
-      return look ? { ...look, lines: mergeForwardLookLines([look.lines]) } : null;
+      return selectVisibleForwardLook(look, now);
     } catch {
       return null;
     }
