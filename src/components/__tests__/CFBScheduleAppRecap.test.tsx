@@ -493,7 +493,7 @@ for (const existingFinal of [true, false]) {
       assert.equal(
         rendered.queryByText('Forward look') === null,
         true,
-        'claims wait for both context and initial score observation'
+        'claims wait for both context and initial season hydration'
       );
       await act(async () => (historyFirst ? releaseScores!() : releaseHistory!()));
       const tile = () => rendered.getByText('Forward look').closest('section')!;
@@ -569,4 +569,103 @@ for (const existingFinal of [true, false]) {
       assert.equal(insightCalls, 1, 'canonical row changes do not request Insights');
     });
   }
+}
+
+for (const startup of ['issues', 'throws'] as const) {
+  test(`Forward Look uses season hydration rather than a clean poll (startup ${startup})`, async (t) => {
+    let now = FORWARD_NOW.getTime();
+    Date.now = () => now;
+    const oldVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    t.after(() => {
+      if (oldVisibility) Object.defineProperty(document, 'visibilityState', oldVisibility);
+      else delete (document as unknown as Record<string, unknown>).visibilityState;
+    });
+    const context = forwardContext();
+    addRivalry(context, ['Alice', 'Alice', 'Alice']);
+    context.games.push(forwardGame('repeat', 6, '2026-10-10T23:00:00Z'));
+    const schedule = context.games.map((game) => ({
+      id: game.key,
+      week: game.week,
+      seasonType: 'regular',
+      startDate: game.date,
+      homeTeam: game.canHome,
+      awayTeam: game.canAway,
+      homeConference: 'SEC',
+      awayConference: 'SEC',
+      status: 'scheduled',
+      completed: false,
+      neutralSite: false,
+      conferenceGame: true,
+    }));
+    const payload = {
+      ...recapPayload,
+      forwardLook: prepareForwardLookPayload({ status: 'available', context }, FORWARD_SCOPE),
+    };
+    installFetch(schedule, payload, 'team,owner\nTexas,Alice\nGeorgia,Bob\n');
+    const fallback = globalThis.fetch;
+    const scoreUrls: string[] = [];
+    let polling = false;
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url.startsWith('/api/teams'))
+        return jsonResponse({
+          items: [
+            { school: 'Texas', subdivision: 'fbs', conference: 'SEC' },
+            { school: 'Georgia', subdivision: 'fbs', conference: 'SEC' },
+          ],
+        });
+      if (url.startsWith('/api/scores')) {
+        scoreUrls.push(url);
+        if (!polling) {
+          if (startup === 'throws') throw new Error('bootstrap disconnected');
+          return jsonResponse({ error: 'unavailable' }, 503);
+        }
+        return jsonResponse({
+          items: [
+            {
+              id: 'collision',
+              week: 6,
+              seasonType: 'regular',
+              startDate: context.games[1].date,
+              status: 'final',
+              time: null,
+              home: { team: 'Texas', score: 21 },
+              away: { team: 'Georgia', score: 7 },
+            },
+          ],
+          meta: { source: 'cache', cache: 'hit' },
+        });
+      }
+      return fallback(input, init);
+    }) as typeof fetch;
+    const rendered = renderApp();
+    await act(async () => {});
+    await waitFor(() => assert.ok(scoreUrls.length > 0));
+    await act(async () => {});
+    if (startup === 'issues') {
+      assert.equal(
+        rendered.queryByText('Forward look') !== null,
+        true,
+        'a completed season hydration with issues does not wait forever for a clean poll'
+      );
+      const before = scoreUrls.length;
+      act(() => window.dispatchEvent(new dom.window.Event('focus')));
+      assert.equal(scoreUrls.length, before, 'Thursday has no eligible score poll');
+    } else {
+      assert.equal(rendered.queryByText('Forward look') === null, true);
+      polling = true;
+      now = Date.parse('2026-10-10T19:05:00Z');
+      const before = scoreUrls.length;
+      act(() => window.dispatchEvent(new dom.window.Event('focus')));
+      await waitFor(() => assert.equal(scoreUrls.length, before + 1));
+      await act(async () => {});
+      assert.match(scoreUrls.at(-1)!, /week=6/, 'positive control: clean narrow poll completed');
+      assert.equal(
+        rendered.queryByText('Forward look') === null,
+        true,
+        'a clean narrow poll cannot substitute for missing season hydration'
+      );
+    }
+  });
 }

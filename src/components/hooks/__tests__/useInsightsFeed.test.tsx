@@ -4,7 +4,8 @@ import test, { afterEach, beforeEach } from 'node:test';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { JSDOM } from 'jsdom';
 
-import { parseInsightsPayload, useInsightsFeed, useForwardLook } from '../useInsightsFeed';
+import { parseInsightsPayload, useInsightsFeed } from '../useInsightsFeed';
+import { useForwardLook } from '../useForwardLook';
 import { deriveStandings } from '../../../lib/standings';
 import { prepareForwardLookPayload } from '../../../lib/recap/composeForwardLook';
 import {
@@ -98,53 +99,60 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-test('Forward Look is cleared on request failure and league-scope change while the standing feed survives', async () => {
-  const look = prepareForwardLookPayload(
-    { status: 'available', context: forwardContext() },
-    FORWARD_SCOPE
-  )!;
-  let fail = false;
-  globalThis.fetch = (async () => {
-    if (fail) throw new Error('offline');
-    return new Response(
-      JSON.stringify({
-        insights: [{ id: 'standing' }],
-        weeklyRecap: availableRecapPayload(1),
-        forwardLook: look,
-      }),
-      { status: 200 }
+for (const trigger of ['manual', 'boundary']) {
+  test(`Forward Look history survives ${trigger} failures but never crosses league scope`, async () => {
+    const look = prepareForwardLookPayload(
+      { status: 'available', context: forwardContext() },
+      FORWARD_SCOPE
+    )!;
+    let fail = false;
+    globalThis.fetch = (async () => {
+      if (fail) return new Response('unavailable', { status: 500 });
+      return new Response(
+        JSON.stringify({
+          insights: [{ id: 'standing' }],
+          weeklyRecap: availableRecapPayload(1),
+          forwardLook: look,
+        }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+    const view = renderHook(
+      ({ slug, nowTick }) =>
+        useInsightsFeed({
+          leagueSlug: slug,
+          seasonYear: 2026,
+          leagueStatus: ACTIVE_STATUS,
+          nowTick,
+        }),
+      { initialProps: { slug: 'tsc', nowTick: FORWARD_NOW.getTime() } }
     );
-  }) as typeof fetch;
-  const view = renderHook(
-    ({ slug }) =>
-      useInsightsFeed({
-        leagueSlug: slug,
-        seasonYear: 2026,
-        leagueStatus: ACTIVE_STATUS,
-        nowTick: FORWARD_NOW.getTime(),
-      }),
-    { initialProps: { slug: 'tsc' } }
-  );
-  await waitFor(() => assert.equal(view.result.current.forwardLook?.seasonYear, 2026));
-  fail = true;
-  act(() => view.result.current.refreshInsights());
-  await waitFor(() => assert.equal(view.result.current.weeklyRecap.status, 'unavailable'));
-  assert.equal(
-    view.result.current.forwardLook,
-    null,
-    'failed reads cannot leave forward claims behind'
-  );
-  assert.equal(view.result.current.insights.length, 1, 'standing feed is preserved');
-  fail = false;
-  act(() => view.result.current.refreshInsights());
-  await waitFor(() => assert.ok(view.result.current.forwardLook));
-  view.rerender({ slug: '' });
-  assert.equal(
-    view.result.current.forwardLook,
-    null,
-    'slugless surface cannot retain another league preview'
-  );
-});
+    await waitFor(() => assert.equal(view.result.current.forwardLook?.seasonYear, 2026));
+    fail = true;
+    const nowTick = FORWARD_NOW.getTime() + (trigger === 'boundary' ? 24 * 60 * 60_000 : 0);
+    if (trigger === 'manual') act(() => view.result.current.refreshInsights());
+    else view.rerender({ slug: 'tsc', nowTick });
+    await waitFor(() => assert.equal(view.result.current.weeklyRecap.status, 'unavailable'));
+    assert.deepEqual(
+      view.result.current.forwardLook,
+      look,
+      'failed reads retain reusable same-scope history'
+    );
+    assert.equal(view.result.current.insights.length, 1, 'standing feed is preserved');
+    view.rerender({ slug: 'other', nowTick });
+    await waitFor(() => assert.equal(view.result.current.weeklyRecap.status, 'unavailable'));
+    assert.equal(view.result.current.forwardLook, null, 'failed new scope cannot inherit history');
+    fail = false;
+    act(() => view.result.current.refreshInsights());
+    await waitFor(() => assert.ok(view.result.current.forwardLook));
+    view.rerender({ slug: '', nowTick });
+    assert.equal(
+      view.result.current.forwardLook,
+      null,
+      'slugless surface cannot retain another league preview'
+    );
+  });
+}
 
 test('invalid recap data cannot empty an otherwise healthy insights payload', () => {
   const parsed = parseInsightsPayload({
@@ -406,7 +414,7 @@ test('Forward Look reuses preparation across polls and responds to explicit cont
     ...FORWARD_SCOPE,
     nowTick: FORWARD_NOW.getTime(),
     scheduleLoaded: true,
-    scoresObserved: true,
+    scoresHydrated: true,
   };
   const view = renderHook((props) => useForwardLook(props), { initialProps: initial });
   const rerender = (props: typeof initial) => {
@@ -445,7 +453,9 @@ test('Forward Look reuses preparation across polls and responds to explicit cont
     false,
     'removing a final cannot keep the old streak'
   );
+  oldGameReads = 0;
   rerender({ ...initial, oddsByKey: { collision: forwardOdds() } });
+  assert.equal(oldGameReads, 0, 'odds updates do not redo schedule preparation');
   assert.ok(
     view.result.current?.lines.some((line) => line.family === 'upset'),
     'odds hydration updates prepared context'
@@ -483,4 +493,45 @@ test('Forward Look reuses preparation across polls and responds to explicit cont
   assert.equal(view.result.current, null, 'another season cannot use this context');
   rerender({ ...initial, leagueStatus: { state: 'offseason' } });
   assert.equal(view.result.current, null, 'inactive lifecycle cannot show current-season claims');
+});
+
+test('hidden Forward Look skips score-dependent work and composes at the changeover', () => {
+  const context = forwardContext();
+  addRivalry(context, ['Alice', 'Alice', 'Alice']);
+  let scoreReads = 0;
+  const scores = new Proxy(context.scoresByKey, {
+    get(target, key: string) {
+      scoreReads++;
+      return target[key];
+    },
+  });
+  const initial = {
+    history: prepareForwardLookPayload({ status: 'available', context }, FORWARD_SCOPE)!,
+    games: context.games,
+    rosterByTeam: context.rosterByTeam,
+    oddsByKey: {},
+    scoresByKey: scores,
+    standings: deriveStandings(context.games, context.rosterByTeam, context.scoresByKey).rows,
+    ...FORWARD_SCOPE,
+    nowTick: FORWARD_NOW.getTime() - 120_000,
+    scheduleLoaded: true,
+    scoresHydrated: true,
+  };
+  const view = renderHook((props) => useForwardLook(props), { initialProps: initial });
+  assert.equal(view.result.current === null, true);
+  assert.equal(scoreReads, 0, 'hidden initial tile does not evaluate scores');
+  view.rerender({ ...initial, nowTick: initial.nowTick + 60_000 });
+  view.rerender({
+    ...initial,
+    scoresByKey: new Proxy(context.scoresByKey, {
+      get(target, key: string) {
+        scoreReads++;
+        return target[key];
+      },
+    }),
+  });
+  assert.equal(scoreReads, 0, 'hidden ticks and polls do not evaluate scores');
+  view.rerender({ ...initial, nowTick: FORWARD_NOW.getTime() });
+  assert.ok(scoreReads > 0, 'visible changeover evaluates scores');
+  assert.ok(view.result.current?.lines.some((line) => line.value === '4 straight'));
 });

@@ -132,18 +132,19 @@ export function addRivalry(
 }
 
 export function prepareFixtureForwardLook(context: WeeklyRecapContext) {
-  let odds: WeeklyRecapContext['odds'];
-  try {
-    odds = context.odds;
-  } catch {
-    odds = { status: 'unavailable' };
-  }
   return prepareForwardLook({
     games: context.games,
     rosterByTeam: context.rosterByTeam,
-    odds,
     history: prepareForwardLookHistory(context),
   });
+}
+
+function fixtureOdds(context: WeeklyRecapContext): Record<string, CombinedOdds> {
+  try {
+    return context.odds.status === 'available' ? context.odds.byGameKey : {};
+  } catch {
+    return {};
+  }
 }
 
 export function selectFixtureForwardLookInputs(context: WeeklyRecapContext, now: Date) {
@@ -151,6 +152,7 @@ export function selectFixtureForwardLookInputs(context: WeeklyRecapContext, now:
     prepareFixtureForwardLook(context),
     context.scoresByKey,
     deriveStandings(context.games, context.rosterByTeam, context.scoresByKey).rows,
+    fixtureOdds(context),
     now
   );
 }
@@ -166,6 +168,7 @@ export function composeFixtureForwardLook(
     prepareFixtureForwardLook(context),
     context.scoresByKey,
     deriveStandings(context.games, context.rosterByTeam, context.scoresByKey).rows,
+    fixtureOdds(context),
     now,
     scope
   );

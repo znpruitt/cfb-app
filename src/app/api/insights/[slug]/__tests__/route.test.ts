@@ -99,7 +99,14 @@ test('Insights transports the immediate-week Forward Look through the client par
   const canonical = await getCanonicalStandings({ slug, year: 2026, currentDate: now });
   const prepared = prepareForwardLook({ ...client, history: payload.forwardLook! });
   const look = selectVisibleForwardLook(
-    composeForwardLook(prepared, client.scoresByKey, canonical.rows, now, FORWARD_SCOPE),
+    composeForwardLook(
+      prepared,
+      client.scoresByKey,
+      canonical.rows,
+      client.odds.status === 'available' ? client.odds.byGameKey : {},
+      now,
+      FORWARD_SCOPE
+    ),
     now
   );
   assert.equal(look?.weekLabel, 'Week 6', 'client schedule supplies the immediate target');

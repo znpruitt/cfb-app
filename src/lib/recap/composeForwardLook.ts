@@ -14,6 +14,7 @@ import {
 } from '../selectors/forwardLookRivalries.ts';
 import { isWeeklyRecapActiveSeason } from '../selectors/weeklyRecapFacts.ts';
 import { formatWeekLabel } from '../weekLabel.ts';
+import type { CombinedOdds } from '../odds.ts';
 import type { ScorePack } from '../scores.ts';
 import type { OwnerStandingsRow } from '../standings.ts';
 import type { WeeklyRecapContextResult } from './loadRecapContext.ts';
@@ -43,11 +44,12 @@ export function composeForwardLook(
   context: PreparedForwardLook,
   scoresByKey: Record<string, ScorePack>,
   standings: OwnerStandingsRow[],
+  oddsByKey: Record<string, CombinedOdds>,
   now: Date,
   scope: { seasonYear: number; leagueStatus: LeagueStatus | undefined }
 ): ForwardLook | null {
   if (!isWeeklyRecapActiveSeason(scope) || context.seasonYear !== scope.seasonYear) return null;
-  const inputs = selectForwardLookInputs(context, scoresByKey, standings, now);
+  const inputs = selectForwardLookInputs(context, scoresByKey, standings, oddsByKey, now);
   if (!inputs) return null;
   const labels = context.labels;
   return {

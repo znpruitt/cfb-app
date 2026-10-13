@@ -86,7 +86,8 @@ import {
 import { createRankingsRequestGuard } from '../lib/rankingsRequestGuard';
 import { buildOwnerColorMap, isDarkTheme } from '../lib/ownerColors';
 import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
-import { useForwardLook, useInsightsFeed } from './hooks/useInsightsFeed';
+import { useInsightsFeed } from './hooks/useInsightsFeed';
+import { useForwardLook } from './hooks/useForwardLook';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
 import { useOddsHydration } from './hooks/useOddsHydration';
 import { useLiveDelta } from './hooks/useLiveDelta';
@@ -713,7 +714,7 @@ export default function CFBScheduleApp({
   // removes the parallel client derivation with no production behavior change
   // (canonical was already winning). The `?? …` guards cover only non-canonical
   // test renders; live in-session standings updates still flow via `liveDelta`.
-  const canonicalRows = canonicalStandings?.rows ?? [];
+  const canonicalRows = useMemo(() => canonicalStandings?.rows ?? [], [canonicalStandings?.rows]);
   const canonicalHistory = canonicalStandings?.standingsHistory ?? null;
   const canonicalCoverage: StandingsCoverage = canonicalStandings?.coverage ?? {
     state: 'complete',
@@ -1158,7 +1159,8 @@ export default function CFBScheduleApp({
     leagueStatus,
     nowTick: liveStaleClock,
     scheduleLoaded,
-    scoresObserved: scoresObservedAt !== null,
+    scoresHydrated:
+      scoreHydrationState.regular && (!hasPostseasonGames || scoreHydrationState.postseason),
   });
 
   const gameDayConfidence = useMemo(

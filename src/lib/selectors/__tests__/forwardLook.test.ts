@@ -158,7 +158,6 @@ test('Forward Look ranks an unranked close collision above a nationally ranked l
 
 test('Forward Look odds expire at 24 hours and refuse later weeks, future stamps and closing lines', () => {
   const context = forwardContext();
-  const inputs = selectForwardLookInputs(context, FORWARD_NOW)!;
   assert.equal(
     selectForwardUpsets(selectForwardLookInputs(context, FORWARD_NOW)!).length,
     1,
@@ -192,18 +191,13 @@ test('Forward Look odds expire at 24 hours and refuse later weeks, future stamps
     [],
     'closing prices are not upcoming prices'
   );
+  context.games.push(forwardGame('later', 8, '2026-10-24T19:00:00Z'));
   context.odds.byGameKey.collision = forwardOdds();
-  assert.deepEqual(
-    selectForwardUpsets({ ...inputs, target: { ...inputs.target, week: 8 } }),
-    [],
-    'later-week API misuse is refused'
-  );
-  const later = forwardGame('later', 8, '2026-10-24T19:00:00Z');
   context.odds.byGameKey.later = forwardOdds();
   assert.deepEqual(
-    selectForwardUpsets({ ...inputs, games: [later] }),
-    [],
-    'later rows cannot smuggle prices into the immediate target'
+    selectForwardUpsets(selectForwardLookInputs(context, FORWARD_NOW)!).map((line) => line.gameKey),
+    ['collision'],
+    'input selection limits upset prices to the immediate target week'
   );
 });
 

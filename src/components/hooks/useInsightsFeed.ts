@@ -1,13 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { composeForwardLook } from '../../lib/recap/composeForwardLook.ts';
-import { prepareForwardLook, selectVisibleForwardLook } from '../../lib/selectors/forwardLook.ts';
-import type { AppGame } from '../../lib/schedule.ts';
-import type { ScorePack } from '../../lib/scores.ts';
-import type { CombinedOdds } from '../../lib/odds.ts';
-import type { OwnerStandingsRow } from '../../lib/standings.ts';
 import type { LeagueStatus } from '../../lib/league.ts';
 import { parseForwardLook } from '../../lib/recap/parseForwardLook.ts';
 import type { ForwardLookHistory } from '../../lib/selectors/forwardLookRivalries.ts';
@@ -312,7 +306,7 @@ export function useInsightsFeed(args: {
         const canPreserveFeed = payloadScopeRef.current === scopeKey;
         setPayload((current) =>
           canPreserveFeed
-            ? { ...current, weeklyRecap: UNAVAILABLE_RECAP, forwardLook: null }
+            ? { ...current, weeklyRecap: UNAVAILABLE_RECAP }
             : {
                 insights: [],
                 lifecycleState: undefined,
@@ -338,49 +332,4 @@ export function useInsightsFeed(args: {
     }),
     refreshInsights,
   };
-}
-
-export function useForwardLook(args: {
-  history: ForwardLookHistory | null;
-  games: AppGame[];
-  rosterByTeam: Map<string, string>;
-  oddsByKey: Record<string, CombinedOdds>;
-  scoresByKey: Record<string, ScorePack>;
-  standings: OwnerStandingsRow[];
-  seasonYear: number;
-  leagueStatus: LeagueStatus | undefined;
-  nowTick: number;
-  scheduleLoaded: boolean;
-  scoresObserved: boolean;
-}) {
-  const {
-    history,
-    games,
-    rosterByTeam,
-    oddsByKey,
-    scoresByKey,
-    standings,
-    seasonYear,
-    leagueStatus,
-    nowTick,
-    scheduleLoaded,
-    scoresObserved,
-  } = args;
-  const prepared = useMemo(() => {
-    if (!scheduleLoaded || history?.seasonYear !== seasonYear) return null;
-    return prepareForwardLook({
-      games,
-      rosterByTeam,
-      odds: { status: 'available', byGameKey: oddsByKey },
-      history,
-    });
-  }, [scheduleLoaded, history, seasonYear, games, rosterByTeam, oddsByKey]);
-  return useMemo(() => {
-    if (!prepared || !scoresObserved || nowTick === 0) return null;
-    const now = new Date(nowTick);
-    return selectVisibleForwardLook(
-      composeForwardLook(prepared, scoresByKey, standings, now, { seasonYear, leagueStatus }),
-      now
-    );
-  }, [prepared, scoresObserved, nowTick, scoresByKey, standings, seasonYear, leagueStatus]);
 }
