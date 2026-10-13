@@ -140,16 +140,25 @@ export function selectForwardRivalries(inputs: ForwardLookInputs): ForwardLookLi
     inputs.context.history.rivalries.map((pair) => [pairKey(...pair.owners), pair])
   );
   const meetingsByPair = new Map<string, Meeting[]>();
+  const uncoveredPairs = new Set<string>();
   for (const game of inputs.context.rivalryGames) {
     const score = inputs.scoresByKey[game.key];
-    if (!(game.kickoff <= inputs.now.getTime()) || isCanceledStatusLabel(score?.status)) continue;
+    if (isCanceledStatusLabel(score?.status) || game.kickoff > inputs.now.getTime()) continue;
     const key = pairKey(game.home, game.away);
+    const winner = meetingWinner(game, score);
+    // A gap anywhere in this pair's current season invalidates the record, even
+    // when newer known wins form a streak. See 'Forward Look withholds even an
+    // older gap without suppressing covered pairs or other families'.
+    if (!Number.isFinite(game.kickoff) || !winner) {
+      uncoveredPairs.add(key);
+      continue;
+    }
     const meetings = meetingsByPair.get(key) ?? [];
     meetings.push({
       year: inputs.context.seasonYear,
       week: game.week,
       kickoff: game.kickoff,
-      winner: meetingWinner(game, score),
+      winner,
     });
     meetingsByPair.set(key, meetings);
   }
@@ -159,6 +168,7 @@ export function selectForwardRivalries(inputs: ForwardLookInputs): ForwardLookLi
     const owners = forwardLookCollision(game, inputs);
     if (!owners) return [];
     const key = pairKey(owners.home, owners.away);
+    if (uncoveredPairs.has(key)) return [];
     let summary = evaluated.get(key);
     if (!summary) {
       const meetings = meetingsByPair.get(key) ?? [];

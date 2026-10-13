@@ -1,3 +1,4 @@
+import { composeForwardLook as composeClientForwardLook } from '../../recap/composeForwardLook.ts';
 import { selectFixtureForwardLookInputs as selectForwardLookInputs } from '../../../test/forwardLookFixtures.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -549,8 +550,9 @@ test('compact history preserves rivalry totals and streaks across every four-mee
         run++;
       }
     }
-    const expected =
-      run >= 3
+    const expected = sequence.slice(2).includes('unknown')
+      ? null
+      : run >= 3
         ? `${run} straight`
         : alice + bob >= 4 && Math.abs(alice - bob) <= 1
           ? `${bob}–${alice}`
@@ -564,4 +566,84 @@ test('compact history preserves rivalry totals and streaks across every four-mee
         'split composition preserves all known wins'
       );
   }
+});
+
+test('Forward Look withholds a rivalry record until every current meeting is verifiable', () => {
+  const context = forwardContext();
+  addRivalry(context, ['Alice', 'Bob', 'Alice', 'Alice', 'Bob']);
+  const lines = () => selectForwardRivalries(selectForwardLookInputs(context, FORWARD_NOW)!);
+  assert.deepEqual(lines(), [], 'complete 4–2 record is not tight');
+  const uncertain = [
+    undefined,
+    { ...forwardScore(), status: 'inprogress' },
+    { ...forwardScore(), home: { team: 'Texas', score: null } },
+    { ...forwardScore(), home: { team: 'Texas', score: Number.NaN } },
+    forwardScore(14, 14),
+  ];
+  for (const score of uncertain) {
+    if (score) context.scoresByKey.prior = score;
+    else delete context.scoresByKey.prior;
+    assert.deepEqual(lines(), [], 'unverifiable meeting cannot fabricate a tight 3–2 record');
+  }
+  context.scoresByKey.prior = forwardScore(7, 21);
+  assert.equal(lines()[0]?.value, '3–3', 'verified correction restores the truthful record');
+  context.scoresByKey.prior = { ...forwardScore(), status: 'STATUS_CANCELED' };
+  assert.equal(lines()[0]?.value, '2–3', 'confirmed cancellation is not a missing meeting');
+  context.scoresByKey.prior = forwardScore(7, 21);
+  context.games[0].date = null;
+  context.games.push(forwardGame('dated-prior', 5, '2026-10-03T19:00:00Z', 'Unowned', 'Other'));
+  assert.deepEqual(lines(), [], 'unknown kickoff cannot certify the set of past meetings');
+});
+
+test('Forward Look withholds even an older gap without suppressing covered pairs or other families', () => {
+  const context = forwardContext();
+  addRivalry(context, ['Alice', 'Alice', 'Alice']);
+  context.games.unshift(forwardGame('gap', 4, '2026-09-26T19:00:00Z'));
+  for (let i = 0; i < 2; i++) {
+    context.games.push(forwardGame(`recent-${i}`, 5, `2026-10-0${i + 1}T19:00:00Z`));
+    context.scoresByKey[`recent-${i}`] = forwardScore();
+  }
+  context.rosterByTeam.set('Oregon', 'Carol');
+  context.rosterByTeam.set('Utah', 'Dave');
+  for (let i = 0; i < 3; i++) {
+    context.games.push(
+      forwardGame(`covered-${i}`, 5, `2026-10-0${i + 1}T19:00:00Z`, 'Oregon', 'Utah')
+    );
+    context.scoresByKey[`covered-${i}`] = forwardScore();
+  }
+  context.games.push(forwardGame('covered-next', 6, '2026-10-10T19:00:00Z', 'Oregon', 'Utah'));
+  const lines = () => selectForwardRivalries(selectForwardLookInputs(context, FORWARD_NOW)!);
+  assert.deepEqual(
+    lines().map((line) => line.gameKey),
+    ['covered-next'],
+    'older missing meeting withholds only its owner pair'
+  );
+  const inputs = selectForwardLookInputs(context, FORWARD_NOW)!;
+  const canonicalRows = inputs.standings.map((row) => ({ ...row, wins: 10, gamesBack: 0 }));
+  const look = composeClientForwardLook(
+    inputs.context,
+    context.scoresByKey,
+    canonicalRows,
+    inputs.oddsByKey,
+    FORWARD_NOW,
+    FORWARD_SCOPE
+  )!;
+  assert.ok(
+    look.lines.some((line) => line.family === 'standings'),
+    'standings survive a rivalry coverage gap'
+  );
+  assert.ok(
+    look.lines.some((line) => line.family === 'upset'),
+    'upsets survive a rivalry coverage gap'
+  );
+  context.scoresByKey.gap = forwardScore();
+  assert.ok(
+    lines().some((line) => line.value === '7 straight'),
+    'filling the older gap restores the verified streak'
+  );
+  context.games.push(forwardGame('future', 9, '2026-10-31T19:00:00Z'));
+  assert.ok(
+    lines().some((line) => line.value === '7 straight'),
+    'known future games need no result coverage yet'
+  );
 });

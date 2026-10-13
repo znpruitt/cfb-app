@@ -582,7 +582,7 @@ for (const startup of ['issues', 'throws'] as const) {
       else delete (document as unknown as Record<string, unknown>).visibilityState;
     });
     const context = forwardContext();
-    addRivalry(context, ['Alice', 'Alice', 'Alice']);
+    addRivalry(context, ['Alice', 'Bob', 'Alice', 'Alice', 'Bob']);
     context.games.push(forwardGame('repeat', 6, '2026-10-10T23:00:00Z'));
     const schedule = context.games.map((game) => ({
       id: game.key,
@@ -648,6 +648,11 @@ for (const startup of ['issues', 'throws'] as const) {
         rendered.queryByText('Forward look') !== null,
         true,
         'a completed season hydration with issues does not wait forever for a clean poll'
+      );
+      assert.doesNotMatch(
+        rendered.getByText('Forward look').closest('section')!.textContent!,
+        /recorded head-to-head results/,
+        'partial startup scores cannot display an unverified rivalry record'
       );
       const before = scoreUrls.length;
       act(() => window.dispatchEvent(new dom.window.Event('focus')));
