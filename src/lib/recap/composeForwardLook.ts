@@ -5,11 +5,12 @@ import {
   selectForwardUpsets,
   type ForwardLook,
   type ForwardLookLine,
+  type ForwardLookContext,
+  selectForwardLookTargets,
 } from '../selectors/forwardLook.ts';
 import { selectForwardRivalries } from '../selectors/forwardLookRivalries.ts';
 import { isWeeklyRecapActiveSeason } from '../selectors/weeklyRecapFacts.ts';
-import { buildWeekLabelMap, formatWeekLabel } from '../weekLabel.ts';
-import type { WeeklyRecapContextResult } from './loadRecapContext.ts';
+import { formatWeekLabel } from '../weekLabel.ts';
 
 function familyLines(select: () => ForwardLookLine[]): ForwardLookLine[] {
   try {
@@ -20,19 +21,15 @@ function familyLines(select: () => ForwardLookLine[]): ForwardLookLine[] {
 }
 
 export function composeForwardLook(
-  result: WeeklyRecapContextResult,
+  context: ForwardLookContext,
   now: Date,
-  scope: { seasonYear: number; leagueStatus: LeagueStatus | undefined }
+  scope: { seasonYear: number; leagueStatus: LeagueStatus | undefined },
+  targets = selectForwardLookTargets(context, now)
 ): ForwardLook | null {
-  if (
-    !isWeeklyRecapActiveSeason(scope) ||
-    result.status !== 'available' ||
-    result.context.seasonYear !== scope.seasonYear
-  )
-    return null;
-  const inputs = selectForwardLookInputs(result.context, now);
+  if (!isWeeklyRecapActiveSeason(scope) || context.seasonYear !== scope.seasonYear) return null;
+  const inputs = selectForwardLookInputs(context, now, targets);
   if (!inputs) return null;
-  const labels = buildWeekLabelMap(result.context.games);
+  const labels = context.labels;
   return {
     seasonYear: scope.seasonYear,
     recapTarget: inputs.recapTarget,

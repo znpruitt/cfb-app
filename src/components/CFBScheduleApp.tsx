@@ -15,7 +15,7 @@ import PostseasonPanel from './PostseasonPanel';
 import RankingsPageContent from './RankingsPageContent';
 import RecapTile from './recap/RecapTile';
 import ForwardLookTile from './recap/ForwardLookTile';
-import { selectVisibleForwardLook } from '../lib/selectors/forwardLook';
+import { useForwardLook } from './hooks/useForwardLook';
 import StandingsPanel from './StandingsPanel';
 import OverviewPanel from './OverviewPanel';
 import OwnerPanel from './OwnerPanel';
@@ -27,7 +27,7 @@ import { isTruePostseasonGame } from '../lib/postseason-display';
 import { type ScorePack } from '../lib/scores';
 import type { AliasMap } from '../lib/teamNames';
 import { deriveWeekMatchupSections } from '../lib/matchups';
-import type { StandingsCoverage } from '../lib/standings';
+import type { StandingsCoverage, OwnerStandingsRow } from '../lib/standings';
 import {
   deriveAutonomousOverviewScope,
   deriveOverviewSnapshot,
@@ -288,6 +288,8 @@ export function resolveHighlightDrilldownNavigation(params: {
     focusedOwnerPair: target.kind === 'owner_pair' ? target.owners : null,
   };
 }
+
+const EMPTY_CANONICAL_ROWS: OwnerStandingsRow[] = [];
 
 export default function CFBScheduleApp({
   leagueSlug,
@@ -714,7 +716,7 @@ export default function CFBScheduleApp({
   // removes the parallel client derivation with no production behavior change
   // (canonical was already winning). The `?? …` guards cover only non-canonical
   // test renders; live in-session standings updates still flow via `liveDelta`.
-  const canonicalRows = canonicalStandings?.rows ?? [];
+  const canonicalRows = canonicalStandings?.rows ?? EMPTY_CANONICAL_ROWS;
   const canonicalHistory = canonicalStandings?.standingsHistory ?? null;
   const canonicalCoverage: StandingsCoverage = canonicalStandings?.coverage ?? {
     state: 'complete',
@@ -1075,14 +1077,10 @@ export default function CFBScheduleApp({
     lifecycleState: insightsLifecycleState,
     weeklyRecap: weeklyRecapResponse,
     forwardLook: forwardLookResponse,
-    establishResultBaseline,
   } = useInsightsFeed({
     leagueSlug,
     seasonYear: selectedSeason,
     leagueStatus,
-    games,
-    scoresByKey,
-    scheduleLoaded,
     nowTick: liveStaleClock,
     enabled: primarySurfaceKind === 'overview',
   });
@@ -1097,7 +1095,6 @@ export default function CFBScheduleApp({
   }, [router]);
 
   const { liveScoreObservation } = useLiveRefresh({
-    onScoreBaseline: establishResultBaseline,
     selectedSeason,
     selectedTab,
     selectedWeek,
@@ -1153,16 +1150,21 @@ export default function CFBScheduleApp({
     return state === 'recap' ? weeklyRecapResponse : null;
   }, [leagueStatus, liveStaleClock, selectedSeason, weeklyRecapResponse]);
 
-  const forwardLook = useMemo(() => {
-    if (
-      !leagueSlug ||
-      liveStaleClock === 0 ||
-      forwardLookResponse?.seasonYear !== selectedSeason ||
-      !isWeeklyRecapActiveSeason({ leagueStatus, seasonYear: selectedSeason })
-    )
-      return null;
-    return selectVisibleForwardLook(forwardLookResponse, new Date(liveStaleClock));
-  }, [leagueSlug, leagueStatus, liveStaleClock, selectedSeason, forwardLookResponse]);
+  const forwardLook = useForwardLook({
+    games,
+    rosterByTeam,
+    seasonYear: selectedSeason,
+    leagueStatus,
+    scheduleLoaded,
+    scoresReady:
+      scoresObservedAt !== null || scoreHydrationState.regular || scoreHydrationState.postseason,
+    enabled: Boolean(leagueSlug) && primarySurfaceKind === 'overview',
+    nowTick: liveStaleClock,
+    history: forwardLookResponse,
+    canonicalRows,
+    scoresByKey,
+    oddsByKey,
+  });
 
   const gameDayConfidence = useMemo(
     () =>

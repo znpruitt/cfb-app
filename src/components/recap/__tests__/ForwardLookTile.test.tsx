@@ -1,10 +1,13 @@
+import {
+  composeFixtureForwardLook,
+  selectFixtureForwardLookInputs,
+} from '../../../test/forwardLookFixtures';
 import assert from 'node:assert/strict';
 import test, { afterEach } from 'node:test';
 import React from 'react';
 import { JSDOM } from 'jsdom';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import ForwardLookTile from '../ForwardLookTile';
-import { composeForwardLook } from '../../../lib/recap/composeForwardLook';
 import {
   addRivalry,
   forwardContext,
@@ -12,7 +15,6 @@ import {
   FORWARD_SCOPE,
 } from '../../../test/forwardLookFixtures';
 import {
-  selectForwardLookInputs,
   selectForwardStandings,
   selectForwardUpsets,
   mergeForwardLookLines,
@@ -28,7 +30,7 @@ Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, co
 afterEach(cleanup);
 
 test('Forward Look disclosure renders narrative lines in normal flow and collapses accessibly', () => {
-  const look = composeForwardLook(
+  const look = composeFixtureForwardLook(
     { status: 'available', context: forwardContext() },
     FORWARD_NOW,
     FORWARD_SCOPE
@@ -60,7 +62,7 @@ test('Forward Look disclosure renders narrative lines in normal flow and collaps
 test('Forward Look renders with each family independently empty and with every family empty', () => {
   const context = forwardContext();
   addRivalry(context, ['Bob', 'Alice', 'Alice']);
-  const inputs = selectForwardLookInputs(context, FORWARD_NOW)!;
+  const inputs = selectFixtureForwardLookInputs(context, FORWARD_NOW)!;
   const families = [
     selectForwardStandings(inputs),
     selectForwardRivalries(inputs),
@@ -70,7 +72,11 @@ test('Forward Look renders with each family independently empty and with every f
     families.every((family) => family.length > 0),
     'positive control: all selectors contribute'
   );
-  const look = composeForwardLook({ status: 'available', context }, FORWARD_NOW, FORWARD_SCOPE)!;
+  const look = composeFixtureForwardLook(
+    { status: 'available', context },
+    FORWARD_NOW,
+    FORWARD_SCOPE
+  )!;
   for (let omitted = 0; omitted < 3; omitted++) {
     const lines = mergeForwardLookLines(
       families.map((family, index) => (index === omitted ? [] : family))
